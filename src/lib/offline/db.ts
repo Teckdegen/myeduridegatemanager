@@ -93,7 +93,7 @@ export async function queueAttendance(record: OfflineAttendanceRecord) {
 // Get unsynced attendance records
 export async function getUnsyncedAttendance(): Promise<OfflineAttendanceRecord[]> {
   const db = await getDB();
-  return db.getAllFromIndex('attendance_queue', 'synced', false);
+  return db.getAllFromIndex('attendance_queue', 'synced', 0 as any);
 }
 
 // Mark attendance as synced
