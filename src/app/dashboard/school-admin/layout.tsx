@@ -1,3 +1,5 @@
+'use client';
+
 import { AdminSidebar } from '@/components/shared/AdminSidebar';
 
 export default function SchoolAdminLayout({ children }: { children: React.ReactNode }) {

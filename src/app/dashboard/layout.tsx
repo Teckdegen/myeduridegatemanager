@@ -1,3 +1,5 @@
+'use client';
+
 import { RoleSwitcher } from '@/components/shared/RoleSwitcher';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
