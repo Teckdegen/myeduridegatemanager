@@ -81,13 +81,13 @@ export default function LoginPage() {
         <source src={BG_VIDEO_URL} type="video/mp4" />
       </video>
 
-      {/* Dark overlay */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      {/* Dark overlay - subtle */}
+      <div className="absolute inset-0 bg-black/40" />
 
       {/* Content */}
       <div className="relative z-10 w-full max-w-md px-4">
-        {/* Card */}
-        <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-white/20 p-8">
+        {/* Card - glassmorphism transparent */}
+        <div className="bg-white/10 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 p-8">
           {/* Logo and branding */}
           <div className="text-center mb-8">
             <img
@@ -95,14 +95,14 @@ export default function LoginPage() {
               alt="MyEduRide"
               className="h-16 mx-auto mb-4 object-contain"
             />
-            <h1 className="text-2xl font-bold text-gray-900">Welcome Back</h1>
-            <p className="text-gray-500 mt-1 text-sm">Sign in to your MyEduRide account</p>
+            <h1 className="text-2xl font-bold text-white">Welcome Back</h1>
+            <p className="text-white/60 mt-1 text-sm">Sign in to your MyEduRide account</p>
           </div>
 
           {step === 'email' ? (
             <form onSubmit={handleSendOTP} className="space-y-5">
               <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1.5">
+                <label htmlFor="email" className="block text-sm font-medium text-white/80 mb-1.5">
                   Email Address
                 </label>
                 <input
@@ -111,36 +111,36 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="Enter your email"
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none text-gray-900 placeholder:text-gray-400 transition-all bg-white"
+                  className="w-full px-4 py-3 border border-white/20 rounded-xl focus:ring-2 focus:ring-white/40 focus:border-transparent outline-none text-white placeholder:text-white/40 transition-all bg-white/10 backdrop-blur-sm"
                   required
                   autoFocus
                 />
               </div>
 
               {error && (
-                <div className="p-3 rounded-lg bg-red-50 border border-red-100">
-                  <p className="text-sm text-red-600">{error}</p>
+                <div className="p-3 rounded-lg bg-red-500/20 border border-red-400/30">
+                  <p className="text-sm text-red-200">{error}</p>
                 </div>
               )}
 
               <button
                 type="submit"
                 disabled={loading || !email}
-                className="w-full py-3 px-4 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary-600/20"
+                className="w-full py-3 px-4 rounded-xl bg-white text-primary-700 font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/90 shadow-lg"
               >
                 {loading ? 'Sending code...' : 'Send Login Code'}
               </button>
             </form>
           ) : (
             <form onSubmit={handleVerifyOTP} className="space-y-5">
-              <div className="text-center p-4 rounded-xl bg-green-50 border border-green-100 mb-2">
-                <p className="text-sm text-green-800">
-                  We sent a 6-digit code to <strong>{email}</strong>
+              <div className="text-center p-4 rounded-xl bg-green-500/20 border border-green-400/30 mb-2">
+                <p className="text-sm text-green-200">
+                  We sent a 6-digit code to <strong className="text-white">{email}</strong>
                 </p>
               </div>
 
               <div>
-                <label htmlFor="otp" className="block text-sm font-medium text-gray-700 mb-1.5">
+                <label htmlFor="otp" className="block text-sm font-medium text-white/80 mb-1.5">
                   Enter Code
                 </label>
                 <input
@@ -149,7 +149,7 @@ export default function LoginPage() {
                   value={otp}
                   onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   placeholder="000000"
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none text-center text-2xl tracking-[0.3em] font-mono text-gray-900 placeholder:text-gray-300 transition-all bg-white"
+                  className="w-full px-4 py-3 border border-white/20 rounded-xl focus:ring-2 focus:ring-white/40 focus:border-transparent outline-none text-center text-2xl tracking-[0.3em] font-mono text-white placeholder:text-white/30 transition-all bg-white/10 backdrop-blur-sm"
                   maxLength={6}
                   required
                   autoFocus
@@ -157,15 +157,15 @@ export default function LoginPage() {
               </div>
 
               {error && (
-                <div className="p-3 rounded-lg bg-red-50 border border-red-100">
-                  <p className="text-sm text-red-600">{error}</p>
+                <div className="p-3 rounded-lg bg-red-500/20 border border-red-400/30">
+                  <p className="text-sm text-red-200">{error}</p>
                 </div>
               )}
 
               <button
                 type="submit"
                 disabled={loading || otp.length !== 6}
-                className="w-full py-3 px-4 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary-600/20"
+                className="w-full py-3 px-4 rounded-xl bg-white text-primary-700 font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/90 shadow-lg"
               >
                 {loading ? 'Verifying...' : 'Verify & Sign In'}
               </button>
@@ -173,7 +173,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => { setStep('email'); setOtp(''); setError(''); }}
-                className="w-full text-sm text-gray-500 hover:text-primary-600 transition-colors"
+                className="w-full text-sm text-white/50 hover:text-white transition-colors"
               >
                 Use a different email
               </button>
