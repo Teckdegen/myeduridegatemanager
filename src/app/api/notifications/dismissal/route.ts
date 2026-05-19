@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'No parents linked' });
     }
 
-    const parentIds = parentLinks.map(l => l.parent_user_id);
+    const parentIds = parentLinks.map((l: any) => l.parent_user_id);
     const { data: parents } = await supabase
       .from('user_profiles')
       .select('id, email, full_name')
