@@ -26,6 +26,9 @@ yarn-error.log*
 .env*.local
 .env
 
+# scripts with secrets
+scripts/
+
 # vercel
 .vercel
 

@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 
 const LOGO_URL = 'https://www.image2url.com/r2/default/images/1779230378321-292c7b74-6217-41ff-832a-180a535ea4cb.png';
+const BG_VIDEO_URL = 'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260314_131748_f2ca2a28-fed7-44c8-b9a9-bd9acdd5ec31.mp4';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -68,16 +69,25 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      {/* Background decoration */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 rounded-full bg-primary-600/5" />
-        <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full bg-accent-500/5" />
-      </div>
+    <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
+      {/* Background video */}
+      <video
+        autoPlay
+        muted
+        loop
+        playsInline
+        className="absolute inset-0 w-full h-full object-cover"
+      >
+        <source src={BG_VIDEO_URL} type="video/mp4" />
+      </video>
 
-      <div className="relative w-full max-w-md">
+      {/* Dark overlay */}
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+
+      {/* Content */}
+      <div className="relative z-10 w-full max-w-md px-4">
         {/* Card */}
-        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8">
+        <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-white/20 p-8">
           {/* Logo and branding */}
           <div className="text-center mb-8">
             <img
@@ -101,7 +111,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="Enter your email"
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none text-gray-900 placeholder:text-gray-400 transition-all"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none text-gray-900 placeholder:text-gray-400 transition-all bg-white"
                   required
                   autoFocus
                 />
@@ -116,7 +126,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading || !email}
-                className="w-full py-3 px-4 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-3 px-4 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary-600/20"
               >
                 {loading ? 'Sending code...' : 'Send Login Code'}
               </button>
@@ -139,7 +149,7 @@ export default function LoginPage() {
                   value={otp}
                   onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   placeholder="000000"
-                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none text-center text-2xl tracking-[0.3em] font-mono text-gray-900 placeholder:text-gray-300 transition-all"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none text-center text-2xl tracking-[0.3em] font-mono text-gray-900 placeholder:text-gray-300 transition-all bg-white"
                   maxLength={6}
                   required
                   autoFocus
@@ -155,7 +165,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading || otp.length !== 6}
-                className="w-full py-3 px-4 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-3 px-4 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary-600/20"
               >
                 {loading ? 'Verifying...' : 'Verify & Sign In'}
               </button>
@@ -172,7 +182,7 @@ export default function LoginPage() {
         </div>
 
         {/* Footer */}
-        <p className="text-center text-xs text-gray-400 mt-6">
+        <p className="text-center text-xs text-white/60 mt-6">
           MyEduRide — The Student Safety Platform
         </p>
       </div>
