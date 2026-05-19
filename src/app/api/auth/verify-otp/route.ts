@@ -1,21 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceRoleClient } from '@/lib/supabase/server';
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, code } = await request.json();
+    const body = await request.json();
+    const email = (body.email || '').toLowerCase().trim();
+    const code = (body.code || '').trim();
 
     if (!email || !code) {
       return NextResponse.json({ error: 'Email and code required' }, { status: 400 });
     }
 
-    const supabase = createServiceRoleClient();
+    // Create supabase client with service role
+    const { createClient } = require('@supabase/supabase-js');
+    let url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+    url = url.replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '');
+    const supabase = createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
     // Find valid OTP
-    const { data: otpRecord } = await supabase
+    const { data: otpRecord, error: otpErr } = await supabase
       .from('otp_codes')
       .select('*')
-      .eq('email', email.toLowerCase().trim())
+      .eq('email', email)
       .eq('code', code)
       .eq('used', false)
       .gte('expires_at', new Date().toISOString())
@@ -23,7 +28,7 @@ export async function POST(request: NextRequest) {
       .limit(1)
       .single();
 
-    if (!otpRecord) {
+    if (otpErr || !otpRecord) {
       return NextResponse.json({ error: 'Invalid or expired code' }, { status: 401 });
     }
 
@@ -37,55 +42,37 @@ export async function POST(request: NextRequest) {
     const { data: profile } = await supabase
       .from('user_profiles')
       .select('id, email, full_name')
-      .eq('email', email.toLowerCase().trim())
+      .eq('email', email)
       .single();
 
     if (!profile) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Generate a Supabase session for this user using admin API
-    // This creates a proper auth session so the client SDK works
-    const { data: sessionData, error: sessionError } = await supabase.auth.admin.generateLink({
+    // Generate a magic link so we can create a Supabase Auth session
+    const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
       type: 'magiclink',
-      email: email.toLowerCase().trim(),
+      email: email,
     });
 
-    if (sessionError || !sessionData) {
-      // Fallback: sign in directly
-      // Use admin to create a session token
-      const { data: userData } = await supabase.auth.admin.getUserById(profile.id);
-      
-      if (!userData?.user) {
-        return NextResponse.json({ error: 'Auth user not found' }, { status: 404 });
-      }
-
-      // Return user info - client will use this to establish session
+    if (linkErr || !linkData) {
+      // Still return success — user is verified, just session creation failed
       return NextResponse.json({
         success: true,
-        user: {
-          id: profile.id,
-          email: profile.email,
-          full_name: profile.full_name,
-        },
-        // Return the magic link token for client-side session creation
-        token_hash: sessionData?.properties?.hashed_token || null,
-        redirect_url: sessionData?.properties?.action_link || null,
+        user: { id: profile.id, email: profile.email, full_name: profile.full_name },
+        token_hash: null,
+        redirect_url: null,
       });
     }
 
     return NextResponse.json({
       success: true,
-      user: {
-        id: profile.id,
-        email: profile.email,
-        full_name: profile.full_name,
-      },
-      token_hash: sessionData.properties?.hashed_token || null,
-      redirect_url: sessionData.properties?.action_link || null,
+      user: { id: profile.id, email: profile.email, full_name: profile.full_name },
+      token_hash: linkData.properties?.hashed_token || null,
+      redirect_url: linkData.properties?.action_link || null,
     });
-  } catch (error) {
-    console.error('Verify OTP error:', error);
-    return NextResponse.json({ error: 'Verification failed' }, { status: 500 });
+  } catch (err: any) {
+    console.error('Verify OTP crash:', err?.message || err);
+    return NextResponse.json({ error: 'Verification failed. Try again.' }, { status: 500 });
   }
 }
