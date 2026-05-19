@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
     // Send welcome email
     try {
       await resend.emails.send({
-        from: `MyEduRide <notifications@myeduride.com>`,
+        from: `MyEduRide <noreply@assetid.site>`,
         to: email,
         subject: `You have been added as ${role.replace('_', ' ')} at ${school?.name || 'a school'}`,
         html: `

@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
     // Send welcome email
     try {
       await resend.emails.send({
-        from: 'MyEduRide <notifications@myeduride.com>',
+        from: 'MyEduRide <noreply@assetid.site>',
         to: admin_email,
         subject: `Your school "${name}" is ready to set up`,
         html: `

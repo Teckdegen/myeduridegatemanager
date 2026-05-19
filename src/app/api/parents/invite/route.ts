@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
 
     if (school && student) {
       await resend.emails.send({
-        from: 'MyEduRide <notifications@myeduride.com>',
+        from: 'MyEduRide <noreply@assetid.site>',
         to: parent_email,
         subject: `Your child ${student.first_name} has been registered at ${school.name}`,
         html: `

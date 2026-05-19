@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
 
     for (const parent of parents) {
       await resend.emails.send({
-        from: `${schoolName} via MyEduRide <notifications@myeduride.com>`,
+        from: `${schoolName} via MyEduRide <noreply@assetid.site>`,
         to: parent.email,
         subject: title,
         html: `
