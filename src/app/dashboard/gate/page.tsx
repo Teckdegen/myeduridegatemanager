@@ -385,14 +385,23 @@ export default function GateOfficerDashboard() {
               </div>
             ) : verificationMode === 'face' ? (
               <FaceScanner
-                onStudentMatched={scanTarget === 'student' ? handleStudentMatched : undefined}
-                onStaffMatched={scanTarget === 'staff' ? handleStaffMatched : undefined}
-                scanTarget={scanTarget}
+                onStudentMatched={handleStudentMatched}
                 onCancel={() => setVerificationMode(null)}
               />
             ) : (
               <IdCardScanner
-                onStudentMatched={handleStudentMatched}
+                onStudentMatched={scanTarget === 'student' ? handleStudentMatched : (student: any) => {
+                  // For staff barcode scan, look up staff by QR code
+                  handleStaffMatched({
+                    id: student.id,
+                    user_id: student.id,
+                    full_name: `${student.first_name} ${student.last_name}`,
+                    email: '',
+                    photo_url: student.photo_url,
+                    staff_id_number: student.student_id_number,
+                    role: 'teacher',
+                  });
+                }}
                 onCancel={() => setVerificationMode(null)}
               />
             )}
