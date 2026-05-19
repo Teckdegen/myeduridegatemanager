@@ -15,11 +15,16 @@ export async function POST(request: NextRequest) {
     const supabase = createServiceRoleClient();
 
     // Check if user exists in our system
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from('user_profiles')
       .select('id, full_name')
       .eq('email', email.toLowerCase().trim())
       .single();
+
+    if (profileError) {
+      console.error('Profile lookup error:', profileError);
+      return NextResponse.json({ error: 'No account found with this email.' }, { status: 404 });
+    }
 
     if (!profile) {
       return NextResponse.json({ error: 'No account found with this email.' }, { status: 404 });
