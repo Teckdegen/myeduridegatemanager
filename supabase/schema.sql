@@ -410,6 +410,19 @@ CREATE TRIGGER update_students_updated_at BEFORE UPDATE ON students FOR EACH ROW
 CREATE TRIGGER update_user_profiles_updated_at BEFORE UPDATE ON user_profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER update_teacher_profiles_updated_at BEFORE UPDATE ON teacher_profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
--- ============ DEFAULT STUDENT FIELDS (applied when school is created) ============
--- These are inserted via the API when a school is created, not here.
--- Schools can modify/add/remove fields from their settings.
+-- ============ OTP CODES ============
+-- Custom OTP system - we generate and validate codes ourselves
+CREATE TABLE otp_codes (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email TEXT NOT NULL,
+  code TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_otp_email ON otp_codes(email, used, expires_at);
+
+-- Auto-cleanup expired codes (run periodically or let them accumulate)
+-- ALTER TABLE otp_codes ENABLE ROW LEVEL SECURITY;
+-- No RLS needed - only accessed via service role key from API routes

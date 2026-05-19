@@ -21,13 +21,16 @@ export default function LoginPage() {
     setError('');
 
     try {
-      const supabase = createClient();
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
+      const res = await fetch('/api/auth/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() }),
       });
 
-      if (error) {
-        setError('Unable to send login code. Please check your email and try again.');
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || 'Failed to send code.');
         return;
       }
 
@@ -45,16 +48,33 @@ export default function LoginPage() {
     setError('');
 
     try {
-      const supabase = createClient();
-      const { error } = await supabase.auth.verifyOtp({
-        email,
-        token: otp,
-        type: 'email',
+      const res = await fetch('/api/auth/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), code: otp }),
       });
 
-      if (error) {
-        setError('Invalid code. Please try again.');
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || 'Invalid code.');
         return;
+      }
+
+      // Use the magic link token to create a Supabase session
+      if (data.redirect_url) {
+        // Extract token from the action link and verify it
+        const url = new URL(data.redirect_url);
+        const tokenHash = url.searchParams.get('token_hash') || data.token_hash;
+        const type = url.searchParams.get('type') || 'magiclink';
+
+        if (tokenHash) {
+          const supabase = createClient();
+          await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: type as any,
+          });
+        }
       }
 
       router.push('/dashboard');
