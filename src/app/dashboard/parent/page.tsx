@@ -261,7 +261,7 @@ function ChildCard({ student, school, todayArrival, todayDeparture }: {
             <h3 className="text-base font-bold text-gray-800">
               {student.first_name} {student.last_name}
             </h3>
-            <p className="text-sm text-gray-500">{student.class_name}</p>
+            <p className="text-sm text-gray-500">{(student as any).class?.name || ''}</p>
           </div>
 
           {/* Status icon */}

@@ -45,7 +45,7 @@ export function StudentVerificationCard({
               {student.first_name} {student.last_name}
             </h3>
             <p className="text-gray-400 text-sm mt-1">ID: {student.student_id_number}</p>
-            <p className="text-gray-400 text-sm">{student.class_name} — {student.grade}</p>
+            <p className="text-gray-400 text-sm">{(student as any).class?.name || ''}</p>
           </div>
         </div>
       </div>

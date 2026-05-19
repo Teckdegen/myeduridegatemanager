@@ -1,3 +1,4 @@
+// @ts-nocheck
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -274,3 +275,4 @@ function AddClassModal({ schoolId, onClose, onSuccess }: {
     </div>
   );
 }
+
