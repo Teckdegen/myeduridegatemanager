@@ -24,13 +24,10 @@ export default function LoginPage() {
       const supabase = createClient();
       const { error } = await supabase.auth.signInWithOtp({
         email,
-        options: {
-          shouldCreateUser: false,
-        },
       });
 
       if (error) {
-        setError('No account found with this email. Contact your school admin.');
+        setError('Unable to send login code. Please check your email and try again.');
         return;
       }
 
