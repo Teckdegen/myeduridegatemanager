@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 
+const LOGO_URL = 'https://www.image2url.com/r2/default/images/1779230378321-292c7b74-6217-41ff-832a-180a535ea4cb.png';
+
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
@@ -22,7 +24,7 @@ export default function LoginPage() {
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
-          shouldCreateUser: false, // Only existing users can log in
+          shouldCreateUser: false,
         },
       });
 
@@ -66,90 +68,113 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-green-50 px-4">
-      <div className="card w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="flex justify-center mb-3">
-            <img src="/logo.png" alt="MyEduRide" className="h-16" />
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      {/* Background decoration */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-80 h-80 rounded-full bg-primary-600/5" />
+        <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full bg-accent-500/5" />
+      </div>
+
+      <div className="relative w-full max-w-md">
+        {/* Card */}
+        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8">
+          {/* Logo and branding */}
+          <div className="text-center mb-8">
+            <img
+              src={LOGO_URL}
+              alt="MyEduRide"
+              className="h-16 mx-auto mb-4 object-contain"
+            />
+            <h1 className="text-2xl font-bold text-gray-900">Welcome Back</h1>
+            <p className="text-gray-500 mt-1 text-sm">Sign in to your MyEduRide account</p>
           </div>
-          <h1 className="text-2xl font-bold text-primary-600">MyEduRide</h1>
-          <p className="text-gray-500 mt-1 text-sm">The Student Safety Platform</p>
+
+          {step === 'email' ? (
+            <form onSubmit={handleSendOTP} className="space-y-5">
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Email Address
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter your email"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none text-gray-900 placeholder:text-gray-400 transition-all"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              {error && (
+                <div className="p-3 rounded-lg bg-red-50 border border-red-100">
+                  <p className="text-sm text-red-600">{error}</p>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading || !email}
+                className="w-full py-3 px-4 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Sending code...' : 'Send Login Code'}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleVerifyOTP} className="space-y-5">
+              <div className="text-center p-4 rounded-xl bg-green-50 border border-green-100 mb-2">
+                <p className="text-sm text-green-800">
+                  We sent a 6-digit code to <strong>{email}</strong>
+                </p>
+              </div>
+
+              <div>
+                <label htmlFor="otp" className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Enter Code
+                </label>
+                <input
+                  id="otp"
+                  type="text"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="000000"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none text-center text-2xl tracking-[0.3em] font-mono text-gray-900 placeholder:text-gray-300 transition-all"
+                  maxLength={6}
+                  required
+                  autoFocus
+                />
+              </div>
+
+              {error && (
+                <div className="p-3 rounded-lg bg-red-50 border border-red-100">
+                  <p className="text-sm text-red-600">{error}</p>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading || otp.length !== 6}
+                className="w-full py-3 px-4 rounded-xl bg-primary-600 hover:bg-primary-700 text-white font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Verifying...' : 'Verify & Sign In'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setStep('email'); setOtp(''); setError(''); }}
+                className="w-full text-sm text-gray-500 hover:text-primary-600 transition-colors"
+              >
+                Use a different email
+              </button>
+            </form>
+          )}
         </div>
 
-        {step === 'email' ? (
-          <form onSubmit={handleSendOTP} className="space-y-4">
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-                Email Address
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter your email"
-                className="input"
-                required
-                autoFocus
-              />
-            </div>
-
-            {error && (
-              <p className="text-sm text-danger">{error}</p>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading || !email}
-              className="btn-primary w-full"
-            >
-              {loading ? 'Sending code...' : 'Send Login Code'}
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={handleVerifyOTP} className="space-y-4">
-            <p className="text-sm text-gray-600 text-center">
-              We sent a 6-digit code to <strong>{email}</strong>
-            </p>
-
-            <div>
-              <label htmlFor="otp" className="block text-sm font-medium text-gray-700 mb-1">
-                Enter Code
-              </label>
-              <input
-                id="otp"
-                type="text"
-                value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                placeholder="000000"
-                className="input text-center text-2xl tracking-widest"
-                maxLength={6}
-                required
-                autoFocus
-              />
-            </div>
-
-            {error && (
-              <p className="text-sm text-danger">{error}</p>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading || otp.length !== 6}
-              className="btn-primary w-full"
-            >
-              {loading ? 'Verifying...' : 'Verify & Login'}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setStep('email'); setOtp(''); setError(''); }}
-              className="w-full text-sm text-primary-600 hover:underline"
-            >
-              Use a different email
-            </button>
-          </form>
-        )}
+        {/* Footer */}
+        <p className="text-center text-xs text-gray-400 mt-6">
+          MyEduRide — The Student Safety Platform
+        </p>
       </div>
     </div>
   );

@@ -22,7 +22,7 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
       <aside className="fixed left-0 top-0 bottom-0 w-64 bg-gray-900 flex flex-col z-20">
         <div className="p-5 border-b border-gray-800">
           <Link href="/dashboard/super-admin" className="flex items-center gap-3">
-            <img src="/logo.png" alt="MyEduRide" className="h-8" />
+            <img src="https://www.image2url.com/r2/default/images/1779230378321-292c7b74-6217-41ff-832a-180a535ea4cb.png" alt="MyEduRide" className="h-8" />
             <div>
               <p className="font-bold text-white text-sm leading-tight">MyEduRide</p>
               <p className="text-[10px] text-gray-500">Super Admin</p>
@@ -57,3 +57,4 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
     </div>
   );
 }
+
