@@ -164,6 +164,7 @@ export interface AttendanceRecord {
   verification_method: VerificationMethod;
   verified_by_user_id: string;
   status: AttendanceStatus;
+  source: 'gate' | 'teacher';
   timestamp: string;
   notes: string | null;
   created_at: string;
