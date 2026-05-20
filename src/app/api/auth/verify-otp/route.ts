@@ -40,11 +40,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    const { data: roles } = await supabase
+    const { data: roles, error: rolesErr } = await supabase
       .from('user_school_roles')
       .select('role, school_id')
       .eq('user_id', profile.id)
       .eq('is_active', true);
+
+    console.log('[VERIFY] User:', profile.email, 'Roles found:', roles?.length, 'Roles:', JSON.stringify(roles));
+    if (rolesErr) console.error('[VERIFY] Roles error:', rolesErr);
 
     const sessionData = JSON.stringify({
       user_id: profile.id,
