@@ -138,10 +138,14 @@ export async function POST(request: NextRequest) {
         
         if (filters) {
           for (const [key, value] of Object.entries(filters)) {
-            query = query.eq(key, value);
+            if (value === true || value === false) {
+              query = query.eq(key, value);
+            } else {
+              query = query.eq(key, value as any);
+            }
           }
         }
-        if (order) query = query.order(order.column, { ascending: order.ascending ?? false });
+        if (order) query = query.order(order.column || 'created_at', { ascending: order.ascending ?? false });
         if (queryLimit) query = query.limit(queryLimit);
 
         const { data, error } = await query;

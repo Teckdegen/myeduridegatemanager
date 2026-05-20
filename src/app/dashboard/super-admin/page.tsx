@@ -55,9 +55,11 @@ export default function SuperAdminDashboard() {
 
     if (res.ok) {
       setSchools(prev => prev.filter(s => s.id !== schoolId));
+      setTotalStats(prev => ({ ...prev, schools: prev.schools - 1 }));
       toast.success(`${schoolName} deleted`);
     } else {
-      toast.error('Failed to delete school');
+      const data = await res.json().catch(() => ({}));
+      toast.error(data.error || 'Failed to delete school');
     }
   };
 

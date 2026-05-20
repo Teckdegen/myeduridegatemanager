@@ -6,7 +6,7 @@ export default function SchoolAdminLayout({ children }: { children: React.ReactN
   return (
     <div className="flex min-h-screen">
       <AdminSidebar />
-      <main className="flex-1 ml-64">
+      <main className="flex-1 md:ml-56">
         {children}
       </main>
     </div>
