@@ -255,13 +255,21 @@ function AddSchoolModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">School Logo URL</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">School Logo</label>
             <input
-              type="url"
-              value={formData.logo_url}
-              onChange={(e) => setFormData(prev => ({ ...prev, logo_url: e.target.value }))}
-              className="input"
-              placeholder="https://example.com/logo.png"
+              type="file"
+              accept="image/*"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const fd = new FormData();
+                fd.append('file', file);
+                fd.append('folder', 'logos');
+                const res = await fetch('/api/upload', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (data.url) setFormData(prev => ({ ...prev, logo_url: data.url }));
+              }}
+              className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-primary-50 file:text-primary-700 file:font-medium"
             />
             {formData.logo_url && (
               <div className="mt-2 p-2 bg-gray-50 rounded-lg inline-block">
