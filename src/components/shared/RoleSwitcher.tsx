@@ -17,29 +17,28 @@ const ROLE_CONFIG: Record<string, { label: string; href: string; icon: React.Rea
 export function RoleSwitcher() {
   const [open, setOpen] = useState(false);
   const [userRoles, setUserRoles] = useState<string[]>([]);
+  const [mounted, setMounted] = useState(false);
+  const [session, setSessionData] = useState<any>(null);
   const pathname = usePathname();
-  const session = getSession();
 
   useEffect(() => {
-    if (!session?.user_id) return;
+    setMounted(true);
+    const s = getSession();
+    setSessionData(s);
+    if (!s?.user_id) return;
 
-    // Fetch user's actual roles from API
     fetch('/api/data', {
       method: 'POST', cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'query', params: { table: 'user_school_roles', select: 'role', filters: { user_id: session.user_id, is_active: true } } }),
+      body: JSON.stringify({ action: 'query', params: { table: 'user_school_roles', select: 'role', filters: { user_id: s.user_id, is_active: true } } }),
     }).then(r => r.json()).then(data => {
-      if (data.data) {
-        const roles = [...new Set(data.data.map((r: any) => r.role))] as string[];
-        setUserRoles(roles);
-      }
+      if (data.data) setUserRoles([...new Set(data.data.map((r: any) => r.role))] as string[]);
     }).catch(() => {
-      // Fallback: use roles from cookie
-      if (session.roles?.length) {
-        setUserRoles([...new Set(session.roles.map((r: any) => r.role))] as string[]);
-      }
+      if (s.roles?.length) setUserRoles([...new Set(s.roles.map((r: any) => r.role))] as string[]);
     });
   }, []);
+
+  if (!mounted) return <div className="w-8 h-8 rounded-full bg-gray-200 animate-pulse" />;
 
   const currentRole = Object.keys(ROLE_CONFIG).find(r => pathname.startsWith(ROLE_CONFIG[r].href)) || '';
 
