@@ -37,7 +37,26 @@ export default function DashboardRouter() {
       const roles = sessionData.roles || [];
 
       if (roles.length === 0) {
-        // No roles but user exists — might be super admin, redirect to super admin
+        // No roles in cookie — try fetching fresh from API
+        try {
+          const res = await fetch('/api/data', {
+            method: 'POST', cache: 'no-store',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'query', params: { table: 'user_school_roles', select: 'role, school_id', filters: { user_id: sessionData.user_id, is_active: true } } }),
+          });
+          const freshData = await res.json();
+          if (freshData.data && freshData.data.length > 0) {
+            // Update cookie with fresh roles
+            sessionData.roles = freshData.data;
+            document.cookie = `myeduride_session=${encodeURIComponent(JSON.stringify(sessionData))}; path=/; max-age=${60*60*24*7}`;
+            const freshRoles = [...new Set(freshData.data.map((r: any) => r.role))] as UserRole[];
+            if (freshRoles.length === 1) { redirectToRoleDashboard(freshRoles[0]); return; }
+            setLoading(false);
+            return;
+          }
+        } catch {}
+        
+        // Still no roles — redirect to super admin if user exists
         if (sessionData.user_id) {
           router.push('/dashboard/super-admin');
           return;
@@ -81,10 +100,15 @@ export default function DashboardRouter() {
   }
 
   // Multiple roles — show role picker
-  // Read roles from cookie again for rendering
-  const cookieStr = document.cookie.split('; ').find(c => c.startsWith('myeduride_session='));
-  const sessionData = cookieStr ? JSON.parse(decodeURIComponent(cookieStr.split('=').slice(1).join('='))) : { roles: [] };
-  const uniqueRoles = [...new Set(sessionData.roles.map((r: any) => r.role))] as UserRole[];
+  const cookieStr2 = document.cookie.split('; ').find(c => c.startsWith('myeduride_session='));
+  let sessionForRender = { roles: [] as any[] };
+  if (cookieStr2) {
+    let raw = cookieStr2.split('=').slice(1).join('=');
+    let dec = raw;
+    for (let i = 0; i < 3; i++) { try { JSON.parse(dec); break; } catch { dec = decodeURIComponent(dec); } }
+    try { sessionForRender = JSON.parse(dec); } catch {}
+  }
+  const uniqueRoles = [...new Set(sessionForRender.roles.map((r: any) => r.role))] as UserRole[];
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
