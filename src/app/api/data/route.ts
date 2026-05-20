@@ -65,7 +65,11 @@ export async function POST(request: NextRequest) {
       case 'query': {
         const { table, select, filters, order, limit: queryLimit } = params;
         let query = supabase.from(table).select(select || '*');
-        if (filters) { for (const [key, value] of Object.entries(filters)) { query = query.eq(key, value as any); } }
+        if (filters) {
+          for (const [key, value] of Object.entries(filters)) {
+            query = query.eq(key, value);
+          }
+        }
         if (order) query = query.order(order.column || 'created_at', { ascending: order.ascending ?? false });
         if (queryLimit) query = query.limit(queryLimit);
         const { data, error } = await query;

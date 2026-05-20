@@ -3,79 +3,56 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import type { UserRole } from '@/lib/types';
+import { getSession } from '@/lib/api';
+import { Shield, GraduationCap, Users, DoorOpen, User } from 'lucide-react';
+
+const ROLE_CONFIG = {
+  super_admin: { label: 'Super Admin', href: '/dashboard/super-admin', icon: <Shield size={20} />, color: 'bg-purple-50 text-purple-700' },
+  school_admin: { label: 'School Admin', href: '/dashboard/school-admin', icon: <GraduationCap size={20} />, color: 'bg-blue-50 text-blue-700' },
+  teacher: { label: 'Teacher', href: '/dashboard/teacher', icon: <Users size={20} />, color: 'bg-green-50 text-green-700' },
+  gate_officer: { label: 'Gate Officer', href: '/dashboard/gate', icon: <DoorOpen size={20} />, color: 'bg-orange-50 text-orange-700' },
+  parent: { label: 'Parent', href: '/dashboard/parent', icon: <User size={20} />, color: 'bg-pink-50 text-pink-700' },
+};
 
 export default function DashboardRouter() {
-  const [loading, setLoading] = useState(true);
   const [roles, setRoles] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  useEffect(() => {
-    checkSession();
-  }, []);
+  useEffect(() => { loadRoles(); }, []);
 
-  const checkSession = async () => {
-    // Read cookie
-    const cookies = document.cookie.split('; ');
-    const sessionCookie = cookies.find(c => c.startsWith('myeduride_session='));
-
-    if (!sessionCookie) { router.push('/auth/login'); return; }
+  const loadRoles = async () => {
+    const session = getSession();
+    if (!session?.user_id) { router.push('/auth/login'); return; }
 
     try {
-      let raw = sessionCookie.split('=').slice(1).join('=');
-      let decoded = raw;
-      for (let i = 0; i < 3; i++) { try { JSON.parse(decoded); break; } catch { decoded = decodeURIComponent(decoded); } }
+      const res = await fetch('/api/data', {
+        method: 'POST', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'query', params: { table: 'user_school_roles', select: 'role', filters: { user_id: session.user_id, is_active: true } } }),
+      });
+      const data = await res.json();
+      const userRoles = [...new Set((data.data || []).map((r: any) => r.role))] as string[];
 
-      const sessionData = JSON.parse(decoded);
-      let userRoles = sessionData.roles || [];
-
-      // If roles empty, fetch fresh from API
-      if (userRoles.length === 0 && sessionData.user_id) {
-        try {
-          const res = await fetch('/api/data', {
-            method: 'POST', cache: 'no-store',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'query', params: { table: 'user_school_roles', select: 'role, school_id', filters: { user_id: sessionData.user_id, is_active: true } } }),
-          });
-          const freshData = await res.json();
-          if (freshData.data && freshData.data.length > 0) {
-            userRoles = freshData.data;
-            // Update cookie
-            sessionData.roles = userRoles;
-            document.cookie = `myeduride_session=${encodeURIComponent(JSON.stringify(sessionData))}; path=/; max-age=${60*60*24*7}`;
-          }
-        } catch {}
-      }
-
-      // Still no roles — go to super admin as fallback
       if (userRoles.length === 0) {
-        router.push('/dashboard/super-admin');
+        // No roles at all — go to login
+        router.push('/auth/login');
         return;
       }
 
-      const uniqueRoles = [...new Set(userRoles.map((r: any) => r.role))] as string[];
-
-      if (uniqueRoles.length === 1) {
-        redirectToRole(uniqueRoles[0]);
+      if (userRoles.length === 1) {
+        // Single role — redirect directly
+        const config = ROLE_CONFIG[userRoles[0]];
+        if (config) router.push(config.href);
+        else router.push('/auth/login');
         return;
       }
 
-      setRoles(uniqueRoles);
+      // Multiple roles — show picker
+      setRoles(userRoles);
       setLoading(false);
     } catch {
-      document.cookie = 'myeduride_session=; path=/; max-age=0';
       router.push('/auth/login');
-    }
-  };
-
-  const redirectToRole = (role: string) => {
-    switch (role) {
-      case 'super_admin': router.push('/dashboard/super-admin'); break;
-      case 'school_admin': router.push('/dashboard/school-admin'); break;
-      case 'teacher': router.push('/dashboard/teacher'); break;
-      case 'gate_officer': router.push('/dashboard/gate'); break;
-      case 'parent': router.push('/dashboard/parent'); break;
-      default: router.push('/dashboard/super-admin');
     }
   };
 
@@ -84,16 +61,24 @@ export default function DashboardRouter() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
-      <div className="bg-white rounded-2xl shadow-xl border p-8 w-full max-w-md">
-        <h2 className="text-xl font-bold text-center mb-6">Select Dashboard</h2>
-        <div className="space-y-3">
-          {roles.map((role) => (
-            <button key={role} onClick={() => redirectToRole(role)}
-              className="w-full p-4 text-left rounded-xl border border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-all">
-              <span className="font-medium capitalize">{role.replace('_', ' ')}</span>
-            </button>
-          ))}
+    <div className="min-h-screen flex items-center justify-center bg-white px-4">
+      <div className="w-full max-w-sm">
+        <h2 className="text-xl font-bold text-center mb-2">Choose Dashboard</h2>
+        <p className="text-sm text-gray-500 text-center mb-6">You have access to multiple roles</p>
+        <div className="space-y-2">
+          {roles.map((role) => {
+            const config = ROLE_CONFIG[role];
+            if (!config) return null;
+            return (
+              <button key={role} onClick={() => router.push(config.href)}
+                className="w-full flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-all text-left">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${config.color}`}>
+                  {config.icon}
+                </div>
+                <span className="font-medium text-gray-800">{config.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
