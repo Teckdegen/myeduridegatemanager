@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAdminClient } from '@/lib/supabase/admin';
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,12 +11,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Email and code required' }, { status: 400 });
     }
 
-    const { createClient } = require('@supabase/supabase-js');
-    let url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-    url = url.replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '');
-    const supabase = createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    const supabase = getAdminClient();
 
-    // Find valid OTP
     const { data: otpRecord, error: otpErr } = await supabase
       .from('otp_codes')
       .select('*')
@@ -31,10 +28,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid or expired code' }, { status: 401 });
     }
 
-    // Mark code as used
     await supabase.from('otp_codes').update({ used: true }).eq('id', otpRecord.id);
 
-    // Get user profile
     const { data: profile } = await supabase
       .from('user_profiles')
       .select('id, email, full_name')
@@ -45,14 +40,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Get user roles
     const { data: roles } = await supabase
       .from('user_school_roles')
       .select('role, school_id')
       .eq('user_id', profile.id)
       .eq('is_active', true);
 
-    // Create response with session cookie
     const sessionData = JSON.stringify({
       user_id: profile.id,
       email: profile.email,
@@ -66,18 +59,17 @@ export async function POST(request: NextRequest) {
       roles: roles || [],
     });
 
-    // Set session cookie (httpOnly, 7 days)
     response.cookies.set('myeduride_session', sessionData, {
-      httpOnly: false, // needs to be readable by client JS
+      httpOnly: false,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7, // 7 days
+      maxAge: 60 * 60 * 24 * 7,
       path: '/',
     });
 
     return response;
   } catch (err: any) {
-    console.error('Verify OTP crash:', err?.message || err);
-    return NextResponse.json({ error: 'Verification failed. Try again.' }, { status: 500 });
+    console.error('Verify OTP error:', err?.message || err);
+    return NextResponse.json({ error: 'Verification failed.' }, { status: 500 });
   }
 }

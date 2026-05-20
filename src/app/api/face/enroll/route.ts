@@ -25,3 +25,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Enrollment failed' }, { status: 500 });
   }
 }
+
+
