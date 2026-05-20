@@ -8,13 +8,14 @@ import { LogIn, LogOut, StopCircle, Camera, ScanBarcode } from 'lucide-react';
 export default function GateOfficerDashboard() {
   const [gateMode, setGateMode] = useState('arrival');
   const [sessionActive, setSessionActive] = useState(false);
-  const [currentTime, setCurrentTime] = useState(new Date());
+  const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [todayCount, setTodayCount] = useState(0);
   const [cameraError, setCameraError] = useState('');
   const videoRef = useRef(null);
   const streamRef = useRef(null);
 
   useEffect(() => {
+    setCurrentTime(new Date());
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => {
       clearInterval(timer);
@@ -60,8 +61,8 @@ export default function GateOfficerDashboard() {
       <div className="min-h-screen flex items-center justify-center bg-white px-4">
         <div className="w-full max-w-sm text-center">
           <h1 className="text-2xl font-bold text-gray-900 mb-1">Gate Manager</h1>
-          <p className="text-gray-500 font-mono text-lg">{currentTime.toLocaleTimeString()}</p>
-          <p className="text-gray-400 text-sm mb-8">{currentTime.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+          <p className="text-gray-500 font-mono text-lg">{(currentTime?.toLocaleTimeString() || '--:--')}</p>
+          <p className="text-gray-400 text-sm mb-8">{(currentTime?.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
 
           <div className="border rounded-2xl p-6 space-y-5">
             <p className="text-sm text-gray-500 font-medium text-left">Select Mode</p>
@@ -95,7 +96,7 @@ export default function GateOfficerDashboard() {
           <div className={`w-2.5 h-2.5 rounded-full animate-pulse ${gateMode === 'arrival' ? 'bg-green-500' : 'bg-orange-500'}`} />
           <div>
             <p className="text-xs text-gray-500">{gateMode === 'arrival' ? 'Arrival' : 'Dismissal'}</p>
-            <p className="text-base font-mono font-bold text-gray-900">{currentTime.toLocaleTimeString()}</p>
+            <p className="text-base font-mono font-bold text-gray-900">{(currentTime?.toLocaleTimeString() || '--:--')}</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -146,3 +147,4 @@ export default function GateOfficerDashboard() {
     </div>
   );
 }
+
