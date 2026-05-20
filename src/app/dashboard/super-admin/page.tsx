@@ -23,7 +23,7 @@ export default function SuperAdminDashboard() {
 
   const fetchSchools = async () => {
     try {
-      const res = await fetch('/api/schools/list');
+      const res = await fetch('/api/schools/list', { cache: 'no-store' });
       const data = await res.json();
 
       if (!res.ok || !data.schools) {
@@ -51,11 +51,12 @@ export default function SuperAdminDashboard() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ school_id: schoolId }),
+      cache: 'no-store',
     });
 
     if (res.ok) {
-      setSchools(prev => prev.filter(s => s.id !== schoolId));
-      setTotalStats(prev => ({ ...prev, schools: prev.schools - 1 }));
+      // Refetch fresh from Supabase
+      fetchSchools();
       toast.success(`${schoolName} deleted`);
     } else {
       const data = await res.json().catch(() => ({}));
@@ -138,8 +139,8 @@ export default function SuperAdminDashboard() {
         {/* Schools list */}
         <div className="space-y-3">
           {filteredSchools.map(school => (
-            <div key={school.id} className="card flex items-center gap-4 py-4">
-              <div className="w-12 h-12 rounded-lg bg-primary-100 flex items-center justify-center text-primary-700 font-bold">
+            <div key={school.id} className="card flex items-center gap-4 py-4 cursor-pointer hover:shadow-md transition-all" onClick={() => window.location.href = `/dashboard/super-admin/school/${school.id}`}>
+              <div className="w-12 h-12 rounded-xl bg-primary-100 flex items-center justify-center text-primary-700 font-bold">
                 {school.name.split(' ').map(w => w[0]).join('').slice(0, 2)}
               </div>
               <div className="flex-1 min-w-0">
@@ -156,7 +157,7 @@ export default function SuperAdminDashboard() {
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => handleDeleteSchool(school.id, school.name)}
+                  onClick={(e) => { e.stopPropagation(); handleDeleteSchool(school.id, school.name); }}
                   className="p-2 text-gray-400 hover:text-red-600 transition-colors"
                   title="Delete school"
                 >

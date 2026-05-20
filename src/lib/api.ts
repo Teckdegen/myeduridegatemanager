@@ -9,6 +9,7 @@ export async function fetchData(action: string, params?: any) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action, params }),
+    cache: 'no-store',
   });
 
   if (!res.ok) {
