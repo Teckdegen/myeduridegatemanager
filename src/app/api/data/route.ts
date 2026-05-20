@@ -19,15 +19,27 @@ export async function POST(request: NextRequest) {
     if (!session || !session.user_id) return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
 
     const { action, params } = await request.json();
+    console.log('[DATA API] action:', action, 'user:', session.user_id);
+    
     const supabase = getAdminClient();
+
+    // Add timeout wrapper
+    const withTimeout = (promise: Promise<any>, ms = 10000) => {
+      return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Query timeout')), ms))
+      ]);
+    };
 
     switch (action) {
       case 'get_school_admin_data': {
-        const { data: role } = await supabase
-          .from('user_school_roles').select('school_id')
-          .eq('user_id', session.user_id).eq('role', params?.role || 'school_admin').eq('is_active', true).single();
-        if (!role) return NextResponse.json({ error: 'No school found' }, { status: 404 });
-        const { data: school } = await supabase.from('schools').select('*').eq('id', role.school_id).single();
+        const { data: role } = await withTimeout(
+          supabase.from('user_school_roles').select('school_id')
+            .eq('user_id', session.user_id).eq('role', params?.role || 'school_admin').eq('is_active', true).limit(1).single(),
+          8000
+        ).catch(() => ({ data: null }));
+        if (!role) return NextResponse.json({ error: 'No school found', school: null, school_id: null }, { status: 200 });
+        const { data: school } = await withTimeout(supabase.from('schools').select('*').eq('id', role.school_id).single(), 8000).catch(() => ({ data: null }));
         return NextResponse.json({ school, school_id: role.school_id });
       }
 
@@ -64,6 +76,7 @@ export async function POST(request: NextRequest) {
 
       case 'query': {
         const { table, select, filters, order, limit: queryLimit } = params;
+        console.log('[DATA API] query table:', table, 'filters:', filters);
         let query = supabase.from(table).select(select || '*');
         if (filters) {
           for (const [key, value] of Object.entries(filters)) {
@@ -72,8 +85,12 @@ export async function POST(request: NextRequest) {
         }
         if (order) query = query.order(order.column || 'created_at', { ascending: order.ascending ?? false });
         if (queryLimit) query = query.limit(queryLimit);
-        const { data, error } = await query;
-        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+        
+        const { data, error } = await withTimeout(query, 8000).catch((e: any) => ({ data: null, error: { message: e.message } }));
+        if (error) {
+          console.error('[DATA API] query error:', error);
+          return NextResponse.json({ error: error.message, data: [] }, { status: 200 });
+        }
         return NextResponse.json({ data: data || [] });
       }
 

@@ -16,55 +16,36 @@ const ROLE_CONFIG = {
 
 export default function DashboardRouter() {
   const [roles, setRoles] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
   const router = useRouter();
 
-  useEffect(() => { loadRoles(); }, []);
-
-  const loadRoles = async () => {
+  useEffect(() => {
+    setMounted(true);
     const session = getSession();
     if (!session?.user_id) { router.push('/auth/login'); return; }
 
-    try {
-      const res = await fetch('/api/data', {
-        method: 'POST', cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'query', params: { table: 'user_school_roles', select: 'role', filters: { user_id: session.user_id, is_active: true } } }),
-      });
-      const data = await res.json();
-      const userRoles = [...new Set((data.data || []).map((r: any) => r.role))] as string[];
-
-      if (userRoles.length === 0) {
-        // No roles at all — go to login
-        router.push('/auth/login');
-        return;
-      }
-
-      if (userRoles.length === 1) {
-        // Single role — redirect directly
-        const config = ROLE_CONFIG[userRoles[0]];
-        if (config) router.push(config.href);
-        else router.push('/auth/login');
-        return;
-      }
-
-      // Multiple roles — show picker
-      setRoles(userRoles);
-      setLoading(false);
-    } catch {
-      router.push('/auth/login');
+    // Get roles from cookie (set during login)
+    const userRoles = [...new Set((session.roles || []).map((r: any) => r.role))] as string[];
+    
+    if (userRoles.length === 0) {
+      // No roles in cookie — just go to super admin as fallback
+      router.push('/dashboard/super-admin');
+      return;
     }
-  };
 
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse text-primary-600">Loading...</div></div>;
-  }
+    // ALWAYS show role picker — let user choose
+    setRoles(userRoles);
+  }, []);
+
+  if (!mounted) return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse text-primary-600">Loading...</div></div>;
+
+  if (roles.length === 0) return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse text-primary-600">Redirecting...</div></div>;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-white px-4">
       <div className="w-full max-w-sm">
         <h2 className="text-xl font-bold text-center mb-2">Choose Dashboard</h2>
-        <p className="text-sm text-gray-500 text-center mb-6">You have access to multiple roles</p>
+        <p className="text-sm text-gray-500 text-center mb-6">Select which role to continue as</p>
         <div className="space-y-2">
           {roles.map((role) => {
             const config = ROLE_CONFIG[role];
