@@ -61,8 +61,8 @@ export default function GateOfficerDashboard() {
       <div className="min-h-screen flex items-center justify-center bg-white px-4">
         <div className="w-full max-w-sm text-center">
           <h1 className="text-2xl font-bold text-gray-900 mb-1">Gate Manager</h1>
-          <p className="text-gray-500 font-mono text-lg">{(currentTime?.toLocaleTimeString() || '--:--')}</p>
-          <p className="text-gray-400 text-sm mb-8">{(currentTime?.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+          <p className="text-gray-500 font-mono text-lg">{currentTime ? currentTime.toLocaleTimeString() : '--:--'}</p>
+          <p className="text-gray-400 text-sm mb-8">{currentTime ? currentTime.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) : ''}</p>
 
           <div className="border rounded-2xl p-6 space-y-5">
             <p className="text-sm text-gray-500 font-medium text-left">Select Mode</p>
