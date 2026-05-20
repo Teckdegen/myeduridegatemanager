@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Building2, BarChart3, Settings, Users, CreditCard } from 'lucide-react';
+import { LayoutDashboard, Building2, Users, CreditCard } from 'lucide-react';
 import { RouteGuard } from '@/components/shared/RouteGuard';
 
 const LOGO_URL = 'https://www.image2url.com/r2/default/images/1779230378321-292c7b74-6217-41ff-832a-180a535ea4cb.png';
@@ -12,8 +12,6 @@ const navItems = [
   { label: 'Schools', href: '/dashboard/super-admin/schools', icon: <Building2 size={18} /> },
   { label: 'Students', href: '/dashboard/super-admin/students', icon: <Users size={18} /> },
   { label: 'ID Cards', href: '/dashboard/super-admin/id-cards', icon: <CreditCard size={18} /> },
-  { label: 'Analytics', href: '/dashboard/super-admin/analytics', icon: <BarChart3 size={18} /> },
-  { label: 'Settings', href: '/dashboard/super-admin/settings', icon: <Settings size={18} /> },
 ];
 
 export default function SuperAdminLayout({ children }: { children: React.ReactNode }) {
