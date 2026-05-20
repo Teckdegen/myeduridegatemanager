@@ -1,34 +1,61 @@
 // @ts-nocheck
 'use client';
 
-import { useState, useEffect } from 'react';
-import { fetchData } from '@/lib/api';
-import { LogIn, LogOut, StopCircle, Clock, Camera, ScanBarcode } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { fetchData, getSession } from '@/lib/api';
+import { LogIn, LogOut, StopCircle, Camera, ScanBarcode } from 'lucide-react';
 
 export default function GateOfficerDashboard() {
   const [gateMode, setGateMode] = useState('arrival');
-  const [session, setSession] = useState(null);
+  const [sessionActive, setSessionActive] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [todayCount, setTodayCount] = useState(0);
+  const [cameraError, setCameraError] = useState('');
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+    };
   }, []);
 
-  const handleStartSession = () => {
-    setSession({ mode: gateMode, started: new Date().toISOString() });
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: 640, height: 480 },
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setCameraError('');
+    } catch (err) {
+      setCameraError('Camera access denied. Please allow camera permissions.');
+    }
+  };
+
+  const handleStartSession = async () => {
+    setSessionActive(true);
+    await startCamera();
   };
 
   const handleEndSession = () => {
     if (confirm('End this gate session?')) {
-      setSession(null);
+      setSessionActive(false);
       setTodayCount(0);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+      }
     }
   };
 
-  // No session — start screen
-  if (!session) {
+  // Start screen
+  if (!sessionActive) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white px-4">
         <div className="w-full max-w-sm text-center">
@@ -60,53 +87,59 @@ export default function GateOfficerDashboard() {
     );
   }
 
-  // Active session — camera auto-detects face or barcode
+  // Active session with live camera
   return (
     <div className="min-h-screen bg-white flex flex-col">
-      {/* Header */}
-      <header className="px-5 py-4 flex items-center justify-between border-b">
+      <header className="px-5 py-3 flex items-center justify-between border-b">
         <div className="flex items-center gap-3">
           <div className={`w-2.5 h-2.5 rounded-full animate-pulse ${gateMode === 'arrival' ? 'bg-green-500' : 'bg-orange-500'}`} />
           <div>
-            <p className="text-xs text-gray-500">{gateMode === 'arrival' ? 'Arrival Mode' : 'Dismissal Mode'}</p>
-            <p className="text-lg font-mono font-bold text-gray-900">{currentTime.toLocaleTimeString()}</p>
+            <p className="text-xs text-gray-500">{gateMode === 'arrival' ? 'Arrival' : 'Dismissal'}</p>
+            <p className="text-base font-mono font-bold text-gray-900">{currentTime.toLocaleTimeString()}</p>
           </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <div className="text-right">
-            <p className="text-xs text-gray-500">Processed</p>
-            <p className="text-lg font-bold text-gray-900">{todayCount}</p>
+            <p className="text-xs text-gray-500">Scanned</p>
+            <p className="text-base font-bold">{todayCount}</p>
           </div>
-          <button onClick={handleEndSession} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 font-medium text-sm transition-colors">
-            <StopCircle size={16} /> End
+          <button onClick={handleEndSession} className="px-3 py-2 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 font-medium text-xs transition-colors">
+            End Session
           </button>
         </div>
       </header>
 
-      {/* Camera area — auto detects face or barcode */}
-      <main className="flex-1 flex flex-col items-center justify-center p-6">
-        <div className="w-full max-w-md">
-          {/* Camera placeholder */}
-          <div className="aspect-[4/3] bg-gray-100 rounded-2xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center mb-4">
-            <Camera size={40} className="text-gray-300 mb-3" />
-            <p className="text-sm text-gray-500 font-medium">Camera Active</p>
-            <p className="text-xs text-gray-400 mt-1">Auto-detects face or ID card barcode</p>
+      <main className="flex-1 flex flex-col items-center justify-center p-4">
+        <div className="w-full max-w-lg">
+          {/* Live camera feed */}
+          <div className="aspect-[4/3] bg-black rounded-2xl overflow-hidden relative mb-4">
+            <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+            {/* Scan overlay */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="w-48 h-48 border-2 border-white/50 rounded-2xl" />
+            </div>
+            {/* Status bar */}
+            <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
+              <div className="flex items-center gap-1.5 bg-black/60 px-3 py-1.5 rounded-full">
+                <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                <span className="text-xs text-white">Scanning...</span>
+              </div>
+              <div className="flex items-center gap-2 bg-black/60 px-3 py-1.5 rounded-full">
+                <Camera size={12} className="text-white" />
+                <ScanBarcode size={12} className="text-white" />
+              </div>
+            </div>
           </div>
 
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border">
-            <div className="flex items-center gap-2 flex-1">
-              <Camera size={14} className="text-primary-600" />
-              <span className="text-xs text-gray-600">Face Recognition</span>
+          {cameraError && (
+            <div className="p-3 rounded-xl bg-red-50 border border-red-100 mb-4">
+              <p className="text-sm text-red-600">{cameraError}</p>
+              <button onClick={startCamera} className="text-xs text-red-700 underline mt-1">Try Again</button>
             </div>
-            <div className="w-px h-4 bg-gray-200" />
-            <div className="flex items-center gap-2 flex-1">
-              <ScanBarcode size={14} className="text-primary-600" />
-              <span className="text-xs text-gray-600">Barcode Scan</span>
-            </div>
-          </div>
+          )}
 
-          <p className="text-center text-xs text-gray-400 mt-4">
-            Point camera at student or hold ID card in view. System auto-detects.
+          <p className="text-center text-xs text-gray-400">
+            Camera auto-detects face or ID card barcode. Hold steady for best results.
           </p>
         </div>
       </main>

@@ -17,17 +17,26 @@ export function RoleSwitcher() {
     const s = getSession();
     if (s) {
       setSession(s);
-      // Fetch fresh roles
-      fetch('/api/data', {
-        method: 'POST', cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'query', params: { table: 'user_school_roles', select: 'role, school_id', filters: { user_id: s.user_id, is_active: true } } }),
-      }).then(r => r.json()).then(data => {
-        if (data.data) setRoles(data.data);
-      }).catch(() => {});
+      // If roles already in session, use them
+      if (s.roles && s.roles.length > 0) {
+        setRoles(s.roles);
+      } else {
+        // Fetch fresh roles from API
+        fetch('/api/data', {
+          method: 'POST', cache: 'no-store',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'query', params: { table: 'user_school_roles', select: 'role, school_id', filters: { user_id: s.user_id, is_active: true } } }),
+        }).then(r => r.json()).then(data => {
+          if (data.data && data.data.length > 0) {
+            setRoles(data.data);
+            // Update cookie with fresh roles
+            s.roles = data.data;
+            document.cookie = `myeduride_session=${encodeURIComponent(JSON.stringify(s))}; path=/; max-age=${60*60*24*7}`;
+          }
+        }).catch(() => {});
+      }
     }
 
-    // Detect current role from path
     if (pathname.includes('super-admin')) setCurrentRole('super_admin');
     else if (pathname.includes('school-admin')) setCurrentRole('school_admin');
     else if (pathname.includes('teacher')) setCurrentRole('teacher');
