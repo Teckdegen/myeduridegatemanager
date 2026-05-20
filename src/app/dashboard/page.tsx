@@ -14,24 +14,34 @@ export default function DashboardRouter() {
     const cookies = document.cookie.split('; ');
     const sessionCookie = cookies.find(c => c.startsWith('myeduride_session='));
 
-    console.log('[DASHBOARD] All cookies:', document.cookie);
-    console.log('[DASHBOARD] Session cookie found:', !!sessionCookie);
-
     if (!sessionCookie) {
       router.push('/auth/login');
       return;
     }
 
     try {
-      const rawValue = sessionCookie.split('=').slice(1).join('=');
-      const decoded = decodeURIComponent(rawValue);
-      console.log('[DASHBOARD] Decoded session:', decoded);
+      let rawValue = sessionCookie.split('=').slice(1).join('=');
+      
+      // Decode until we get valid JSON (handles single or double encoding)
+      let decoded = rawValue;
+      for (let i = 0; i < 3; i++) {
+        try {
+          JSON.parse(decoded);
+          break; // It's valid JSON, stop decoding
+        } catch {
+          decoded = decodeURIComponent(decoded);
+        }
+      }
+
       const sessionData = JSON.parse(decoded);
       const roles = sessionData.roles || [];
 
-      console.log('[DASHBOARD] Roles:', roles);
-
       if (roles.length === 0) {
+        // No roles but user exists — might be super admin, redirect to super admin
+        if (sessionData.user_id) {
+          router.push('/dashboard/super-admin');
+          return;
+        }
         router.push('/auth/login');
         return;
       }
@@ -46,6 +56,8 @@ export default function DashboardRouter() {
       setLoading(false);
     } catch (err) {
       console.error('[DASHBOARD] Parse error:', err);
+      // Clear bad cookie and redirect to login
+      document.cookie = 'myeduride_session=; path=/; max-age=0';
       router.push('/auth/login');
     }
   }, [router]);
