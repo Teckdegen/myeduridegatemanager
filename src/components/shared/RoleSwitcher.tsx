@@ -1,67 +1,41 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import { useRouter, usePathname } from 'next/navigation';
-import type { UserRole, UserProfile, School } from '@/lib/types';
-import { ChevronDown, User, GraduationCap, Shield, DoorOpen, Users, Plus, LogOut, Check } from 'lucide-react';
-
-interface RoleAccount {
-  role: UserRole;
-  school: School | null;
-  label: string;
-}
+import { getSession, logout } from '@/lib/api';
+import { ChevronDown, User, GraduationCap, Shield, DoorOpen, Users, LogOut, Check } from 'lucide-react';
 
 export function RoleSwitcher() {
-  const [roles, setRoles] = useState<RoleAccount[]>([]);
-  const [currentRole, setCurrentRole] = useState<UserRole | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [roles, setRoles] = useState<any[]>([]);
+  const [session, setSession] = useState<any>(null);
   const [open, setOpen] = useState(false);
+  const [currentRole, setCurrentRole] = useState('');
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
-    const fetchRoles = async () => {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+    const s = getSession();
+    if (s) {
+      setSession(s);
+      // Fetch fresh roles
+      fetch('/api/data', {
+        method: 'POST', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'query', params: { table: 'user_school_roles', select: 'role, school_id', filters: { user_id: s.user_id, is_active: true } } }),
+      }).then(r => r.json()).then(data => {
+        if (data.data) setRoles(data.data);
+      }).catch(() => {});
+    }
 
-      // Get profile
-      const { data: profileData } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-      if (profileData) setProfile(profileData);
-
-      // Get roles with school info
-      const { data: userRoles } = await supabase
-        .from('user_school_roles')
-        .select('role, school:schools(id, name, logo_url, primary_color)')
-        .eq('user_id', user.id)
-        .eq('is_active', true);
-
-      if (userRoles) {
-        const accounts: RoleAccount[] = userRoles.map((r: any) => ({
-          role: r.role,
-          school: r.school,
-          label: getRoleLabel(r.role, r.school?.name),
-        }));
-        setRoles(accounts);
-      }
-
-      // Detect current role from path
-      if (pathname.includes('super-admin')) setCurrentRole('super_admin');
-      else if (pathname.includes('school-admin')) setCurrentRole('school_admin');
-      else if (pathname.includes('teacher')) setCurrentRole('teacher');
-      else if (pathname.includes('gate')) setCurrentRole('gate_officer');
-      else if (pathname.includes('parent')) setCurrentRole('parent');
-    };
-
-    fetchRoles();
+    // Detect current role from path
+    if (pathname.includes('super-admin')) setCurrentRole('super_admin');
+    else if (pathname.includes('school-admin')) setCurrentRole('school_admin');
+    else if (pathname.includes('teacher')) setCurrentRole('teacher');
+    else if (pathname.includes('gate')) setCurrentRole('gate_officer');
+    else if (pathname.includes('parent')) setCurrentRole('parent');
   }, [pathname]);
 
-  const switchRole = (role: UserRole) => {
+  const switchRole = (role: string) => {
     setOpen(false);
     switch (role) {
       case 'super_admin': router.push('/dashboard/super-admin'); break;
@@ -72,92 +46,60 @@ export function RoleSwitcher() {
     }
   };
 
-  const handleLogout = async () => {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push('/auth/login');
-  };
-
-  const getRoleIcon = (role: UserRole) => {
+  const getRoleIcon = (role: string) => {
     switch (role) {
-      case 'super_admin': return <Shield size={16} />;
-      case 'school_admin': return <GraduationCap size={16} />;
-      case 'teacher': return <Users size={16} />;
-      case 'gate_officer': return <DoorOpen size={16} />;
-      case 'parent': return <User size={16} />;
+      case 'super_admin': return <Shield size={14} />;
+      case 'school_admin': return <GraduationCap size={14} />;
+      case 'teacher': return <Users size={14} />;
+      case 'gate_officer': return <DoorOpen size={14} />;
+      case 'parent': return <User size={14} />;
+      default: return <User size={14} />;
     }
   };
 
+  const uniqueRoles = [...new Set(roles.map(r => r.role))];
+
   return (
     <div className="relative">
-      {/* Trigger button - looks like Facebook account switcher */}
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 p-1.5 rounded-full hover:bg-gray-100 transition-colors"
-      >
-        <div className="w-9 h-9 rounded-full bg-primary-600 flex items-center justify-center text-white text-sm font-bold">
-          {profile?.full_name?.split(' ').map(n => n[0]).join('').slice(0, 2) || '?'}
+      <button onClick={() => setOpen(!open)} className="flex items-center gap-2 p-1.5 rounded-full hover:bg-gray-100 transition-colors">
+        <div className="w-8 h-8 rounded-full bg-primary-600 flex items-center justify-center text-white text-xs font-bold">
+          {session?.full_name?.split(' ').map((n: string) => n[0]).join('').slice(0, 2) || '?'}
         </div>
         <ChevronDown size={14} className="text-gray-500" />
       </button>
 
-      {/* Dropdown panel */}
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-xl border z-50 overflow-hidden">
-            {/* Current user */}
-            <div className="p-4 border-b">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-primary-600 flex items-center justify-center text-white font-bold">
-                  {profile?.full_name?.split(' ').map(n => n[0]).join('').slice(0, 2) || '?'}
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900">{profile?.full_name || 'User'}</p>
-                  <p className="text-sm text-gray-500">{profile?.email}</p>
-                </div>
-              </div>
+          <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl shadow-xl border z-50 overflow-hidden">
+            {/* User info */}
+            <div className="p-3 border-b">
+              <p className="font-medium text-sm">{session?.full_name || 'User'}</p>
+              <p className="text-xs text-gray-500">{session?.email}</p>
             </div>
 
-            {/* Role accounts */}
-            <div className="p-2">
-              <p className="px-3 py-1.5 text-xs font-medium text-gray-400 uppercase tracking-wide">Switch Account</p>
-              {roles.map((account, idx) => (
-                <button
-                  key={`${account.role}-${idx}`}
-                  onClick={() => switchRole(account.role)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
-                    account.role === currentRole
-                      ? 'bg-primary-50 text-primary-700'
-                      : 'hover:bg-gray-50 text-gray-700'
-                  }`}
-                >
-                  <div className={`w-9 h-9 rounded-full flex items-center justify-center ${
-                    account.role === currentRole ? 'bg-primary-100 text-primary-600' : 'bg-gray-100 text-gray-500'
-                  }`}>
-                    {getRoleIcon(account.role)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{account.label}</p>
-                    <p className="text-xs text-gray-400 capitalize">{account.role.replace('_', ' ')}</p>
-                  </div>
-                  {account.role === currentRole && (
-                    <Check size={16} className="text-primary-600 shrink-0" />
-                  )}
-                </button>
-              ))}
-            </div>
+            {/* Roles */}
+            {uniqueRoles.length > 1 && (
+              <div className="p-2">
+                <p className="px-2 py-1 text-[10px] font-medium text-gray-400 uppercase">Switch Role</p>
+                {uniqueRoles.map((role: string) => (
+                  <button key={role} onClick={() => switchRole(role)}
+                    className={`w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-left text-sm transition-colors ${
+                      role === currentRole ? 'bg-primary-50 text-primary-700' : 'hover:bg-gray-50 text-gray-700'
+                    }`}>
+                    {getRoleIcon(role)}
+                    <span className="capitalize flex-1">{role.replace('_', ' ')}</span>
+                    {role === currentRole && <Check size={14} className="text-primary-600" />}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Logout */}
             <div className="border-t p-2">
-              <button
-                onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-red-50 text-gray-700 hover:text-red-600 transition-colors"
-              >
-                <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center">
-                  <LogOut size={16} />
-                </div>
-                <span className="text-sm font-medium">Sign Out</span>
+              <button onClick={logout} className="w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-left text-sm text-gray-700 hover:bg-red-50 hover:text-red-600">
+                <LogOut size={14} />
+                Sign Out
               </button>
             </div>
           </div>
@@ -165,14 +107,4 @@ export function RoleSwitcher() {
       )}
     </div>
   );
-}
-
-function getRoleLabel(role: UserRole, schoolName?: string): string {
-  switch (role) {
-    case 'super_admin': return 'Super Admin';
-    case 'school_admin': return schoolName || 'School Admin';
-    case 'teacher': return schoolName ? `Teacher at ${schoolName}` : 'Teacher';
-    case 'gate_officer': return schoolName ? `Gate Officer at ${schoolName}` : 'Gate Officer';
-    case 'parent': return 'Parent Dashboard';
-  }
 }
