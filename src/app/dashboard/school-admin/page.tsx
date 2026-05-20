@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { fetchData, getSession } from '@/lib/api';
-import { Users, GraduationCap, UserCheck, Clock, TrendingUp, AlertTriangle, Plus, Bell } from 'lucide-react';
+import { Users, GraduationCap, UserCheck, Clock, TrendingUp, AlertTriangle, Plus, Bell, School } from 'lucide-react';
 import Link from 'next/link';
 
 export default function SchoolAdminDashboard() {
