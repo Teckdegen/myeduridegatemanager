@@ -1,10 +1,3 @@
-const withPWA = require('next-pwa')({
-  dest: 'public',
-  register: true,
-  skipWaiting: true,
-  disable: process.env.NODE_ENV === 'development',
-});
-
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
@@ -16,12 +9,22 @@ const nextConfig = {
       },
     ],
   },
-  // Vercel-ready: ensure API routes work with edge
   experimental: {
     serverActions: {
-      bodySizeLimit: '10mb', // For face photo uploads
+      bodySizeLimit: '10mb',
     },
+  },
+  webpack: (config, { isServer }) => {
+    // Fix face-api.js trying to use node modules in browser
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        encoding: false,
+      };
+    }
+    return config;
   },
 };
 
-module.exports = withPWA(nextConfig);
+module.exports = nextConfig;
