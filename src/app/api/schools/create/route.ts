@@ -22,7 +22,7 @@ const DEFAULT_TEACHER_FIELDS = [
 
 export async function POST(request: NextRequest) {
   try {
-    const { name, address, admin_email, admin_name, admin_phone } = await request.json();
+    const { name, address, logo_url, admin_email, admin_name, admin_phone } = await request.json();
 
     const supabase = createServiceRoleClient();
 
@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
       .insert({
         name,
         address: address || null,
+        logo_url: logo_url || null,
         setup_completed: false,
         setup_step: 'classes',
       })

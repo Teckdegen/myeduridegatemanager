@@ -187,6 +187,7 @@ function AddSchoolModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
   const [formData, setFormData] = useState({
     name: '',
     address: '',
+    logo_url: '',
     admin_email: '',
     admin_name: '',
     admin_phone: '',
@@ -220,7 +221,7 @@ function AddSchoolModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-md p-6">
+      <div className="bg-white rounded-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
         <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
           <Building2 size={20} className="text-primary-600" />
           Add New School
@@ -248,6 +249,22 @@ function AddSchoolModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
               className="input"
               placeholder="School address"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">School Logo URL</label>
+            <input
+              type="url"
+              value={formData.logo_url}
+              onChange={(e) => setFormData(prev => ({ ...prev, logo_url: e.target.value }))}
+              className="input"
+              placeholder="https://example.com/logo.png"
+            />
+            {formData.logo_url && (
+              <div className="mt-2 p-2 bg-gray-50 rounded-lg inline-block">
+                <img src={formData.logo_url} alt="Preview" className="h-10 object-contain" />
+              </div>
+            )}
           </div>
 
           <hr className="my-4" />
