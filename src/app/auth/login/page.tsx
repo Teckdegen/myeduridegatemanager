@@ -27,10 +27,14 @@ export default function LoginPage() {
         body: JSON.stringify({ email: email.trim() }),
       });
 
-      const data = await res.json();
-
       if (!res.ok) {
-        setError(data.error || 'Failed to send code.');
+        const text = await res.text();
+        try {
+          const data = JSON.parse(text);
+          setError(data.error || 'Failed to send code.');
+        } catch {
+          setError('Server error. Please try again.');
+        }
         return;
       }
 
@@ -54,16 +58,21 @@ export default function LoginPage() {
         body: JSON.stringify({ email: email.trim(), code: otp }),
       });
 
-      const data = await res.json();
-
       if (!res.ok) {
-        setError(data.error || 'Invalid code.');
+        const text = await res.text();
+        try {
+          const data = JSON.parse(text);
+          setError(data.error || 'Invalid code.');
+        } catch {
+          setError('Verification failed. Try again.');
+        }
         return;
       }
 
+      const data = await res.json();
+
       // Use the magic link token to create a Supabase session
       if (data.redirect_url) {
-        // Extract token from the action link and verify it
         const url = new URL(data.redirect_url);
         const tokenHash = url.searchParams.get('token_hash') || data.token_hash;
         const type = url.searchParams.get('type') || 'magiclink';
@@ -78,8 +87,8 @@ export default function LoginPage() {
       }
 
       router.push('/dashboard');
-    } catch {
-      setError('Verification failed. Please try again.');
+    } catch (err: any) {
+      setError(err?.message || 'Verification failed. Please try again.');
     } finally {
       setLoading(false);
     }
