@@ -76,6 +76,14 @@ export default function StaffManagementPage() {
               {getRoleIcon(s.role)}
               {s.role.replace('_', ' ')}
             </span>
+            <button onClick={() => {
+              if (confirm(`Remove ${s.profile?.full_name}?`)) {
+                fetch('/api/staff/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role_id: s.id }) })
+                  .then(() => { toast.success('Staff removed'); loadStaff(); });
+              }
+            }} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600">
+              <Trash2 size={14} />
+            </button>
           </div>
         ))}
         {staff.length === 0 && (
