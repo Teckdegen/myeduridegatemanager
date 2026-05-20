@@ -7,37 +7,30 @@ import type { UserRole } from '@/lib/types';
 
 export default function DashboardRouter() {
   const [loading, setLoading] = useState(true);
+  const [roles, setRoles] = useState<string[]>([]);
   const router = useRouter();
 
   useEffect(() => {
-    // Read session from cookie
+    checkSession();
+  }, []);
+
+  const checkSession = async () => {
+    // Read cookie
     const cookies = document.cookie.split('; ');
     const sessionCookie = cookies.find(c => c.startsWith('myeduride_session='));
 
-    if (!sessionCookie) {
-      router.push('/auth/login');
-      return;
-    }
+    if (!sessionCookie) { router.push('/auth/login'); return; }
 
     try {
-      let rawValue = sessionCookie.split('=').slice(1).join('=');
-      
-      // Decode until we get valid JSON (handles single or double encoding)
-      let decoded = rawValue;
-      for (let i = 0; i < 3; i++) {
-        try {
-          JSON.parse(decoded);
-          break; // It's valid JSON, stop decoding
-        } catch {
-          decoded = decodeURIComponent(decoded);
-        }
-      }
+      let raw = sessionCookie.split('=').slice(1).join('=');
+      let decoded = raw;
+      for (let i = 0; i < 3; i++) { try { JSON.parse(decoded); break; } catch { decoded = decodeURIComponent(decoded); } }
 
       const sessionData = JSON.parse(decoded);
-      const roles = sessionData.roles || [];
+      let userRoles = sessionData.roles || [];
 
-      if (roles.length === 0) {
-        // No roles in cookie — try fetching fresh from API
+      // If roles empty, fetch fresh from API
+      if (userRoles.length === 0 && sessionData.user_id) {
         try {
           const res = await fetch('/api/data', {
             method: 'POST', cache: 'no-store',
@@ -46,99 +39,63 @@ export default function DashboardRouter() {
           });
           const freshData = await res.json();
           if (freshData.data && freshData.data.length > 0) {
-            // Update cookie with fresh roles
-            sessionData.roles = freshData.data;
+            userRoles = freshData.data;
+            // Update cookie
+            sessionData.roles = userRoles;
             document.cookie = `myeduride_session=${encodeURIComponent(JSON.stringify(sessionData))}; path=/; max-age=${60*60*24*7}`;
-            const freshRoles = [...new Set(freshData.data.map((r: any) => r.role))] as UserRole[];
-            if (freshRoles.length === 1) { redirectToRoleDashboard(freshRoles[0]); return; }
-            setLoading(false);
-            return;
           }
         } catch {}
-        
-        // Still no roles — redirect to super admin if user exists
-        if (sessionData.user_id) {
-          router.push('/dashboard/super-admin');
-          return;
-        }
-        router.push('/auth/login');
+      }
+
+      // Still no roles — go to super admin as fallback
+      if (userRoles.length === 0) {
+        router.push('/dashboard/super-admin');
         return;
       }
 
-      const uniqueRoles = [...new Set(roles.map((r: any) => r.role))] as UserRole[];
+      const uniqueRoles = [...new Set(userRoles.map((r: any) => r.role))] as string[];
 
       if (uniqueRoles.length === 1) {
-        redirectToRoleDashboard(uniqueRoles[0]);
+        redirectToRole(uniqueRoles[0]);
         return;
       }
 
+      setRoles(uniqueRoles);
       setLoading(false);
-    } catch (err) {
-      console.error('[DASHBOARD] Parse error:', err);
-      // Clear bad cookie and redirect to login
+    } catch {
       document.cookie = 'myeduride_session=; path=/; max-age=0';
       router.push('/auth/login');
     }
-  }, [router]);
+  };
 
-  const redirectToRoleDashboard = (role: UserRole) => {
+  const redirectToRole = (role: string) => {
     switch (role) {
       case 'super_admin': router.push('/dashboard/super-admin'); break;
       case 'school_admin': router.push('/dashboard/school-admin'); break;
       case 'teacher': router.push('/dashboard/teacher'); break;
       case 'gate_officer': router.push('/dashboard/gate'); break;
       case 'parent': router.push('/dashboard/parent'); break;
+      default: router.push('/dashboard/super-admin');
     }
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-pulse text-primary-600 text-lg">Loading dashboard...</div>
-      </div>
-    );
+    return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse text-primary-600">Loading...</div></div>;
   }
-
-  // Multiple roles — show role picker
-  const cookieStr2 = document.cookie.split('; ').find(c => c.startsWith('myeduride_session='));
-  let sessionForRender = { roles: [] as any[] };
-  if (cookieStr2) {
-    let raw = cookieStr2.split('=').slice(1).join('=');
-    let dec = raw;
-    for (let i = 0; i < 3; i++) { try { JSON.parse(dec); break; } catch { dec = decodeURIComponent(dec); } }
-    try { sessionForRender = JSON.parse(dec); } catch {}
-  }
-  const uniqueRoles = [...new Set(sessionForRender.roles.map((r: any) => r.role))] as UserRole[];
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+    <div className="min-h-screen flex items-center justify-center px-4">
       <div className="bg-white rounded-2xl shadow-xl border p-8 w-full max-w-md">
-        <h2 className="text-xl font-bold text-center mb-6">Select Your Dashboard</h2>
+        <h2 className="text-xl font-bold text-center mb-6">Select Dashboard</h2>
         <div className="space-y-3">
-          {uniqueRoles.map((role) => (
-            <button
-              key={role}
-              onClick={() => redirectToRoleDashboard(role)}
-              className="w-full p-4 text-left rounded-xl border border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-colors"
-            >
+          {roles.map((role) => (
+            <button key={role} onClick={() => redirectToRole(role)}
+              className="w-full p-4 text-left rounded-xl border border-gray-200 hover:border-primary-300 hover:bg-primary-50 transition-all">
               <span className="font-medium capitalize">{role.replace('_', ' ')}</span>
-              <span className="block text-sm text-gray-500 mt-1">
-                {getRoleDescription(role)}
-              </span>
             </button>
           ))}
         </div>
       </div>
     </div>
   );
-}
-
-function getRoleDescription(role: UserRole): string {
-  switch (role) {
-    case 'super_admin': return 'Manage all schools and system settings';
-    case 'school_admin': return 'Manage students, staff, and school operations';
-    case 'teacher': return 'View class attendance and authorize dismissals';
-    case 'gate_officer': return 'Verify students at the gate';
-    case 'parent': return 'View your children attendance and notifications';
-  }
 }
