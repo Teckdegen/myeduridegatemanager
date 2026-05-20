@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import type { School } from '@/lib/types';
 import { Building2, Users, Plus, Search, Settings, BarChart3, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -23,58 +22,42 @@ export default function SuperAdminDashboard() {
   }, []);
 
   const fetchSchools = async () => {
-    const supabase = createClient();
+    try {
+      const res = await fetch('/api/schools/list');
+      const data = await res.json();
 
-    // Get all schools
-    const { data: schoolsData } = await supabase
-      .from('schools')
-      .select('*')
-      .order('name');
+      if (!res.ok || !data.schools) {
+        setLoading(false);
+        return;
+      }
 
-    if (!schoolsData) {
-      setLoading(false);
-      return;
+      const schoolsWithStats = data.schools;
+      setSchools(schoolsWithStats);
+      setTotalStats({
+        schools: schoolsWithStats.length,
+        students: schoolsWithStats.reduce((sum: number, s: any) => sum + s.student_count, 0),
+        staff: schoolsWithStats.reduce((sum: number, s: any) => sum + s.staff_count, 0),
+      });
+    } catch (err) {
+      console.error('Failed to fetch schools:', err);
     }
-
-    // Get student counts per school
-    const { data: studentCounts } = await supabase
-      .from('students')
-      .select('school_id')
-      .eq('is_active', true);
-
-    // Get staff counts per school
-    const { data: staffCounts } = await supabase
-      .from('user_school_roles')
-      .select('school_id')
-      .in('role', ['school_admin', 'teacher', 'gate_officer'])
-      .eq('is_active', true);
-
-    const schoolsWithStats: SchoolWithStats[] = schoolsData.map(school => ({
-      ...school,
-      student_count: studentCounts?.filter(s => s.school_id === school.id).length || 0,
-      staff_count: staffCounts?.filter(s => s.school_id === school.id).length || 0,
-    }));
-
-    setSchools(schoolsWithStats);
-    setTotalStats({
-      schools: schoolsWithStats.length,
-      students: studentCounts?.length || 0,
-      staff: staffCounts?.length || 0,
-    });
     setLoading(false);
   };
 
   const handleDeleteSchool = async (schoolId: string, schoolName: string) => {
     if (!confirm(`Are you sure you want to delete "${schoolName}"? This will remove all associated data.`)) return;
 
-    const supabase = createClient();
-    const { error } = await supabase.from('schools').delete().eq('id', schoolId);
+    const res = await fetch(`/api/schools/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ school_id: schoolId }),
+    });
 
-    if (error) {
-      toast.error('Failed to delete school');
-    } else {
+    if (res.ok) {
       setSchools(prev => prev.filter(s => s.id !== schoolId));
       toast.success(`${schoolName} deleted`);
+    } else {
+      toast.error('Failed to delete school');
     }
   };
 
