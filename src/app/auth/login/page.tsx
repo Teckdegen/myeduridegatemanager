@@ -16,109 +16,102 @@ export default function LoginPage() {
   const router = useRouter();
 
   const handleSendOTP = async () => {
+    if (!email.trim()) return;
     setLoading(true);
     setError('');
 
     try {
-      const res = await fetch('/api/auth/send-otp', {
+      const response = await fetch('/api/auth/send-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim() }),
       });
 
-      if (!res.ok) {
-        const text = await res.text();
-        try {
-          const data = JSON.parse(text);
-          setError(data.error || 'Failed to send code.');
-        } catch {
-          setError('Server error. Please try again.');
-        }
+      const text = await response.text();
+      console.log('[LOGIN] send-otp response status:', response.status);
+      console.log('[LOGIN] send-otp response body:', text);
+
+      let data: any = {};
+      try { data = JSON.parse(text); } catch { data = { error: text }; }
+
+      if (!response.ok) {
+        setError(data.error || 'Failed to send code.');
+        setLoading(false);
         return;
       }
 
-      setStep('otp');
+      if (data.success) {
+        setStep('otp');
+      } else {
+        setError(data.error || 'Unknown error');
+      }
     } catch (err: any) {
-      setError(err?.message || 'Something went wrong. Please try again.');
-    } finally {
-      setLoading(false);
+      console.error('[LOGIN] fetch error:', err);
+      setError('Network error. Check your connection.');
     }
+
+    setLoading(false);
   };
 
   const handleVerifyOTP = async () => {
+    if (otp.length !== 6) return;
     setLoading(true);
     setError('');
 
     try {
-      const res = await fetch('/api/auth/verify-otp', {
+      const response = await fetch('/api/auth/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), code: otp }),
       });
 
-      if (!res.ok) {
-        const text = await res.text();
-        try {
-          const data = JSON.parse(text);
-          setError(data.error || 'Invalid code.');
-        } catch {
-          setError('Verification failed. Try again.');
-        }
+      const text = await response.text();
+      console.log('[LOGIN] verify-otp response status:', response.status);
+      console.log('[LOGIN] verify-otp response body:', text);
+
+      let data: any = {};
+      try { data = JSON.parse(text); } catch { data = { error: text }; }
+
+      if (!response.ok) {
+        setError(data.error || 'Invalid code.');
+        setLoading(false);
         return;
       }
 
-      const data = await res.json();
-
-      // Use the magic link token to create a Supabase session
-      if (data.redirect_url) {
-        const url = new URL(data.redirect_url);
-        const tokenHash = url.searchParams.get('token_hash') || data.token_hash;
-        const type = url.searchParams.get('type') || 'magiclink';
-
-        if (tokenHash) {
-          const supabase = createClient();
-          await supabase.auth.verifyOtp({
-            token_hash: tokenHash,
-            type: type as any,
-          });
-        }
+      // Create Supabase session if token provided
+      if (data.token_hash) {
+        const supabase = createClient();
+        await supabase.auth.verifyOtp({
+          token_hash: data.token_hash,
+          type: 'magiclink',
+        });
       }
 
       router.push('/dashboard');
     } catch (err: any) {
-      setError(err?.message || 'Verification failed. Please try again.');
-    } finally {
-      setLoading(false);
+      console.error('[LOGIN] verify error:', err);
+      setError('Verification failed. Try again.');
     }
+
+    setLoading(false);
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
       {/* Background video */}
-      <video
-        autoPlay
-        muted
-        loop
-        playsInline
-        className="absolute inset-0 w-full h-full object-cover"
-      >
+      <video autoPlay muted loop playsInline className="absolute inset-0 w-full h-full object-cover">
         <source src={BG_VIDEO_URL} type="video/mp4" />
       </video>
 
-      {/* Dark overlay - subtle */}
+      {/* Dark overlay */}
       <div className="absolute inset-0 bg-black/40" />
 
       {/* Content */}
       <div className="relative z-10 w-full max-w-md px-4">
-        {/* Card - glassmorphism transparent */}
         <div className="bg-white/10 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 p-8">
-          {/* Logo and branding */}
+          {/* Logo */}
           <div className="text-center mb-8">
-            <img
-              src={LOGO_URL}
-              alt="MyEduRide"
-              className="h-16 mx-auto mb-4 object-contain"
-            />
+            <img src={LOGO_URL} alt="MyEduRide" className="h-16 mx-auto mb-4 object-contain" />
             <h1 className="text-2xl font-bold text-white">Welcome Back</h1>
             <p className="text-white/60 mt-1 text-sm">Sign in to your MyEduRide account</p>
           </div>
@@ -126,11 +119,8 @@ export default function LoginPage() {
           {step === 'email' ? (
             <div className="space-y-5">
               <div>
-                <label htmlFor="email" className="block text-sm font-medium text-white/80 mb-1.5">
-                  Email Address
-                </label>
+                <label className="block text-sm font-medium text-white/80 mb-1.5">Email Address</label>
                 <input
-                  id="email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -150,7 +140,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={handleSendOTP}
-                disabled={loading || !email}
+                disabled={loading || !email.trim()}
                 className="w-full py-3 px-4 rounded-xl bg-white text-primary-700 font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/90 shadow-lg"
               >
                 {loading ? 'Sending code...' : 'Send Login Code'}
@@ -158,18 +148,15 @@ export default function LoginPage() {
             </div>
           ) : (
             <div className="space-y-5">
-              <div className="text-center p-4 rounded-xl bg-green-500/20 border border-green-400/30 mb-2">
+              <div className="text-center p-4 rounded-xl bg-green-500/20 border border-green-400/30">
                 <p className="text-sm text-green-200">
-                  We sent a 6-digit code to <strong className="text-white">{email}</strong>
+                  Code sent to <strong className="text-white">{email}</strong>
                 </p>
               </div>
 
               <div>
-                <label htmlFor="otp" className="block text-sm font-medium text-white/80 mb-1.5">
-                  Enter Code
-                </label>
+                <label className="block text-sm font-medium text-white/80 mb-1.5">Enter Code</label>
                 <input
-                  id="otp"
                   type="text"
                   value={otp}
                   onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
@@ -207,10 +194,7 @@ export default function LoginPage() {
           )}
         </div>
 
-        {/* Footer */}
-        <p className="text-center text-xs text-white/60 mt-6">
-          MyEduRide — The Student Safety Platform
-        </p>
+        <p className="text-center text-xs text-white/60 mt-6">MyEduRide — The Student Safety Platform</p>
       </div>
     </div>
   );

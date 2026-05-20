@@ -16,7 +16,13 @@ export async function POST(request: NextRequest) {
     const { createClient } = require('@supabase/supabase-js');
     let url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     url = url.replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '');
-    const supabase = createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    console.log('[OTP] Supabase URL:', url);
+    console.log('[OTP] Service key exists:', !!serviceKey);
+    console.log('[OTP] Looking up email:', email);
+
+    const supabase = createClient(url, serviceKey);
 
     // Check if user exists
     const { data: profile, error: profileErr } = await supabase
@@ -26,8 +32,11 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (profileErr || !profile) {
+      console.error('[OTP] Profile lookup failed:', profileErr?.message || 'not found');
       return NextResponse.json({ error: 'No account found with this email.' }, { status: 404 });
     }
+
+    console.log('[OTP] Profile found:', profile.id, profile.full_name);
 
     // Generate 6-digit code
     const code = Math.floor(100000 + Math.random() * 900000).toString();
@@ -46,8 +55,11 @@ export async function POST(request: NextRequest) {
       .insert({ email, code, expires_at: expiresAt, used: false });
 
     if (insertErr) {
+      console.error('[OTP] Insert failed:', insertErr.message);
       return NextResponse.json({ error: 'Failed to generate code. Try again.' }, { status: 500 });
     }
+
+    console.log('[OTP] Code stored successfully:', code);
 
     // Try to send email (don't fail if this doesn't work)
     try {
