@@ -11,36 +11,41 @@ export default function DashboardRouter() {
 
   useEffect(() => {
     // Read session from cookie
-    const cookieStr = document.cookie
-      .split('; ')
-      .find(c => c.startsWith('myeduride_session='));
+    const cookies = document.cookie.split('; ');
+    const sessionCookie = cookies.find(c => c.startsWith('myeduride_session='));
 
-    if (!cookieStr) {
+    console.log('[DASHBOARD] All cookies:', document.cookie);
+    console.log('[DASHBOARD] Session cookie found:', !!sessionCookie);
+
+    if (!sessionCookie) {
       router.push('/auth/login');
       return;
     }
 
     try {
-      const sessionData = JSON.parse(decodeURIComponent(cookieStr.split('=').slice(1).join('=')));
+      const rawValue = sessionCookie.split('=').slice(1).join('=');
+      const decoded = decodeURIComponent(rawValue);
+      console.log('[DASHBOARD] Decoded session:', decoded);
+      const sessionData = JSON.parse(decoded);
       const roles = sessionData.roles || [];
+
+      console.log('[DASHBOARD] Roles:', roles);
 
       if (roles.length === 0) {
         router.push('/auth/login');
         return;
       }
 
-      // Get unique role types
       const uniqueRoles = [...new Set(roles.map((r: any) => r.role))] as UserRole[];
 
-      // If only one role, redirect directly
       if (uniqueRoles.length === 1) {
         redirectToRoleDashboard(uniqueRoles[0]);
         return;
       }
 
-      // Multiple roles — show picker
       setLoading(false);
-    } catch {
+    } catch (err) {
+      console.error('[DASHBOARD] Parse error:', err);
       router.push('/auth/login');
     }
   }, [router]);

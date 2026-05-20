@@ -59,9 +59,9 @@ export async function POST(request: NextRequest) {
       roles: roles || [],
     });
 
-    response.cookies.set('myeduride_session', sessionData, {
+    response.cookies.set('myeduride_session', encodeURIComponent(sessionData), {
       httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
+      secure: false,
       sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 7,
       path: '/',

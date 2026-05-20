@@ -77,8 +77,9 @@ export default function LoginPage() {
         return;
       }
 
-      // Session cookie set by API — just redirect
-      router.push('/dashboard');
+      // Session cookie set by API — wait a moment then redirect
+      await new Promise(resolve => setTimeout(resolve, 500));
+      window.location.href = '/dashboard';
     } catch (err: any) {
       console.error('[LOGIN] verify error:', err);
       setError('Verification failed. Try again.');
