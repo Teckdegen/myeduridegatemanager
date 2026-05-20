@@ -15,8 +15,7 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const router = useRouter();
 
-  const handleSendOTP = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSendOTP = async () => {
     setLoading(true);
     setError('');
 
@@ -46,8 +45,7 @@ export default function LoginPage() {
     }
   };
 
-  const handleVerifyOTP = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleVerifyOTP = async () => {
     setLoading(true);
     setError('');
 
@@ -126,7 +124,7 @@ export default function LoginPage() {
           </div>
 
           {step === 'email' ? (
-            <form onSubmit={handleSendOTP} className="space-y-5">
+            <div className="space-y-5">
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-white/80 mb-1.5">
                   Email Address
@@ -138,7 +136,7 @@ export default function LoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="Enter your email"
                   className="w-full px-4 py-3 border border-white/20 rounded-xl focus:ring-2 focus:ring-white/40 focus:border-transparent outline-none text-white placeholder:text-white/40 transition-all bg-white/10 backdrop-blur-sm"
-                  required
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSendOTP(); }}
                   autoFocus
                 />
               </div>
@@ -150,15 +148,16 @@ export default function LoginPage() {
               )}
 
               <button
-                type="submit"
+                type="button"
+                onClick={handleSendOTP}
                 disabled={loading || !email}
                 className="w-full py-3 px-4 rounded-xl bg-white text-primary-700 font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/90 shadow-lg"
               >
                 {loading ? 'Sending code...' : 'Send Login Code'}
               </button>
-            </form>
+            </div>
           ) : (
-            <form onSubmit={handleVerifyOTP} className="space-y-5">
+            <div className="space-y-5">
               <div className="text-center p-4 rounded-xl bg-green-500/20 border border-green-400/30 mb-2">
                 <p className="text-sm text-green-200">
                   We sent a 6-digit code to <strong className="text-white">{email}</strong>
@@ -177,7 +176,7 @@ export default function LoginPage() {
                   placeholder="000000"
                   className="w-full px-4 py-3 border border-white/20 rounded-xl focus:ring-2 focus:ring-white/40 focus:border-transparent outline-none text-center text-2xl tracking-[0.3em] font-mono text-white placeholder:text-white/30 transition-all bg-white/10 backdrop-blur-sm"
                   maxLength={6}
-                  required
+                  onKeyDown={(e) => { if (e.key === 'Enter' && otp.length === 6) handleVerifyOTP(); }}
                   autoFocus
                 />
               </div>
@@ -189,7 +188,8 @@ export default function LoginPage() {
               )}
 
               <button
-                type="submit"
+                type="button"
+                onClick={handleVerifyOTP}
                 disabled={loading || otp.length !== 6}
                 className="w-full py-3 px-4 rounded-xl bg-white text-primary-700 font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/90 shadow-lg"
               >
@@ -203,7 +203,7 @@ export default function LoginPage() {
               >
                 Use a different email
               </button>
-            </form>
+            </div>
           )}
         </div>
 
