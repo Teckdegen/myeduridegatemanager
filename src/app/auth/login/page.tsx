@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 
 const LOGO_URL = 'https://www.image2url.com/r2/default/images/1779230378321-292c7b74-6217-41ff-832a-180a535ea4cb.png';
@@ -78,15 +77,7 @@ export default function LoginPage() {
         return;
       }
 
-      // Create Supabase session if token provided
-      if (data.token_hash) {
-        const supabase = createClient();
-        await supabase.auth.verifyOtp({
-          token_hash: data.token_hash,
-          type: 'magiclink',
-        });
-      }
-
+      // Session cookie set by API — just redirect
       router.push('/dashboard');
     } catch (err: any) {
       console.error('[LOGIN] verify error:', err);

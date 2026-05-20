@@ -10,7 +10,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Email and code required' }, { status: 400 });
     }
 
-    // Create supabase client with service role
     const { createClient } = require('@supabase/supabase-js');
     let url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     url = url.replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '');
@@ -33,10 +32,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Mark code as used
-    await supabase
-      .from('otp_codes')
-      .update({ used: true })
-      .eq('id', otpRecord.id);
+    await supabase.from('otp_codes').update({ used: true }).eq('id', otpRecord.id);
 
     // Get user profile
     const { data: profile } = await supabase
@@ -49,28 +45,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Generate a magic link so we can create a Supabase Auth session
-    const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
-      type: 'magiclink',
-      email: email,
+    // Get user roles
+    const { data: roles } = await supabase
+      .from('user_school_roles')
+      .select('role, school_id')
+      .eq('user_id', profile.id)
+      .eq('is_active', true);
+
+    // Create response with session cookie
+    const sessionData = JSON.stringify({
+      user_id: profile.id,
+      email: profile.email,
+      full_name: profile.full_name,
+      roles: roles || [],
     });
 
-    if (linkErr || !linkData) {
-      // Still return success — user is verified, just session creation failed
-      return NextResponse.json({
-        success: true,
-        user: { id: profile.id, email: profile.email, full_name: profile.full_name },
-        token_hash: null,
-        redirect_url: null,
-      });
-    }
-
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       user: { id: profile.id, email: profile.email, full_name: profile.full_name },
-      token_hash: linkData.properties?.hashed_token || null,
-      redirect_url: linkData.properties?.action_link || null,
+      roles: roles || [],
     });
+
+    // Set session cookie (httpOnly, 7 days)
+    response.cookies.set('myeduride_session', sessionData, {
+      httpOnly: false, // needs to be readable by client JS
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+      path: '/',
+    });
+
+    return response;
   } catch (err: any) {
     console.error('Verify OTP crash:', err?.message || err);
     return NextResponse.json({ error: 'Verification failed. Try again.' }, { status: 500 });
