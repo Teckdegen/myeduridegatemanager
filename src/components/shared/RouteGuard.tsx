@@ -34,6 +34,13 @@ export function RouteGuard({ requiredRole, children }: Props) {
       const data = await res.json();
       const roles = data.data?.map((r: any) => r.role) || [];
 
+      // Super admin can access EVERYTHING
+      if (roles.includes('super_admin')) {
+        setAuthorized(true);
+        setChecking(false);
+        return;
+      }
+
       if (roles.includes(requiredRole)) {
         setAuthorized(true);
       } else if (roles.length > 0) {
