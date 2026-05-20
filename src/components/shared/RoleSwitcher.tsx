@@ -27,15 +27,10 @@ export function RoleSwitcher() {
     setSessionData(s);
     if (!s?.user_id) return;
 
-    fetch('/api/data', {
-      method: 'POST', cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'query', params: { table: 'user_school_roles', select: 'role', filters: { user_id: s.user_id, is_active: true } } }),
-    }).then(r => r.json()).then(data => {
-      if (data.data) setUserRoles([...new Set(data.data.map((r: any) => r.role))] as string[]);
-    }).catch(() => {
-      if (s.roles?.length) setUserRoles([...new Set(s.roles.map((r: any) => r.role))] as string[]);
-    });
+    // Use roles from cookie — instant, no API call
+    if (s.roles?.length) {
+      setUserRoles([...new Set(s.roles.map((r: any) => r.role))] as string[]);
+    }
   }, []);
 
   if (!mounted) return <div className="w-8 h-8 rounded-full bg-gray-200 animate-pulse" />;

@@ -15,56 +15,49 @@ export function RouteGuard({ requiredRole, children }: Props) {
   const router = useRouter();
 
   useEffect(() => {
-    checkAccess();
-  }, []);
-
-  const checkAccess = async () => {
     const session = getSession();
+    
+    // No session at all — redirect to login
     if (!session?.user_id) {
       router.replace('/auth/login');
       return;
     }
 
-    try {
-      const res = await fetch('/api/data', {
-        method: 'POST', cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'query', params: { table: 'user_school_roles', select: 'role', filters: { user_id: session.user_id, is_active: true } } }),
-      });
-      const data = await res.json();
-      const roles = data.data?.map((r: any) => r.role) || [];
+    // Get roles from cookie (no API call — instant)
+    const roles = (session.roles || []).map((r: any) => r.role);
 
-      // Super admin can access EVERYTHING
-      if (roles.includes('super_admin')) {
-        setAuthorized(true);
-        setChecking(false);
-        return;
-      }
-
-      if (roles.includes(requiredRole)) {
-        setAuthorized(true);
-      } else if (roles.length > 0) {
-        // Redirect to first available role
-        const roleToPath: Record<string, string> = {
-          super_admin: '/dashboard/super-admin',
-          school_admin: '/dashboard/school-admin',
-          teacher: '/dashboard/teacher',
-          gate_officer: '/dashboard/gate',
-          parent: '/dashboard/parent',
-        };
-        router.replace(roleToPath[roles[0]] || '/dashboard');
-      } else {
-        router.replace('/auth/login');
-      }
-    } catch {
-      // If API fails, allow access (don't lock users out)
+    // Super admin can access everything
+    if (roles.includes('super_admin')) {
       setAuthorized(true);
+      setChecking(false);
+      return;
     }
-    setChecking(false);
-  };
+
+    // Check if user has the required role
+    if (roles.includes(requiredRole)) {
+      setAuthorized(true);
+      setChecking(false);
+      return;
+    }
+
+    // User doesn't have this role — redirect to their first available role
+    if (roles.length > 0) {
+      const roleToPath: Record<string, string> = {
+        super_admin: '/dashboard/super-admin',
+        school_admin: '/dashboard/school-admin',
+        teacher: '/dashboard/teacher',
+        gate_officer: '/dashboard/gate',
+        parent: '/dashboard/parent',
+      };
+      router.replace(roleToPath[roles[0]] || '/dashboard');
+    } else {
+      // No roles but has session — don't log out, just go to dashboard
+      router.replace('/dashboard');
+    }
+  }, [requiredRole, router]);
 
   if (checking) {
-    return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse text-primary-600">Checking access...</div></div>;
+    return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse text-primary-600">Loading...</div></div>;
   }
 
   if (!authorized) return null;
