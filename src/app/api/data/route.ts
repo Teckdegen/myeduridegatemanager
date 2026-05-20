@@ -9,8 +9,14 @@ export async function POST(request: NextRequest) {
     }
 
     let session: any;
-    try { session = JSON.parse(sessionCookie); } catch { return NextResponse.json({ error: 'Invalid session' }, { status: 401 }); }
-    if (!session.user_id) return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
+    try {
+      let decoded = sessionCookie;
+      for (let i = 0; i < 3; i++) {
+        try { session = JSON.parse(decoded); break; } catch { decoded = decodeURIComponent(decoded); }
+      }
+      if (!session) session = JSON.parse(decodeURIComponent(decodeURIComponent(sessionCookie)));
+    } catch { return NextResponse.json({ error: 'Invalid session' }, { status: 401 }); }
+    if (!session || !session.user_id) return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
 
     const { action, params } = await request.json();
     const supabase = getAdminClient();
