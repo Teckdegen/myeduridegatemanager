@@ -61,7 +61,7 @@ export default function ParentDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8faf9] flex flex-col">
+    <div className="min-h-screen flex flex-col">
       {/* Slim header — no role switcher overlap */}
       <header className="bg-white border-b border-gray-100 px-4 pt-12 pb-3 safe-top">
         <div className="max-w-lg mx-auto flex items-center justify-between gap-2 pr-14">

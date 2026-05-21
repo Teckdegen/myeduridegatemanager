@@ -6,6 +6,8 @@ import { fetchData } from '@/lib/api';
 import { Plus, Trash2, GraduationCap, DoorOpen, Shield } from 'lucide-react';
 import { toast } from 'sonner';
 import FaceCapture from '@/components/shared/FaceCapture';
+import StudentAvatar from '@/components/shared/StudentAvatar';
+import { PageHeader } from '@/components/ui/PageHeader';
 
 export default function StaffManagementPage() {
   const [staff, setStaff] = useState([]);
@@ -20,8 +22,16 @@ export default function StaffManagementPage() {
       const schoolData = await fetchData('get_school_admin_data', { role: 'school_admin' });
       if (!schoolData.school_id) { setLoading(false); return; }
       setSchoolId(schoolData.school_id);
-      const result = await fetchData('query', { table: 'user_school_roles', select: '*, profile:user_profiles(*)', filters: { school_id: schoolData.school_id, is_active: true } });
-      setStaff((result.data || []).filter((r) => ['school_admin', 'teacher', 'gate_officer'].includes(r.role)));
+      const staffRes = await fetch(`/api/schools/staff?school_id=${schoolData.school_id}`, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const staffData = await staffRes.json();
+      setStaff(
+        (staffData.staff || []).filter((r) =>
+          ['school_admin', 'teacher', 'gate_officer'].includes(r.role)
+        )
+      );
     } catch (err) { console.error(err); }
     setLoading(false);
   };
@@ -41,22 +51,26 @@ export default function StaffManagementPage() {
   if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse text-primary-600">Loading...</div></div>;
 
   return (
-    <div className="p-6 min-h-screen">
-      <div className="flex items-center justify-between mb-6">
-        <div><h1 className="text-2xl font-bold">Staff ({staff.length})</h1><p className="text-sm text-gray-500">Teachers, gate officers, and admins</p></div>
-        <div className="flex gap-2">
-          <a href="/dashboard/school-admin/id-cards" className="btn-secondary flex items-center gap-1 text-sm">ID Cards</a>
-          <button onClick={() => setShowAddModal(true)} className="btn-primary flex items-center gap-1 text-sm"><Plus size={16} /> Add Staff</button>
-        </div>
-      </div>
+    <div className="page-shell md:ml-56">
+      <PageHeader
+        title={`Staff (${staff.length})`}
+        subtitle="Teachers, gate officers, and school admins"
+        action={
+          <button onClick={() => setShowAddModal(true)} className="btn-primary flex items-center gap-1 text-sm">
+            <Plus size={16} /> Add Staff
+          </button>
+        }
+      />
 
-      <div className="card p-0 overflow-hidden">
-        <div className="divide-y">
+      <div className="card-elevated divide-y divide-slate-100">
           {staff.map((s) => (
-            <div key={s.id} className="px-4 py-3 flex items-center gap-3 hover:bg-gray-50">
-              <div className="w-9 h-9 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 text-xs font-bold">
-                {s.profile?.full_name?.split(' ').map(n => n[0]).join('').slice(0,2) || '?'}
-              </div>
+            <div key={s.id} className="list-row">
+              <StudentAvatar
+                photoUrl={s.staff?.photo_url}
+                firstName={s.profile?.full_name?.split(' ')[0]}
+                lastName={s.profile?.full_name?.split(' ').slice(1).join(' ')}
+                size="sm"
+              />
               <div className="flex-1">
                 <p className="text-sm font-medium">{s.profile?.full_name || 'Unknown'}</p>
                 <p className="text-xs text-gray-500">{s.profile?.email}</p>
@@ -66,7 +80,6 @@ export default function StaffManagementPage() {
             </div>
           ))}
           {staff.length === 0 && <div className="py-8 text-center text-gray-400">No staff yet</div>}
-        </div>
       </div>
 
       {showAddModal && <AddStaffModal schoolId={schoolId} onClose={() => setShowAddModal(false)} onSuccess={() => { setShowAddModal(false); loadStaff(); }} />}

@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import type { Student } from '@/lib/types';
 import { Users, GraduationCap, ArrowLeft, UserPlus } from 'lucide-react';
 import Link from 'next/link';
+import StudentAvatar from '@/components/shared/StudentAvatar';
 
 export default function ClassDetailPage() {
   const params = useParams();
@@ -101,13 +102,12 @@ export default function ClassDetailPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {students.map(student => (
           <div key={student.id} className="card flex items-center gap-3 py-4">
-            {student.photo_url ? (
-              <img src={student.photo_url} alt="" className="w-10 h-10 rounded-full object-cover" />
-            ) : (
-              <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 text-sm font-bold">
-                {student.first_name[0]}{student.last_name[0]}
-              </div>
-            )}
+            <StudentAvatar
+              photoUrl={student.photo_url}
+              firstName={student.first_name}
+              lastName={student.last_name}
+              size="sm"
+            />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{student.first_name} {student.last_name}</p>
               <p className="text-xs text-gray-400">{student.student_id_number}</p>

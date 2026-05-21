@@ -62,7 +62,12 @@ export default function AddStudentPage() {
       const result = await res.json();
       if (result.success) {
         const id = result.student?.student_id_number || 'assigned';
-        toast.success(`Student added! ID: ${id}`);
+        const hasPhoto = !!result.student?.photo_url;
+        toast.success(
+          hasPhoto
+            ? `Student added with photo! ID: ${id}`
+            : `Student added (ID: ${id}) — photo was not saved; try again`
+        );
         router.push('/dashboard/school-admin/students');
       }
       else toast.error(result.error || 'Failed');

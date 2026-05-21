@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { fetchData } from '@/lib/api';
-import { photoSrc } from '@/lib/photo';
+import StudentAvatar from '@/components/shared/StudentAvatar';
 import { LogIn, LogOut, Camera, CheckCircle, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -276,17 +276,12 @@ export default function GateOfficerDashboard() {
         {scannedPerson ? (
           <div className="card mt-4">
             <div className="flex items-center gap-4 mb-4">
-              {personPhoto ? (
-                <img
-                  src={personPhoto}
-                  alt=""
-                  className="w-16 h-16 rounded-xl object-cover border-2 border-primary-200"
-                />
-              ) : (
-                <div className="w-16 h-16 rounded-xl bg-primary-100 flex items-center justify-center text-primary-700 text-xl font-bold">
-                  {scannedPerson.person.name?.split(' ').map((n) => n[0]).join('').slice(0, 2)}
-                </div>
-              )}
+              <StudentAvatar
+                photoUrl={scannedPerson.person.photo_url}
+                firstName={scannedNameParts[0]}
+                lastName={scannedNameParts.slice(1).join(' ')}
+                size="lg"
+              />
               <div>
                 <p className="text-lg font-bold">{scannedPerson.person.name}</p>
                 <p className="text-sm text-gray-500 font-mono">

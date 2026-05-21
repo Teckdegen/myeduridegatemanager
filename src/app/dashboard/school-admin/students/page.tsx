@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { fetchData } from '@/lib/api';
-import { Search, Plus, Download, Trash2, Edit, X } from 'lucide-react';
+import { Search, Plus, Trash2, Edit, X } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import StudentAvatar from '@/components/shared/StudentAvatar';
@@ -34,8 +34,12 @@ export default function StudentsListPage() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ student_id: studentId }),
     });
-    if (res.ok) { toast.success(`${name} deleted`); loadStudents(); }
-    else toast.error('Failed to delete');
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      const extra = data.parents_removed > 0 ? ` (${data.parents_removed} parent account${data.parents_removed > 1 ? 's' : ''} removed — no other children)` : '';
+      toast.success(`${name} deleted${extra}`);
+      loadStudents();
+    } else toast.error(data.error || 'Failed to delete');
   };
 
   const handleSaveEdit = async () => {
@@ -62,9 +66,6 @@ export default function StudentsListPage() {
           <p className="text-sm text-gray-500">Manage enrolled students</p>
         </div>
         <div className="flex gap-2">
-          <Link href="/dashboard/school-admin/id-cards" className="btn-secondary flex items-center gap-1 text-sm">
-            <Download size={16} /> ID Cards
-          </Link>
           <Link href="/dashboard/school-admin/students/new" className="btn-primary flex items-center gap-1 text-sm">
             <Plus size={16} /> Add Student
           </Link>

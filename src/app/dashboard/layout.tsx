@@ -11,7 +11,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const isParent = pathname?.startsWith('/dashboard/parent');
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-transparent">
       <div className="fixed top-3 right-3 z-30 flex items-center gap-1">
         <RoleSwitcher showLogout={false} />
         {!isSchoolAdmin && !isParent && (

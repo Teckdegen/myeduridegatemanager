@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { fetchData, getSession } from '@/lib/api';
 import { Users, GraduationCap, UserCheck, Clock, TrendingUp, AlertTriangle, Plus, Bell, School } from 'lucide-react';
 import Link from 'next/link';
+import StudentAvatar from '@/components/shared/StudentAvatar';
 
 export default function SchoolAdminDashboard() {
   const [stats, setStats] = useState({
@@ -214,9 +215,13 @@ export default function SchoolAdminDashboard() {
           <div className="space-y-3">
             {recentActivity.slice(0, 5).map((record: any) => (
               <div key={record.id} className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-600">
-                  {record.student?.first_name?.[0]}{record.student?.last_name?.[0]}
-                </div>
+                <StudentAvatar
+                  photoUrl={record.student?.photo_url}
+                  firstName={record.student?.first_name}
+                  lastName={record.student?.last_name}
+                  size="sm"
+                  accentColor="#64748b"
+                />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{record.student?.first_name} {record.student?.last_name}</p>
                   <p className="text-xs text-gray-400">{record.type === 'arrival' ? 'Arrived' : 'Left'}</p>

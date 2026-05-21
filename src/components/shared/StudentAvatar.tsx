@@ -12,9 +12,9 @@ type StudentAvatarProps = {
 };
 
 const sizes = {
-  sm: 'w-10 h-10 text-sm rounded-lg',
-  md: 'w-16 h-16 text-lg rounded-xl',
-  lg: 'w-24 h-24 text-2xl rounded-2xl',
+  sm: 'w-10 h-10 text-sm rounded-full',
+  md: 'w-14 h-14 text-base rounded-full',
+  lg: 'w-20 h-20 text-xl rounded-full',
 };
 
 export default function StudentAvatar({
@@ -33,7 +33,7 @@ export default function StudentAvatar({
       <img
         src={src}
         alt={`${firstName} ${lastName}`.trim()}
-        className={`${sizes[size]} object-cover shrink-0 border-2 border-white shadow-sm`}
+        className={`${sizes[size]} object-cover shrink-0 border-2 border-white shadow-md ring-1 ring-gray-100`}
         onError={() => setFailed(true)}
       />
     );

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { ensureAuthUser, ensureUserProfile } from '@/lib/auth/ensure-user';
+import { uploadBase64Photo } from '@/lib/storage/upload-photo';
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,26 +15,17 @@ export async function POST(request: NextRequest) {
     const studentIdNumber = `STU-${school_id.slice(0, 4).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
     const qrCodeData = `MYEDURIDE:${studentIdNumber}`;
 
-    // Upload photo if provided
-    let photoUrl = null;
+    let photoUrl: string | null = null;
     if (photo_base64) {
-      try {
-        const base64Data = photo_base64.replace(/^data:image\/\w+;base64,/, '');
-        const buffer = Buffer.from(base64Data, 'base64');
-        const fileName = `students/${school_id}/${studentIdNumber}.jpg`;
-        const { error: uploadErr } = await supabase.storage
-          .from('photos')
-          .upload(fileName, buffer, { contentType: 'image/jpeg', upsert: true });
-
-        if (!uploadErr) {
-          const { data: { publicUrl } } = supabase.storage.from('photos').getPublicUrl(fileName);
-          photoUrl = publicUrl;
-        } else {
-          console.error('[STUDENT CREATE] Photo upload error:', uploadErr.message);
-        }
-      } catch (photoErr) {
-        console.error('[STUDENT CREATE] Photo upload error:', photoErr);
+      const storagePath = `students/${school_id}/${studentIdNumber}.jpg`;
+      const { path, error: uploadErr } = await uploadBase64Photo(supabase, storagePath, photo_base64);
+      if (uploadErr || !path) {
+        return NextResponse.json(
+          { error: `Photo could not be saved: ${uploadErr || 'upload failed'}. Ensure the "photos" bucket exists in Supabase Storage.` },
+          { status: 500 }
+        );
       }
+      photoUrl = path;
     }
 
     // If no class_id provided, try to get the first class for this school

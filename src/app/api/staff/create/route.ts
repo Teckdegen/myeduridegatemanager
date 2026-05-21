@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { ensureAuthUser, ensureUserProfile } from '@/lib/auth/ensure-user';
+import { uploadBase64Photo } from '@/lib/storage/upload-photo';
 import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -93,20 +94,15 @@ export async function POST(request: NextRequest) {
       let photoUrl: string | null = null;
       const photoSource = photo_base64 || (Array.isArray(face_photos) && face_photos[0]) || null;
       if (photoSource) {
-        try {
-          const base64Data = photoSource.replace(/^data:image\/\w+;base64,/, '');
-          const buffer = Buffer.from(base64Data, 'base64');
-          const fileName = `staff/${school_id}/${staffIdNumber}.jpg`;
-          const { data: uploadData } = await supabase.storage
-            .from('photos')
-            .upload(fileName, buffer, { contentType: 'image/jpeg', upsert: true });
-          if (uploadData) {
-            const { data: { publicUrl } } = supabase.storage.from('photos').getPublicUrl(fileName);
-            photoUrl = publicUrl;
-          }
-        } catch (photoErr) {
-          console.error('Staff photo upload error:', photoErr);
+        const storagePath = `staff/${school_id}/${staffIdNumber}.jpg`;
+        const { path, error: uploadErr } = await uploadBase64Photo(supabase, storagePath, photoSource);
+        if (uploadErr || !path) {
+          return NextResponse.json(
+            { error: `Photo could not be saved: ${uploadErr || 'upload failed'}` },
+            { status: 500 }
+          );
         }
+        photoUrl = path;
       }
 
       const { data: staffProfile, error: staffProfileErr } = await supabase

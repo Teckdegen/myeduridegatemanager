@@ -63,11 +63,21 @@ export default function FaceCapture({
 
   const capturePhoto = async () => {
     if (!videoRef.current) return;
+    const vw = videoRef.current.videoWidth;
+    const vh = videoRef.current.videoHeight;
+    if (!vw || !vh) {
+      toast.error('Camera not ready — wait a moment and try again');
+      return;
+    }
     const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
+    canvas.width = vw;
+    canvas.height = vh;
     canvas.getContext('2d')?.drawImage(videoRef.current, 0, 0);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    if (dataUrl.length < 5000) {
+      toast.error('Photo too small — hold steady and capture again');
+      return;
+    }
     const next = [...photos, dataUrl].slice(0, maxPhotos);
     setPhotos(next);
     await updateParent(next);

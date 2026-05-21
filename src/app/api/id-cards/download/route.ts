@@ -18,15 +18,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'school_id required' }, { status: 400 });
     }
 
-    const isSuperAdmin = sessionHasRole(session, 'super_admin');
-    const isSchoolStaff = session.roles.some(
-      (r) =>
-        r.school_id === school_id &&
-        ['school_admin', 'teacher', 'gate_officer'].includes(r.role)
-    );
-
-    if (!isSuperAdmin && !isSchoolStaff) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+    if (!sessionHasRole(session, 'super_admin')) {
+      return NextResponse.json(
+        { error: 'Only super admin can generate ID cards' },
+        { status: 403 }
+      );
     }
 
     const supabase = getAdminClient();
