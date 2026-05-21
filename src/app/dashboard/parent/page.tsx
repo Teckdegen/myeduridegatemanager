@@ -63,16 +63,18 @@ export default function ParentDashboard() {
   return (
     <div className="min-h-screen bg-[#f8faf9] flex flex-col">
       {/* Slim header — no role switcher overlap */}
-      <header className="bg-white border-b border-gray-100 px-4 pt-4 pb-3 safe-top">
-        <div className="max-w-lg mx-auto flex items-center justify-between gap-3">
+      <header className="bg-white border-b border-gray-100 px-4 pt-12 pb-3 safe-top">
+        <div className="max-w-lg mx-auto flex items-center justify-between gap-2 pr-14">
           <div className="min-w-0 flex-1">
             <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">MyEduRide</p>
             <h1 className="text-lg font-semibold text-gray-900 truncate">Hi, {userName.split(' ')[0] || 'there'}</h1>
           </div>
           <button
+            type="button"
             onClick={logout}
-            className="p-2.5 rounded-full bg-gray-50 text-gray-500 hover:bg-gray-100 shrink-0"
+            className="p-2.5 rounded-full bg-gray-50 text-gray-500 hover:bg-red-50 hover:text-red-600 shrink-0"
             aria-label="Sign out"
+            title="Sign out"
           >
             <LogOut size={18} />
           </button>

@@ -49,6 +49,7 @@ export async function POST(request: NextRequest) {
             name: staffProfile.user?.full_name || 'Staff',
             email: staffProfile.user?.email || '',
             staff_id: staffProfile.staff_id_number,
+            photo_url: staffProfile.photo_url,
           },
         });
       }

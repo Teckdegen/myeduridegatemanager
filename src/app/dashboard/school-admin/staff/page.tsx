@@ -44,7 +44,10 @@ export default function StaffManagementPage() {
     <div className="p-6 min-h-screen">
       <div className="flex items-center justify-between mb-6">
         <div><h1 className="text-2xl font-bold">Staff ({staff.length})</h1><p className="text-sm text-gray-500">Teachers, gate officers, and admins</p></div>
-        <button onClick={() => setShowAddModal(true)} className="btn-primary flex items-center gap-1 text-sm"><Plus size={16} /> Add Staff</button>
+        <div className="flex gap-2">
+          <a href="/dashboard/school-admin/id-cards" className="btn-secondary flex items-center gap-1 text-sm">ID Cards</a>
+          <button onClick={() => setShowAddModal(true)} className="btn-primary flex items-center gap-1 text-sm"><Plus size={16} /> Add Staff</button>
+        </div>
       </div>
 
       <div className="card p-0 overflow-hidden">

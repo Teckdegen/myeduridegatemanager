@@ -16,6 +16,7 @@ interface NavItem { label: string; href: string; icon: React.ReactNode; }
 const navItems: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard/school-admin', icon: <LayoutDashboard size={18} /> },
   { label: 'Students', href: '/dashboard/school-admin/students', icon: <Users size={18} /> },
+  { label: 'ID Cards', href: '/dashboard/school-admin/id-cards', icon: <UserPlus size={18} /> },
   { label: 'Staff', href: '/dashboard/school-admin/staff', icon: <GraduationCap size={18} /> },
   { label: 'Classes', href: '/dashboard/school-admin/classes', icon: <School size={18} /> },
   { label: 'Attendance', href: '/dashboard/school-admin/attendance', icon: <ClipboardList size={18} /> },
