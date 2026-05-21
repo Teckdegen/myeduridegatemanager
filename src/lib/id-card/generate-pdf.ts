@@ -1,11 +1,12 @@
 import QRCode from 'qrcode';
-import { imageUrlToDataUrl } from '@/lib/photo';
 
 export type IdCardPerson = {
   kind: 'student' | 'staff';
   fullName: string;
   idNumber: string;
   qrData: string;
+  /** Pre-loaded base64 data URL — preferred for PDF */
+  photoDataUrl?: string | null;
   photoUrl?: string | null;
   birth?: string;
   address?: string;
@@ -31,12 +32,23 @@ function hexToRgb(hex: string): [number, number, number] {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
-function lighterRgb(rgb: [number, number, number], amount = 40): [number, number, number] {
+function lighterRgb(rgb: [number, number, number], amount = 45): [number, number, number] {
   return [
     Math.min(255, rgb[0] + amount),
     Math.min(255, rgb[1] + amount),
     Math.min(255, rgb[2] + amount),
   ];
+}
+
+async function resolvePhotoDataUrl(person: IdCardPerson): Promise<string | null> {
+  if (person.photoDataUrl) return person.photoDataUrl;
+  if (!person.photoUrl || typeof window === 'undefined') return null;
+  try {
+    const { imageUrlToDataUrl } = await import('@/lib/photo');
+    return await imageUrlToDataUrl(person.photoUrl);
+  } catch {
+    return null;
+  }
 }
 
 async function drawFront(
@@ -49,171 +61,185 @@ async function drawFront(
   doc.setFillColor(255, 255, 255);
   doc.rect(0, 0, CARD_W, CARD_H, 'F');
 
-  // Light geometric accents
-  doc.setFillColor(245, 247, 250);
-  doc.triangle(0, 0, 28, 0, 0, 22, 'F');
-  doc.setFillColor(235, 240, 248);
-  doc.triangle(CARD_W, CARD_H, CARD_W - 20, CARD_H, CARD_W, CARD_H - 16, 'F');
+  doc.setFillColor(245, 247, 252);
+  doc.triangle(0, 0, 30, 0, 0, 20, 'F');
+  doc.setFillColor(235, 242, 252);
+  doc.triangle(CARD_W, CARD_H, CARD_W - 18, CARD_H, CARD_W, CARD_H - 14, 'F');
 
-  // Top diagonal band
   doc.setFillColor(...accent);
-  doc.triangle(0, 0, 36, 0, 0, 14, 'F');
+  doc.triangle(0, 0, 40, 0, 0, 12, 'F');
   doc.setFillColor(...navy);
-  doc.triangle(0, 0, 22, 0, 0, 10, 'F');
+  doc.triangle(0, 0, 24, 0, 0, 8, 'F');
 
-  // School header
   doc.setTextColor(...navy);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  const schoolName = (school.name || 'SCHOOL NAME').toUpperCase();
-  doc.text(schoolName, CARD_W / 2, 7, { align: 'center', maxWidth: CARD_W - 10 });
+  doc.setFontSize(7.5);
+  doc.text((school.name || 'SCHOOL NAME').toUpperCase(), CARD_W / 2, 6.5, {
+    align: 'center',
+    maxWidth: CARD_W - 8,
+  });
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(5);
-  doc.setTextColor(60, 60, 60);
-  doc.text(school.address || 'Address of School', CARD_W / 2, 11, { align: 'center', maxWidth: CARD_W - 8 });
+  doc.setFontSize(4.5);
+  doc.setTextColor(70, 70, 70);
+  doc.text(school.address || 'Address of School', CARD_W / 2, 10, {
+    align: 'center',
+    maxWidth: CARD_W - 6,
+  });
 
-  // Card type banner
   const bannerLabel = person.kind === 'staff' ? 'STAFF CARD' : 'STUDENT CARD';
   doc.setFillColor(...navy);
-  doc.roundedRect(3, 13, CARD_W - 6, 7, 1.5, 1.5, 'F');
+  doc.roundedRect(2.5, 11.5, CARD_W - 5, 6.5, 1.2, 1.2, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7);
-  doc.text(bannerLabel, CARD_W / 2, 17.5, { align: 'center' });
+  doc.setFontSize(6.5);
+  doc.text(bannerLabel, CARD_W / 2, 15.2, { align: 'center' });
 
-  // Photo
-  const photoX = 5;
-  const photoY = 22;
-  const photoW = 22;
-  const photoH = 26;
-  doc.setDrawColor(...accent);
-  doc.setLineWidth(0.4);
+  const photoX = 4;
+  const photoY = 19;
+  const photoW = 23;
+  const photoH = 27;
+  doc.setDrawColor(...navy);
+  doc.setLineWidth(0.35);
   doc.roundedRect(photoX, photoY, photoW, photoH, 2, 2, 'S');
 
-  const photoData = await imageUrlToDataUrl(person.photoUrl);
+  const photoData = await resolvePhotoDataUrl(person);
   if (photoData) {
     try {
       const fmt = photoData.includes('image/png') ? 'PNG' : 'JPEG';
-      doc.addImage(photoData, fmt, photoX + 0.5, photoY + 0.5, photoW - 1, photoH - 1);
+      doc.addImage(photoData, fmt, photoX + 0.4, photoY + 0.4, photoW - 0.8, photoH - 0.8);
     } catch {
-      doc.setFillColor(230, 235, 245);
-      doc.roundedRect(photoX + 1, photoY + 1, photoW - 2, photoH - 2, 1.5, 1.5, 'F');
+      drawPhotoPlaceholder(doc, photoX, photoY, photoW, photoH, person, navy);
     }
   } else {
-    doc.setFillColor(230, 235, 245);
-    doc.roundedRect(photoX + 1, photoY + 1, photoW - 2, photoH - 2, 1.5, 1.5, 'F');
-    doc.setTextColor(...navy);
-    doc.setFontSize(6);
-    doc.text('PHOTO', photoX + photoW / 2, photoY + photoH / 2, { align: 'center' });
+    drawPhotoPlaceholder(doc, photoX, photoY, photoW, photoH, person, navy);
   }
 
-  // Details
-  const tx = 30;
-  let ty = 24;
+  const tx = 29;
+  let ty = 21;
   const line = (label: string, value: string) => {
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(5.5);
+    doc.setFontSize(5);
     doc.setTextColor(...navy);
-    doc.text(`${label} :`, tx, ty);
+    doc.text(`${label}:`, tx, ty);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(40, 40, 40);
-    doc.text(value || '—', tx + 18, ty, { maxWidth: 38 });
-    ty += 5;
+    doc.setTextColor(35, 35, 35);
+    const val = (value || '—').substring(0, 32);
+    doc.text(val, tx + 14, ty, { maxWidth: 36 });
+    ty += 4.2;
   };
 
-  line('NAME', person.fullName.toUpperCase());
-  line('BIRTH', person.birth || '—');
+  line('NAME', person.fullName);
+  if (person.birth && person.birth !== '—') line('BIRTH', person.birth);
   line('ADDRESS', person.address || '—');
   line('ID NO', person.idNumber);
-  if (person.kind === 'student' && person.className) {
-    line('CLASS', person.className);
-  }
-  if (person.kind === 'staff' && person.roleLabel) {
-    line('ROLE', person.roleLabel);
-  }
+  if (person.kind === 'student' && person.className) line('CLASS', person.className);
+  if (person.kind === 'staff' && person.roleLabel) line('ROLE', person.roleLabel);
 
-  // QR code (primary scan payload)
+  const qrPayload = person.qrData || `MYEDURIDE:${person.idNumber}`;
   try {
-    const qrDataUrl = await QRCode.toDataURL(person.qrData, {
-      width: 200,
-      margin: 1,
+    const qrDataUrl = await QRCode.toDataURL(qrPayload, {
+      width: 256,
+      margin: 0,
+      errorCorrectionLevel: 'M',
       color: { dark: '#1e3a8a', light: '#ffffff' },
     });
-    doc.addImage(qrDataUrl, 'PNG', CARD_W - 24, 36, 20, 20);
+    doc.addImage(qrDataUrl, 'PNG', CARD_W - 23.5, 32, 19, 19);
+  } catch (e) {
+    console.error('[id-card] QR failed:', e);
+    doc.setDrawColor(...navy);
+    doc.rect(CARD_W - 23.5, 32, 19, 19, 'S');
     doc.setFontSize(4);
-    doc.setTextColor(100, 100, 100);
-    doc.text('SCAN QR', CARD_W - 14, 57, { align: 'center' });
-  } catch {
-    /* skip */
+    doc.text('QR ERROR', CARD_W - 14, 42, { align: 'center' });
   }
 
-  // MyEduRide mark
-  doc.setFontSize(4);
+  doc.setFontSize(3.5);
   doc.setTextColor(...accent);
-  doc.text('MyEduRide', CARD_W - 4, 4, { align: 'right' });
+  doc.text('MyEduRide', CARD_W - 2, 3, { align: 'right' });
+}
+
+function drawPhotoPlaceholder(
+  doc: any,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  person: IdCardPerson,
+  navy: [number, number, number]
+) {
+  doc.setFillColor(230, 238, 248);
+  doc.roundedRect(x + 0.5, y + 0.5, w - 1, h - 1, 1.5, 1.5, 'F');
+  doc.setTextColor(...navy);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  const initials = person.fullName
+    .split(' ')
+    .map((n) => n[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+  doc.text(initials || '?', x + w / 2, y + h / 2 + 2, { align: 'center' });
 }
 
 function drawBack(
   doc: any,
   school: SchoolBranding,
   kind: 'student' | 'staff',
-  navy: [number, number, number],
-  accent: [number, number, number]
+  navy: [number, number, number]
 ) {
   doc.setFillColor(255, 255, 255);
   doc.rect(0, 0, CARD_W, CARD_H, 'F');
 
-  doc.setFillColor(245, 247, 250);
-  doc.triangle(CARD_W, 0, CARD_W - 25, 0, CARD_W, 18, 'F');
+  doc.setFillColor(245, 247, 252);
+  doc.triangle(CARD_W, 0, CARD_W - 22, 0, CARD_W, 16, 'F');
 
   doc.setTextColor(...navy);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7);
-  doc.text((school.name || 'SCHOOL').toUpperCase(), CARD_W / 2, 8, { align: 'center' });
+  doc.setFontSize(6.5);
+  doc.text((school.name || 'SCHOOL').toUpperCase(), CARD_W / 2, 7, { align: 'center' });
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(5);
+  doc.setFontSize(4.5);
   doc.setTextColor(60, 60, 60);
-  doc.text(school.address || '', CARD_W / 2, 12, { align: 'center', maxWidth: CARD_W - 8 });
+  doc.text(school.address || '', CARD_W / 2, 11, { align: 'center', maxWidth: CARD_W - 8 });
 
-  // Signature box
-  doc.setDrawColor(200, 210, 225);
+  doc.setDrawColor(210, 218, 230);
   doc.setFillColor(255, 255, 255);
-  doc.roundedRect(4, 16, 38, 22, 2, 2, 'FD');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(5);
-  doc.setTextColor(...navy);
-  doc.text('AUTHORISED SIGNATURE', 6, 20);
-  doc.setFont('helvetica', 'italic');
-  doc.setTextColor(...navy);
-  doc.setFontSize(6);
-  doc.text('Principal', 6, 34);
-
-  // Return notice
-  doc.roundedRect(46, 16, 36, 22, 2, 2, 'FD');
+  doc.roundedRect(3, 15, 38, 24, 2, 2, 'FD');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(4.5);
-  doc.setTextColor(30, 30, 30);
-  const returnText = `If found, please return ID card to ${school.name || 'the school'}. Thank you.`;
-  doc.text(returnText, 48, 22, { maxWidth: 32 });
+  doc.setTextColor(...navy);
+  doc.text('AUTHORISED SIGNATURE', 5, 19);
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(5.5);
+  doc.text('Principal', 5, 34);
 
-  // Footer policy
-  doc.setFillColor(...navy);
-  doc.rect(0, 42, CARD_W, 12, 'F');
-  doc.setTextColor(255, 255, 255);
+  doc.roundedRect(45, 15, 37, 24, 2, 2, 'FD');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(4);
+  doc.setTextColor(30, 30, 30);
+  doc.text(
+    `If found, please return this card to ${school.name || 'the school'}. Thank you.`,
+    47,
+    21,
+    { maxWidth: 33 }
+  );
+
+  doc.setFillColor(...navy);
+  doc.rect(0, 43, CARD_W, 11, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(3.8);
   const policy =
     kind === 'staff'
-      ? 'Official proof of staff status. Must be carried on campus and when using school facilities.'
-      : 'Official proof of student status. Must be carried at all times on campus and when using school facilities.';
-  doc.text(policy, CARD_W / 2, 48, { align: 'center', maxWidth: CARD_W - 6 });
+      ? 'Official staff ID. Must be carried on campus.'
+      : 'Official student ID. Must be carried on campus at all times.';
+  doc.text(policy, CARD_W / 2, 49, { align: 'center', maxWidth: CARD_W - 4 });
 }
 
-export async function generateIdCardsPdf(
+/** Returns PDF as Buffer (server) or triggers download (browser). */
+export async function buildIdCardsPdfBuffer(
   persons: IdCardPerson[],
-  school: SchoolBranding,
-  fileName?: string
-): Promise<void> {
+  school: SchoolBranding
+): Promise<ArrayBuffer> {
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({
     orientation: 'landscape',
@@ -228,10 +254,25 @@ export async function generateIdCardsPdf(
     const person = persons[i];
     if (i > 0) doc.addPage();
     await drawFront(doc, person, school, navy, accent);
-
     doc.addPage();
-    drawBack(doc, school, person.kind, navy, accent);
+    drawBack(doc, school, person.kind, navy);
   }
 
-  doc.save(fileName || `id_cards_${new Date().toISOString().split('T')[0]}.pdf`);
+  return doc.output('arraybuffer') as ArrayBuffer;
+}
+
+export async function generateIdCardsPdf(
+  persons: IdCardPerson[],
+  school: SchoolBranding,
+  fileName?: string
+): Promise<void> {
+  const { jsPDF } = await import('jspdf');
+  const buffer = await buildIdCardsPdfBuffer(persons, school);
+  const blob = new Blob([buffer], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName || `id_cards_${new Date().toISOString().split('T')[0]}.pdf`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
