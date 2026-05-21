@@ -21,10 +21,15 @@ export async function POST(request: NextRequest) {
         const base64Data = photo_base64.replace(/^data:image\/\w+;base64,/, '');
         const buffer = Buffer.from(base64Data, 'base64');
         const fileName = `students/${school_id}/${studentIdNumber}.jpg`;
-        const { data: uploadData } = await supabase.storage.from('photos').upload(fileName, buffer, { contentType: 'image/jpeg', upsert: true });
-        if (uploadData) {
+        const { error: uploadErr } = await supabase.storage
+          .from('photos')
+          .upload(fileName, buffer, { contentType: 'image/jpeg', upsert: true });
+
+        if (!uploadErr) {
           const { data: { publicUrl } } = supabase.storage.from('photos').getPublicUrl(fileName);
           photoUrl = publicUrl;
+        } else {
+          console.error('[STUDENT CREATE] Photo upload error:', uploadErr.message);
         }
       } catch (photoErr) {
         console.error('[STUDENT CREATE] Photo upload error:', photoErr);

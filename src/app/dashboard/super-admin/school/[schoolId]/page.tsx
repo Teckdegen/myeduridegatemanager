@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { Users, GraduationCap, UserCheck, ArrowLeft, School } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
+import StudentAvatar from '@/components/shared/StudentAvatar';
 
 export default function SchoolDetailPage() {
   const params = useParams();
@@ -102,11 +103,12 @@ export default function SchoolDetailPage() {
           <div className="divide-y max-h-[60vh] overflow-y-auto">
             {students.map((s) => (
               <div key={s.id} className="px-4 py-3 flex items-center gap-3">
-                {s.photo_url ? (
-                  <img src={s.photo_url} alt="" className="w-9 h-9 rounded-full object-cover" />
-                ) : (
-                  <div className="w-9 h-9 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 text-xs font-bold">{s.first_name?.[0]}{s.last_name?.[0]}</div>
-                )}
+                <StudentAvatar
+                  photoUrl={s.photo_url}
+                  firstName={s.first_name}
+                  lastName={s.last_name}
+                  size="sm"
+                />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium">{s.first_name} {s.last_name}</p>
                   <p className="text-xs text-gray-400 font-mono">{s.student_id_number}</p>

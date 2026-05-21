@@ -6,6 +6,7 @@ import { fetchData } from '@/lib/api';
 import { Search, Plus, Download, Trash2, Edit, X } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
+import StudentAvatar from '@/components/shared/StudentAvatar';
 
 export default function StudentsListPage() {
   const [students, setStudents] = useState([]);
@@ -91,9 +92,12 @@ export default function StudentsListPage() {
               <tr key={s.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 text-xs font-bold">
-                      {s.first_name?.[0]}{s.last_name?.[0]}
-                    </div>
+                    <StudentAvatar
+                      photoUrl={s.photo_url}
+                      firstName={s.first_name}
+                      lastName={s.last_name}
+                      size="sm"
+                    />
                     <span className="text-sm font-medium">{s.first_name} {s.last_name}</span>
                   </div>
                 </td>
