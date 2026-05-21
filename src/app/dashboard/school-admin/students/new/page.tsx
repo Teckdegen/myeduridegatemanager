@@ -69,7 +69,7 @@ export default function AddStudentPage() {
 
   const handleSubmit = async () => {
     if (!form.first_name || !form.last_name) { toast.error('Name is required'); return; }
-    if (facePhotos.length < 3) { toast.error('Capture at least 3 face photos'); return; }
+    if (facePhotos.length < 1) { toast.error('Take a photo of the student'); return; }
     setLoading(true);
 
     try {
@@ -159,10 +159,10 @@ export default function AddStudentPage() {
               </div>
             </div>
 
-            {/* Face Capture - REQUIRED */}
+            {/* Photo - REQUIRED (for ID card) */}
             <div className="card">
-              <h2 className="font-semibold mb-1">Face Capture *</h2>
-              <p className="text-xs text-gray-500 mb-3">Capture 3-5 photos for gate recognition. Required.</p>
+              <h2 className="font-semibold mb-1">Student Photo *</h2>
+              <p className="text-xs text-gray-500 mb-3">Take a photo for the student ID card. Required.</p>
               {!cameraActive ? (
                 <button onClick={startCamera} className="w-full py-8 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center gap-2 hover:border-primary-400 hover:bg-primary-50 transition-all">
                   <Camera size={28} className="text-gray-400" />
@@ -178,26 +178,26 @@ export default function AddStudentPage() {
                       muted
                       style={{ width: '100%', height: 'auto', display: 'block', minHeight: '240px' }}
                     />
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><div className="w-32 h-32 border-2 border-white/40 rounded-full" /></div>
                   </div>
-                  <button onClick={capturePhoto} disabled={facePhotos.length >= 5} className="btn-primary w-full">Capture ({facePhotos.length}/5)</button>
+                  <button onClick={capturePhoto} disabled={facePhotos.length >= 1} className="btn-primary w-full">
+                    {facePhotos.length === 0 ? 'Take Photo' : 'Photo Taken'}
+                  </button>
                 </div>
               )}
               {facePhotos.length > 0 && (
                 <div className="flex gap-2 mt-3">
                   {facePhotos.map((p, i) => (
                     <div key={i} className="relative">
-                      <img src={p} className="w-14 h-14 rounded-lg object-cover border-2 border-primary-300" />
+                      <img src={p} className="w-20 h-20 rounded-lg object-cover border-2 border-primary-300" />
                       <button onClick={() => setFacePhotos(prev => prev.filter((_, idx) => idx !== i))} className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center"><X size={10} className="text-white" /></button>
                     </div>
                   ))}
                 </div>
               )}
-              {facePhotos.length > 0 && facePhotos.length < 3 && <p className="text-xs text-amber-600 mt-2">Need at least 3 photos</p>}
             </div>
 
             {/* Submit */}
-            <button onClick={handleSubmit} disabled={loading || !form.first_name || !form.last_name || facePhotos.length < 3}
+            <button onClick={handleSubmit} disabled={loading || !form.first_name || !form.last_name || facePhotos.length < 1}
               className="btn-primary w-full py-3 flex items-center justify-center gap-2">
               {loading ? 'Adding...' : 'Add Student'} <CheckCircle size={16} />
             </button>

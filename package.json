@@ -13,7 +13,6 @@
     "@supabase/ssr": "^0.3.0",
     "@supabase/supabase-js": "^2.43.0",
     "date-fns": "^3.6.0",
-    "face-api.js": "^0.22.2",
     "html2canvas": "^1.4.1",
     "jspdf": "^2.5.1",
     "jsqr": "^1.4.0",

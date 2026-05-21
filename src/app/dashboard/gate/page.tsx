@@ -230,7 +230,7 @@ export default function GateOfficerDashboard() {
                 placeholder="Enter student ID manually..." className="input flex-1" />
               <button onClick={handleManualSearch} className="btn-primary px-3"><Search size={16} /></button>
             </div>
-            <p className="text-xs text-gray-400 text-center mt-3">Point camera at ID card barcode, or type student ID above</p>
+            <p className="text-xs text-gray-400 text-center mt-3">Point camera at student ID card barcode, or type student ID above</p>
           </>
         )}
       </main>
