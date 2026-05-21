@@ -1,12 +1,13 @@
 // @ts-nocheck
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { fetchData } from '@/lib/api';
 import { toast } from 'sonner';
-import { Camera, ArrowLeft, CheckCircle, Upload, X } from 'lucide-react';
+import { ArrowLeft, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
+import FaceCapture from '@/components/shared/FaceCapture';
 
 export default function AddStudentPage() {
   const [classes, setClasses] = useState([]);
@@ -15,18 +16,13 @@ export default function AddStudentPage() {
     first_name: '', last_name: '', address: '',
     parent_name: '', parent_phone: '', parent_email: '', class_id: '',
   });
-  const [facePhotos, setFacePhotos] = useState([]);
+  const [faceData, setFaceData] = useState({ photos: [], face_descriptor: null });
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
-  const [cameraActive, setCameraActive] = useState(false);
-  const [tab, setTab] = useState('single');
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
   const router = useRouter();
 
   useEffect(() => {
     loadConfig();
-    return () => { if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop()); };
   }, []);
 
   const loadConfig = async () => {
@@ -40,36 +36,9 @@ export default function AddStudentPage() {
     setPageLoading(false);
   };
 
-  const startCamera = async () => {
-    try {
-      const constraints = { video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-      setCameraActive(true);
-      // Wait for next render then attach stream
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-      }, 100);
-    } catch (err) { 
-      console.error('Camera error:', err);
-      toast.error('Camera access denied. Check browser permissions.'); 
-    }
-  };
-
-  const capturePhoto = () => {
-    if (!videoRef.current) return;
-    const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    canvas.getContext('2d').drawImage(videoRef.current, 0, 0);
-    setFacePhotos(prev => [...prev, canvas.toDataURL('image/jpeg', 0.8)]);
-  };
-
   const handleSubmit = async () => {
     if (!form.first_name || !form.last_name) { toast.error('Name is required'); return; }
-    if (facePhotos.length < 1) { toast.error('Take a photo of the student'); return; }
+    if (faceData.photos.length < 3) { toast.error('Take 3 face photos of the student'); return; }
     setLoading(true);
 
     try {
@@ -80,7 +49,8 @@ export default function AddStudentPage() {
           class_id: form.class_id || null,
           first_name: form.first_name,
           last_name: form.last_name,
-          photo_base64: facePhotos[0] || null,
+          photo_base64: faceData.photos[0] || null,
+          face_descriptor: faceData.face_descriptor,
           custom_fields: {
             address: form.address,
             parent_name: form.parent_name,
@@ -91,8 +61,8 @@ export default function AddStudentPage() {
       });
       const result = await res.json();
       if (result.success) {
-        toast.success(`Student added! ID Card: ${result.student?.student_id_number}`);
-        // ID card is auto-generated (QR code data stored on student record)
+        const id = result.student?.student_id_number || 'assigned';
+        toast.success(`Student added! ID: ${id}`);
         router.push('/dashboard/school-admin/students');
       }
       else toast.error(result.error || 'Failed');
@@ -160,45 +130,16 @@ export default function AddStudentPage() {
               </div>
             </div>
 
-            {/* Photo - REQUIRED (for ID card) */}
             <div className="card">
-              <h2 className="font-semibold mb-1">Student Photo *</h2>
-              <p className="text-xs text-gray-500 mb-3">Take a photo for the student ID card. Required.</p>
-              {!cameraActive ? (
-                <button onClick={startCamera} className="w-full py-8 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center gap-2 hover:border-primary-400 hover:bg-primary-50 transition-all">
-                  <Camera size={28} className="text-gray-400" />
-                  <span className="text-sm text-gray-500">Click to open camera</span>
-                </button>
-              ) : (
-                <div>
-                  <div className="relative rounded-xl overflow-hidden bg-gray-900 mb-3">
-                    <video 
-                      ref={videoRef} 
-                      autoPlay 
-                      playsInline 
-                      muted
-                      style={{ width: '100%', height: 'auto', display: 'block', minHeight: '240px' }}
-                    />
-                  </div>
-                  <button onClick={capturePhoto} disabled={facePhotos.length >= 1} className="btn-primary w-full">
-                    {facePhotos.length === 0 ? 'Take Photo' : 'Photo Taken'}
-                  </button>
-                </div>
-              )}
-              {facePhotos.length > 0 && (
-                <div className="flex gap-2 mt-3">
-                  {facePhotos.map((p, i) => (
-                    <div key={i} className="relative">
-                      <img src={p} className="w-20 h-20 rounded-lg object-cover border-2 border-primary-300" />
-                      <button onClick={() => setFacePhotos(prev => prev.filter((_, idx) => idx !== i))} className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center"><X size={10} className="text-white" /></button>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <FaceCapture
+                label="Student face & ID photo"
+                minPhotos={3}
+                maxPhotos={3}
+                onChange={setFaceData}
+              />
             </div>
 
-            {/* Submit */}
-            <button onClick={handleSubmit} disabled={loading || !form.first_name || !form.last_name || facePhotos.length < 1}
+            <button onClick={handleSubmit} disabled={loading || !form.first_name || !form.last_name || faceData.photos.length < 3}
               className="btn-primary w-full py-3 flex items-center justify-center gap-2">
               {loading ? 'Adding...' : 'Add Student'} <CheckCircle size={16} />
             </button>

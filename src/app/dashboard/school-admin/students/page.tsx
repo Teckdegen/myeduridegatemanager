@@ -60,9 +60,14 @@ export default function StudentsListPage() {
           <h1 className="text-2xl font-bold">Students ({students.length})</h1>
           <p className="text-sm text-gray-500">Manage enrolled students</p>
         </div>
-        <Link href="/dashboard/school-admin/students/new" className="btn-primary flex items-center gap-1 text-sm">
-          <Plus size={16} /> Add Student
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/dashboard/school-admin/id-cards" className="btn-secondary flex items-center gap-1 text-sm">
+            <Download size={16} /> ID Cards
+          </Link>
+          <Link href="/dashboard/school-admin/students/new" className="btn-primary flex items-center gap-1 text-sm">
+            <Plus size={16} /> Add Student
+          </Link>
+        </div>
       </div>
 
       <div className="relative mb-4">

@@ -13,31 +13,32 @@ export async function POST(request: NextRequest) {
     if (!scan_data) return NextResponse.json({ error: 'No scan data' }, { status: 400 });
 
     // Try to find student by QR code
-    let { data: student } = await supabase
+    let studentQuery = supabase
       .from('students')
       .select('*, class:school_classes(name)')
       .eq('qr_code_data', scan_data)
-      .eq('is_active', true)
-      .single();
+      .eq('is_active', true);
+    if (school_id) studentQuery = studentQuery.eq('school_id', school_id);
+    let { data: student } = await studentQuery.single();
 
-    // If not found by QR, try by student_id_number
     if (!student) {
-      const { data: byId } = await supabase
+      let byIdQuery = supabase
         .from('students')
         .select('*, class:school_classes(name)')
         .eq('student_id_number', scan_data)
-        .eq('is_active', true)
-        .single();
+        .eq('is_active', true);
+      if (school_id) byIdQuery = byIdQuery.eq('school_id', school_id);
+      const { data: byId } = await byIdQuery.single();
       student = byId;
     }
 
-    // If not found, try staff by qr_code_data or staff_id_number
     if (!student) {
-      const { data: staffProfile } = await supabase
+      let staffQuery = supabase
         .from('teacher_profiles')
         .select('*, user:user_profiles(full_name, email)')
-        .or(`qr_code_data.eq.${scan_data},staff_id_number.eq.${scan_data}`)
-        .single();
+        .or(`qr_code_data.eq.${scan_data},staff_id_number.eq.${scan_data}`);
+      if (school_id) staffQuery = staffQuery.eq('school_id', school_id);
+      const { data: staffProfile } = await staffQuery.single();
 
       if (staffProfile) {
         return NextResponse.json({

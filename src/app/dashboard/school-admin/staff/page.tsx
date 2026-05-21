@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { fetchData } from '@/lib/api';
 import { Plus, Trash2, GraduationCap, DoorOpen, Shield } from 'lucide-react';
 import { toast } from 'sonner';
+import FaceCapture from '@/components/shared/FaceCapture';
 
 export default function StaffManagementPage() {
   const [staff, setStaff] = useState([]);
@@ -71,7 +72,8 @@ export default function StaffManagementPage() {
 }
 
 function AddStaffModal({ schoolId, onClose, onSuccess }) {
-  const [form, setForm] = useState({ full_name: '', email: '', phone: '', address: '', role: 'teacher', class_name: '' });
+  const [form, setForm] = useState({ full_name: '', email: '', phone: '', address: '', role: 'teacher', class_id: '' });
+  const [faceData, setFaceData] = useState({ photos: [], face_descriptor: null });
   const [loading, setLoading] = useState(false);
   const [classes, setClasses] = useState([]);
 
@@ -81,10 +83,18 @@ function AddStaffModal({ schoolId, onClose, onSuccess }) {
 
   const handleSubmit = async () => {
     if (!form.full_name || !form.email) { toast.error('Name and email required'); return; }
+    if (faceData.photos.length < 3) { toast.error('Take 3 face photos for gate recognition'); return; }
     setLoading(true);
     const res = await fetch('/api/staff/create', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, school_id: schoolId }),
+      body: JSON.stringify({
+        ...form,
+        school_id: schoolId,
+        class_id: form.role === 'teacher' ? form.class_id || null : null,
+        photo_base64: faceData.photos[0],
+        face_photos: faceData.photos,
+        face_descriptor: faceData.face_descriptor,
+      }),
     });
     if (res.ok) { toast.success('Staff added'); onSuccess(); }
     else { const d = await res.json(); toast.error(d.error || 'Failed'); }
@@ -109,12 +119,20 @@ function AddStaffModal({ schoolId, onClose, onSuccess }) {
           </div>
           {form.role === 'teacher' && classes.length > 0 && (
             <div><label className="block text-xs font-medium text-gray-600 mb-1">Assign to Class</label>
-              <select value={form.class_name} onChange={e => setForm({...form, class_name: e.target.value})} className="input">
+              <select value={form.class_id} onChange={e => setForm({...form, class_id: e.target.value})} className="input">
                 <option value="">Select class...</option>
                 {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
           )}
+          <div className="border-t pt-3">
+            <FaceCapture
+              label="Staff face enrollment"
+              minPhotos={3}
+              maxPhotos={3}
+              onChange={setFaceData}
+            />
+          </div>
         </div>
         <div className="flex gap-3 mt-5">
           <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>

@@ -73,6 +73,58 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ fields: data || [] });
       }
 
+      case 'get_parent_children': {
+        const { data: links } = await supabase
+          .from('student_parents')
+          .select('student_id, relationship, is_primary')
+          .eq('parent_user_id', session.user_id);
+
+        if (!links?.length) {
+          return NextResponse.json({ children: [] });
+        }
+
+        const ids = links.map((l: any) => l.student_id);
+        const { data: students } = await supabase
+          .from('students')
+          .select('*, class:school_classes(name, grade), school:schools(name, primary_color, logo_url)')
+          .in('id', ids)
+          .eq('is_active', true);
+
+        const children = (students || []).map((s: any) => ({
+          ...s,
+          relationship: links.find((l: any) => l.student_id === s.id)?.relationship || 'parent',
+        }));
+
+        return NextResponse.json({ children });
+      }
+
+      case 'get_parent_notifications': {
+        const { data, error } = await supabase
+          .from('notifications')
+          .select('*, student:students(first_name, last_name)')
+          .eq('user_id', session.user_id)
+          .order('created_at', { ascending: false })
+          .limit(50);
+
+        if (error) {
+          return NextResponse.json({ notifications: [], error: error.message });
+        }
+        return NextResponse.json({ notifications: data || [] });
+      }
+
+      case 'mark_notification_read': {
+        const notificationId = params?.notification_id;
+        if (!notificationId) {
+          return NextResponse.json({ error: 'notification_id required' }, { status: 400 });
+        }
+        await supabase
+          .from('notifications')
+          .update({ is_read: true })
+          .eq('id', notificationId)
+          .eq('user_id', session.user_id);
+        return NextResponse.json({ success: true });
+      }
+
       case 'query': {
         const { table, select, filters, order, limit: queryLimit } = params;
         console.log('[DATA API] query table:', table, 'filters:', filters);

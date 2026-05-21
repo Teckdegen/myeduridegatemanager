@@ -7,7 +7,18 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, full_name, phone, role, school_id, class_id, custom_fields } = await request.json();
+    const {
+      email,
+      full_name,
+      phone,
+      role,
+      school_id,
+      class_id,
+      custom_fields,
+      photo_base64,
+      face_descriptor,
+      face_photos,
+    } = await request.json();
 
     if (!email?.trim() || !full_name?.trim() || !role || !school_id) {
       return NextResponse.json({ error: 'Email, name, role, and school are required' }, { status: 400 });
@@ -73,21 +84,61 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Failed to assign role: ${roleError.message}` }, { status: 500 });
     }
 
-    // If teacher, create teacher profile with class assignment and custom fields
-    if (role === 'teacher') {
-      const { data: teacherProfile } = await supabase.from('teacher_profiles').upsert({
-        user_id: userId,
-        school_id: school_id,
-        custom_fields: custom_fields || {},
-      }, { onConflict: 'user_id,school_id' }).select().single();
+    // Staff profile (teacher, gate officer, school admin) — used for ID cards & gate scan
+    const staffRoles = ['teacher', 'gate_officer', 'school_admin'];
+    if (staffRoles.includes(role)) {
+      const staffIdNumber = `STF-${school_id.slice(0, 4).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+      const qrCodeData = `MYEDURIDE:STAFF:${staffIdNumber}`;
 
-      // Assign to class if provided
-      if (class_id && teacherProfile) {
-        await supabase.from('teacher_class_assignments').upsert({
-          teacher_profile_id: teacherProfile.id,
-          class_id: class_id,
-          is_primary: true,
-        }, { onConflict: 'teacher_profile_id,class_id' });
+      let photoUrl: string | null = null;
+      const photoSource = photo_base64 || (Array.isArray(face_photos) && face_photos[0]) || null;
+      if (photoSource) {
+        try {
+          const base64Data = photoSource.replace(/^data:image\/\w+;base64,/, '');
+          const buffer = Buffer.from(base64Data, 'base64');
+          const fileName = `staff/${school_id}/${staffIdNumber}.jpg`;
+          const { data: uploadData } = await supabase.storage
+            .from('photos')
+            .upload(fileName, buffer, { contentType: 'image/jpeg', upsert: true });
+          if (uploadData) {
+            const { data: { publicUrl } } = supabase.storage.from('photos').getPublicUrl(fileName);
+            photoUrl = publicUrl;
+          }
+        } catch (photoErr) {
+          console.error('Staff photo upload error:', photoErr);
+        }
+      }
+
+      const { data: staffProfile, error: staffProfileErr } = await supabase
+        .from('teacher_profiles')
+        .upsert(
+          {
+            user_id: userId,
+            school_id: school_id,
+            staff_id_number: staffIdNumber,
+            qr_code_data: qrCodeData,
+            photo_url: photoUrl,
+            face_descriptor: face_descriptor || null,
+            custom_fields: custom_fields || {},
+          },
+          { onConflict: 'user_id,school_id' }
+        )
+        .select()
+        .single();
+
+      if (staffProfileErr) {
+        return NextResponse.json({ error: `Failed to save staff profile: ${staffProfileErr.message}` }, { status: 500 });
+      }
+
+      if (role === 'teacher' && class_id && staffProfile) {
+        await supabase.from('teacher_class_assignments').upsert(
+          {
+            teacher_profile_id: staffProfile.id,
+            class_id: class_id,
+            is_primary: true,
+          },
+          { onConflict: 'teacher_profile_id,class_id' }
+        );
       }
     }
 
@@ -123,7 +174,7 @@ export async function POST(request: NextRequest) {
       console.error('Email send failed:', emailErr);
     }
 
-    return NextResponse.json({ success: true, userId });
+    return NextResponse.json({ success: true, userId, role });
   } catch (error) {
     console.error('Staff creation error:', error);
     return NextResponse.json({ error: 'Failed to create staff member' }, { status: 500 });

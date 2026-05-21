@@ -25,10 +25,13 @@ export default function IdCardsPage() {
 
       // Get all students across all schools
       const allStudents = [];
-      for (const school of (schoolData.schools || [])) {
-        const res = await fetch('/api/data', { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'get_students', params: { school_id: school.id } }) });
+      for (const school of schoolData.schools || []) {
+        const res = await fetch(`/api/schools/students?school_id=${school.id}`, {
+          cache: 'no-store',
+          credentials: 'include',
+        });
         const data = await res.json();
-        (data.students || []).forEach(s => allStudents.push({ ...s, school }));
+        (data.students || []).forEach((s) => allStudents.push({ ...s, school }));
       }
       setStudents(allStudents);
     } catch (err) { console.error(err); }

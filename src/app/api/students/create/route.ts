@@ -4,7 +4,7 @@ import { ensureAuthUser, ensureUserProfile } from '@/lib/auth/ensure-user';
 
 export async function POST(request: NextRequest) {
   try {
-    const { school_id, class_id, first_name, last_name, custom_fields, photo_base64 } = await request.json();
+    const { school_id, class_id, first_name, last_name, custom_fields, photo_base64, face_descriptor } = await request.json();
     const supabase = getAdminClient();
 
     if (!school_id || !first_name || !last_name) {
@@ -67,6 +67,7 @@ export async function POST(request: NextRequest) {
       student_id_number: studentIdNumber,
       qr_code_data: qrCodeData,
       photo_url: photoUrl,
+      face_descriptor: face_descriptor || null,
       custom_fields: custom_fields || {},
       is_active: true,
     }).select().single();
