@@ -61,30 +61,75 @@ export async function POST(request: NextRequest) {
     const parentEmail = custom_fields?.parent_email;
     if (parentEmail && parentEmail.includes('@') && data) {
       try {
-        // Create parent user + link to student
-        const { data: existingUser } = await supabase.from('user_profiles').select('id').eq('email', parentEmail.toLowerCase()).single();
+        const email = parentEmail.toLowerCase().trim();
+        console.log('[PARENT] Registering parent:', email);
+
+        // Check if parent already exists
+        const { data: existingUser } = await supabase.from('user_profiles').select('id').eq('email', email).single();
         
         let parentUserId;
         if (existingUser) {
           parentUserId = existingUser.id;
+          console.log('[PARENT] Existing user found:', parentUserId);
         } else {
           // Create auth user for parent
-          const { data: authUser } = await supabase.auth.admin.createUser({ email: parentEmail.toLowerCase(), email_confirm: true });
-          if (authUser?.user) {
+          const { data: authUser, error: authErr } = await supabase.auth.admin.createUser({ email, email_confirm: true });
+          console.log('[PARENT] Auth create result:', authUser?.user?.id, 'error:', authErr?.message);
+          
+          if (authErr) {
+            // User might exist in auth but not in profiles - try to find them
+            const { data: { users } } = await supabase.auth.admin.listUsers();
+            const found = users?.find(u => u.email === email);
+            if (found) {
+              parentUserId = found.id;
+              console.log('[PARENT] Found in auth:', parentUserId);
+            }
+          } else if (authUser?.user) {
             parentUserId = authUser.user.id;
-            await supabase.from('user_profiles').insert({ id: parentUserId, email: parentEmail.toLowerCase(), full_name: custom_fields?.parent_name || 'Parent', phone: custom_fields?.parent_phone || null });
+          }
+
+          if (parentUserId) {
+            // Create profile
+            await supabase.from('user_profiles').upsert({
+              id: parentUserId,
+              email,
+              full_name: custom_fields?.parent_name || 'Parent',
+              phone: custom_fields?.parent_phone || null,
+            }, { onConflict: 'id' });
+            console.log('[PARENT] Profile created');
           }
         }
 
         if (parentUserId) {
           // Assign parent role
-          await supabase.from('user_school_roles').upsert({ user_id: parentUserId, school_id, role: 'parent', is_active: true }, { onConflict: 'user_id,school_id,role' });
+          const { error: roleErr } = await supabase.from('user_school_roles').upsert({
+            user_id: parentUserId, school_id, role: 'parent', is_active: true
+          }, { onConflict: 'user_id,school_id,role' });
+          console.log('[PARENT] Role assigned, error:', roleErr?.message);
+
           // Link parent to student
-          await supabase.from('student_parents').upsert({ student_id: data.id, parent_user_id: parentUserId, relationship: custom_fields?.relationship || 'parent', is_primary: true }, { onConflict: 'student_id,parent_user_id' });
+          const { error: linkErr } = await supabase.from('student_parents').upsert({
+            student_id: data.id, parent_user_id: parentUserId, relationship: custom_fields?.relationship || 'parent', is_primary: true
+          }, { onConflict: 'student_id,parent_user_id' });
+          console.log('[PARENT] Linked to student, error:', linkErr?.message);
+
+          // Send welcome email
+          try {
+            const { Resend } = require('resend');
+            const resend = new Resend(process.env.RESEND_API_KEY);
+            await resend.emails.send({
+              from: 'MyEduRide <noreply@assetid.site>',
+              to: email,
+              subject: `Your child ${first_name} has been registered`,
+              html: `<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:20px;"><h2>Welcome to MyEduRide</h2><p>Hello ${custom_fields?.parent_name || 'Parent'},</p><p>Your child <strong>${first_name} ${last_name}</strong> has been registered at school.</p><p>You can now log in to view their attendance:</p><p><strong>Email:</strong> ${email}</p><p>Visit the app and enter your email to receive a login code.</p><p style="color:#666;font-size:12px;">MyEduRide — The Student Safety Platform</p></div>`,
+            });
+            console.log('[PARENT] Welcome email sent');
+          } catch (emailErr) {
+            console.error('[PARENT] Email failed:', emailErr);
+          }
         }
       } catch (parentErr) {
-        console.error('[STUDENT CREATE] Parent invite error:', parentErr);
-        // Don't fail student creation if parent invite fails
+        console.error('[PARENT] Error:', parentErr);
       }
     }
 
