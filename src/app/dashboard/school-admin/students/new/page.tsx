@@ -80,7 +80,11 @@ export default function AddStudentPage() {
         }),
       });
       const result = await res.json();
-      if (result.success) { toast.success('Student added'); router.push('/dashboard/school-admin/students'); }
+      if (result.success) {
+        toast.success(`Student added! ID Card: ${result.student?.student_id_number}`);
+        // ID card is auto-generated (QR code data stored on student record)
+        router.push('/dashboard/school-admin/students');
+      }
       else toast.error(result.error || 'Failed');
     } catch { toast.error('Failed'); }
     setLoading(false);
@@ -189,15 +193,6 @@ export default function AddStudentPage() {
                 </div>
               )}
               {facePhotos.length > 0 && facePhotos.length < 3 && <p className="text-xs text-amber-600 mt-2">Need at least 3 photos</p>}
-            </div>
-
-            {/* Fingerprint - OPTIONAL */}
-            <div className="card">
-              <h2 className="font-semibold mb-1">Fingerprint <span className="text-xs text-gray-400 font-normal">(Optional)</span></h2>
-              <p className="text-xs text-gray-500 mb-3">Connect a fingerprint scanner to capture. This is optional.</p>
-              <button disabled className="w-full py-6 border-2 border-dashed border-gray-200 rounded-xl flex flex-col items-center gap-2 opacity-60 cursor-not-allowed">
-                <span className="text-sm text-gray-400">Fingerprint scanner not connected</span>
-              </button>
             </div>
 
             {/* Submit */}

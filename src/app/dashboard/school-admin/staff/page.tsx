@@ -115,11 +115,6 @@ function AddStaffModal({ schoolId, onClose, onSuccess }) {
               </select>
             </div>
           )}
-          {/* Fingerprint - optional */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Fingerprint <span className="text-gray-400">(Optional)</span></label>
-            <button disabled className="w-full py-4 border-2 border-dashed border-gray-200 rounded-lg text-sm text-gray-400 cursor-not-allowed">Scanner not connected</button>
-          </div>
         </div>
         <div className="flex gap-3 mt-5">
           <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
