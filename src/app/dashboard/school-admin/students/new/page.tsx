@@ -42,14 +42,17 @@ export default function AddStudentPage() {
 
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 480, height: 360 } });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => { videoRef.current.play(); };
+        videoRef.current.play().catch(() => {});
       }
       setCameraActive(true);
-    } catch { toast.error('Camera access denied'); }
+    } catch (err) { 
+      console.error('Camera error:', err);
+      toast.error('Camera access denied. Check browser permissions.'); 
+    }
   };
 
   const capturePhoto = () => {
@@ -124,20 +127,6 @@ export default function AddStudentPage() {
         <Link href="/dashboard/school-admin/students" className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-4"><ArrowLeft size={16} /> Back</Link>
         <h1 className="text-2xl font-bold mb-6">Add Student</h1>
 
-        <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-6">
-          <button onClick={() => setTab('single')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${tab === 'single' ? 'bg-white shadow-sm' : 'text-gray-500'}`}>Single Student</button>
-          <button onClick={() => setTab('csv')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${tab === 'csv' ? 'bg-white shadow-sm' : 'text-gray-500'}`}>CSV Upload</button>
-        </div>
-
-        {tab === 'csv' ? (
-          <div className="card">
-            <h2 className="font-semibold mb-3">Upload CSV</h2>
-            <p className="text-sm text-gray-500 mb-4">Columns: first_name, last_name, address, parent_name, parent_phone, parent_email</p>
-            <input type="file" accept=".csv" onChange={handleCSVUpload} disabled={loading}
-              className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-primary-50 file:text-primary-700 file:font-medium" />
-            {loading && <p className="text-sm text-primary-600 mt-3 animate-pulse">Importing...</p>}
-          </div>
-        ) : (
           <div className="space-y-5">
             {/* Student Info */}
             <div className="card">
@@ -204,7 +193,6 @@ export default function AddStudentPage() {
               {loading ? 'Adding...' : 'Add Student'} <CheckCircle size={16} />
             </button>
           </div>
-        )}
       </div>
     </div>
   );

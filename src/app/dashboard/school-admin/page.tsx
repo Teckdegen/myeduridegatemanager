@@ -103,7 +103,7 @@ export default function SchoolAdminDashboard() {
       </div>
 
       {/* Second row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-3 gap-4 mb-8">
         <div className="card flex items-center gap-4">
           <div className="w-12 h-12 rounded-2xl bg-green-50 flex items-center justify-center">
             <UserCheck size={22} className="text-green-600" />
