@@ -5,7 +5,9 @@ import { useEffect, useState } from 'react';
 import { fetchData } from '@/lib/api';
 import StudentAvatar from '@/components/shared/StudentAvatar';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { Users, UserCheck, AlertTriangle, ArrowRight, GraduationCap, Clock } from 'lucide-react';
+import { Users, UserCheck, AlertTriangle, ArrowRight, GraduationCap, Clock, Download } from 'lucide-react';
+import Link from 'next/link';
+import { ATTENDANCE_UI_NOTE } from '@/lib/attendance/window';
 import { toast } from 'sonner';
 
 export default function TeacherDashboard() {
@@ -76,7 +78,7 @@ export default function TeacherDashboard() {
           <div>
             <p className="text-white/70 text-xs font-medium uppercase tracking-wide">Teacher</p>
             <h1 className="text-xl font-bold">{schoolName || 'My class'}</h1>
-            <p className="text-white/80 text-sm">{stats.total} students · updates every minute</p>
+            <p className="text-white/80 text-sm">{stats.total} students · live status refreshes every minute</p>
           </div>
         </div>
       </div>
@@ -105,10 +107,17 @@ export default function TeacherDashboard() {
         </div>
       </div>
 
-      <PageHeader
-        title="Today's attendance"
-        subtitle="Present = scanned at gate (arrival). Absent = not scanned yet today."
-      />
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <PageHeader
+          title="Live attendance"
+          subtitle="Present = gate scan within the last 12 hours"
+        />
+        <Link href="/dashboard/teacher/reports" className="btn-secondary flex items-center gap-2 text-sm shrink-0">
+          <Download size={16} /> Reports & CSV
+        </Link>
+      </div>
+
+      <p className="text-xs text-slate-500 mb-4 leading-relaxed">{ATTENDANCE_UI_NOTE}</p>
 
       <div className="card-elevated divide-y divide-slate-100">
         {students.map((s) => (
@@ -132,7 +141,7 @@ export default function TeacherDashboard() {
                     ` · ${new Date(s.arrival_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
                 </p>
               ) : (
-                <p className="text-[10px] text-red-500 mt-0.5">Not arrived (no gate scan today)</p>
+                <p className="text-[10px] text-red-500 mt-0.5">Not in 12h window (scan at gate or see Reports)</p>
               )}
             </div>
             <span
@@ -165,7 +174,7 @@ export default function TeacherDashboard() {
       </div>
 
       <div className="alert-info mt-5">
-        Attendance is recorded when the gate officer scans the student QR and taps Accept. Dismiss only notifies the parent for pickup.
+        Dismiss notifies parents for pickup. Gate scans are saved forever — export any day or all years under Reports & CSV.
       </div>
     </div>
   );

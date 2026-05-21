@@ -3,96 +3,97 @@
 
 import { useEffect, useState } from 'react';
 import { fetchData } from '@/lib/api';
-import { Download, Filter, Clock, CheckCircle, AlertTriangle } from 'lucide-react';
-import { toast } from 'sonner';
+import AttendanceReportPanel from '@/components/attendance/AttendanceReportPanel';
+import { isWithinUiPresentWindow } from '@/lib/attendance/window';
 
 export default function AttendanceReportsPage() {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [schoolId, setSchoolId] = useState('');
 
-  useEffect(() => { loadRecords(); }, []);
+  useEffect(() => {
+    loadRecords();
+  }, []);
 
   const loadRecords = async () => {
     try {
       const schoolData = await fetchData('get_school_admin_data', { role: 'school_admin' });
-      if (!schoolData.school_id) { setLoading(false); return; }
+      if (!schoolData.school_id) {
+        setLoading(false);
+        return;
+      }
       setSchoolId(schoolData.school_id);
 
       const result = await fetchData('query', {
         table: 'attendance_records',
-        select: '*, student:students(first_name, last_name, student_id_number)',
+        select: '*, student:students(first_name, last_name, student_id_number, class:school_classes(name))',
         filters: { school_id: schoolData.school_id },
         order: { column: 'timestamp', ascending: false },
-        limit: 50,
+        limit: 100,
       });
       setRecords(result.data || []);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
     setLoading(false);
   };
 
-  const handleExport = () => {
-    const headers = ['Date', 'Time', 'Student', 'Type', 'Status'];
-    const rows = records.map((r: any) => [
-      new Date(r.timestamp).toLocaleDateString(),
-      new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      `${r.student?.first_name} ${r.student?.last_name}`,
-      r.type, r.status || '',
-    ]);
-    const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `attendance_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    toast.success('Exported');
-  };
-
-  if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse text-primary-600">Loading...</div></div>;
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center md:ml-56">
+        <div className="animate-pulse text-primary-600">Loading...</div>
+      </div>
+    );
+  }
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">Attendance</h1>
-          <p className="text-sm text-gray-500">{records.length} records</p>
-        </div>
-        <button onClick={handleExport} className="btn-primary flex items-center gap-1 text-sm">
-          <Download size={16} /> Export CSV
-        </button>
+    <div className="p-6 min-h-screen md:ml-56 pt-14 md:pt-6 max-w-4xl">
+      <h1 className="text-2xl font-bold text-slate-900 mb-1">Attendance reports</h1>
+      <p className="text-sm text-slate-500 mb-6">All gate scans are stored permanently.</p>
+
+      <div className="card-elevated p-5 mb-6">
+        <AttendanceReportPanel schoolId={schoolId} />
       </div>
 
-      <div className="card p-0 overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50 border-b">
+      <h2 className="text-sm font-semibold text-slate-700 mb-3">Recent scans (stored)</h2>
+      <div className="card-elevated p-0 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 border-b">
             <tr>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Time</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Student</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Type</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Status</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase">When</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase">Student</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase">Type</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase">Live UI</th>
             </tr>
           </thead>
-          <tbody className="divide-y">
-            {records.map((r: any) => (
-              <tr key={r.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 text-sm">
-                  {new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  <span className="text-xs text-gray-400 ml-2">{new Date(r.timestamp).toLocaleDateString()}</span>
+          <tbody className="divide-y divide-slate-100">
+            {records.map((r) => (
+              <tr key={r.id} className="hover:bg-slate-50/80">
+                <td className="px-4 py-3 whitespace-nowrap">
+                  {new Date(r.timestamp).toLocaleString()}
                 </td>
-                <td className="px-4 py-3 text-sm font-medium">{r.student?.first_name} {r.student?.last_name}</td>
-                <td className="px-4 py-3">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${r.type === 'arrival' ? 'bg-blue-50 text-blue-700' : 'bg-orange-50 text-orange-700'}`}>
-                    {r.type}
-                  </span>
+                <td className="px-4 py-3 font-medium">
+                  {r.student?.first_name} {r.student?.last_name}
                 </td>
+                <td className="px-4 py-3 capitalize">{r.type}</td>
                 <td className="px-4 py-3">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${
-                    r.status === 'on_time' ? 'bg-green-50 text-green-700' : r.status === 'late' ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-500'
-                  }`}>{r.status || '-'}</span>
+                  {r.type === 'arrival' && isWithinUiPresentWindow(r.timestamp) ? (
+                    <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
+                      Present on dashboard
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-400">Archived</span>
+                  )}
                 </td>
               </tr>
             ))}
-            {records.length === 0 && <tr><td colSpan={4} className="py-8 text-center text-gray-400">No attendance records yet</td></tr>}
+            {records.length === 0 && (
+              <tr>
+                <td colSpan={4} className="py-10 text-center text-slate-400">
+                  No attendance records yet
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

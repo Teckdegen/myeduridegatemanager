@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
+import { getUiPresentWindowStart, ATTENDANCE_UI_NOTE } from '@/lib/attendance/window';
 
 export async function POST(request: NextRequest) {
   try {
@@ -45,21 +46,17 @@ export async function POST(request: NextRequest) {
       case 'get_school_dashboard': {
         const schoolId = params?.school_id;
         if (!schoolId) return NextResponse.json({ error: 'school_id required' }, { status: 400 });
-        const dayStart = new Date();
-        dayStart.setHours(0, 0, 0, 0);
-        const dayEnd = new Date();
-        dayEnd.setHours(23, 59, 59, 999);
+        const presentSince = getUiPresentWindowStart().toISOString();
         const { count: totalStudents } = await supabase.from('students').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('is_active', true);
         const { count: totalTeachers } = await supabase.from('user_school_roles').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('role', 'teacher').eq('is_active', true);
         const { count: totalParents } = await supabase.from('user_school_roles').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('role', 'parent').eq('is_active', true);
-        const { data: todayAttendance } = await supabase
+        const { data: liveAttendance } = await supabase
           .from('attendance_records')
           .select('student_id, status')
           .eq('school_id', schoolId)
           .eq('type', 'arrival')
-          .gte('timestamp', dayStart.toISOString())
-          .lte('timestamp', dayEnd.toISOString());
-        const uniquePresent = new Set((todayAttendance || []).map((a: { student_id: string }) => a.student_id));
+          .gte('timestamp', presentSince);
+        const uniquePresent = new Set((liveAttendance || []).map((a: { student_id: string }) => a.student_id));
         const { data: recentActivity } = await supabase
           .from('attendance_records')
           .select('*, student:students(first_name, last_name, photo_url, student_id_number)')
@@ -71,9 +68,10 @@ export async function POST(request: NextRequest) {
           total_teachers: totalTeachers || 0,
           total_parents: totalParents || 0,
           present_today: uniquePresent.size,
-          late_today: todayAttendance?.filter((a: { status: string }) => a.status === 'late').length || 0,
+          late_today: liveAttendance?.filter((a: { status: string }) => a.status === 'late').length || 0,
           absent_today: Math.max(0, (totalStudents || 0) - uniquePresent.size),
           recent_activity: recentActivity || [],
+          attendance_ui_note: ATTENDANCE_UI_NOTE,
         });
       }
 
@@ -123,10 +121,7 @@ export async function POST(request: NextRequest) {
 
         const { data: students } = await studentsQuery;
 
-        const dayStart = new Date();
-        dayStart.setHours(0, 0, 0, 0);
-        const dayEnd = new Date();
-        dayEnd.setHours(23, 59, 59, 999);
+        const presentSince = getUiPresentWindowStart().toISOString();
 
         const studentIds = (students || []).map((s: { id: string }) => s.id);
         let arrivals: { student_id: string; status: string; timestamp: string; type: string }[] = [];
@@ -137,8 +132,7 @@ export async function POST(request: NextRequest) {
             .select('student_id, status, timestamp, type')
             .eq('school_id', schoolId)
             .in('student_id', studentIds)
-            .gte('timestamp', dayStart.toISOString())
-            .lte('timestamp', dayEnd.toISOString())
+            .gte('timestamp', presentSince)
             .order('timestamp', { ascending: false });
 
           const seen = new Set<string>();
@@ -170,6 +164,7 @@ export async function POST(request: NextRequest) {
           present_count: enriched.filter((s: { present: boolean }) => s.present).length,
           absent_count: enriched.filter((s: { present: boolean }) => !s.present).length,
           late_count: enriched.filter((s: { late: boolean }) => s.late).length,
+          attendance_ui_note: ATTENDANCE_UI_NOTE,
         });
       }
 
