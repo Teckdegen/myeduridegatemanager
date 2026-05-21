@@ -76,24 +76,35 @@ export async function POST(request: NextRequest) {
     if (existingUser) {
       adminUserId = existingUser.id;
     } else {
+      // Try to create in Auth
       const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
         email: admin_email,
         email_confirm: true,
       });
 
-      if (authError || !authUser.user) {
-        await supabase.from('schools').delete().eq('id', school.id);
-        return NextResponse.json({ error: 'Failed to create admin account' }, { status: 500 });
+      if (authError) {
+        // User might already exist in Auth — try to find them
+        const { data: { users } } = await supabase.auth.admin.listUsers();
+        const found = users?.find((u: any) => u.email?.toLowerCase() === admin_email.toLowerCase());
+        if (found) {
+          adminUserId = found.id;
+        } else {
+          await supabase.from('schools').delete().eq('id', school.id);
+          return NextResponse.json({ error: `Failed to create admin account: ${authError.message}` }, { status: 500 });
+        }
+      } else if (authUser?.user) {
+        adminUserId = authUser.user.id;
       }
 
-      adminUserId = authUser.user.id;
-
-      await supabase.from('user_profiles').insert({
-        id: adminUserId,
-        email: admin_email,
-        full_name: admin_name,
-        phone: admin_phone || null,
-      });
+      if (adminUserId) {
+        // Upsert profile (handles case where profile might already exist)
+        await supabase.from('user_profiles').upsert({
+          id: adminUserId,
+          email: admin_email,
+          full_name: admin_name,
+          phone: admin_phone || null,
+        }, { onConflict: 'id' });
+      }
     }
 
     // Assign school_admin role
