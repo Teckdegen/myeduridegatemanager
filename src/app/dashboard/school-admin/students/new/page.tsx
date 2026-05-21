@@ -44,7 +44,10 @@ export default function AddStudentPage() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 480, height: 360 } });
       streamRef.current = stream;
-      if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.onloadedmetadata = () => { videoRef.current.play(); };
+      }
       setCameraActive(true);
     } catch { toast.error('Camera access denied'); }
   };
@@ -176,7 +179,7 @@ export default function AddStudentPage() {
               ) : (
                 <div>
                   <div className="relative rounded-xl overflow-hidden bg-black mb-3">
-                    <video ref={videoRef} className="w-full aspect-[4/3] object-cover" playsInline muted />
+                    <video ref={videoRef} className="w-full aspect-[4/3] object-cover" playsInline muted autoPlay />
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><div className="w-32 h-32 border-2 border-white/40 rounded-full" /></div>
                   </div>
                   <button onClick={capturePhoto} disabled={facePhotos.length >= 5} className="btn-primary w-full">Capture ({facePhotos.length}/5)</button>
