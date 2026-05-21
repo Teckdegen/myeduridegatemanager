@@ -7,7 +7,6 @@ import { Plus, Trash2, GraduationCap, DoorOpen, Shield } from 'lucide-react';
 import { toast } from 'sonner';
 import FaceCapture from '@/components/shared/FaceCapture';
 import StudentAvatar from '@/components/shared/StudentAvatar';
-import { PageHeader } from '@/components/ui/PageHeader';
 
 export default function StaffManagementPage() {
   const [staff, setStaff] = useState([]);
@@ -51,35 +50,47 @@ export default function StaffManagementPage() {
   if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse text-primary-600">Loading...</div></div>;
 
   return (
-    <div className="page-shell md:ml-56">
-      <PageHeader
-        title={`Staff (${staff.length})`}
-        subtitle="Teachers, gate officers, and school admins"
-        action={
-          <button onClick={() => setShowAddModal(true)} className="btn-primary flex items-center gap-1 text-sm">
-            <Plus size={16} /> Add Staff
-          </button>
-        }
-      />
+    <div className="p-6 min-h-screen md:ml-56 pt-14 md:pt-6 max-w-4xl">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6 pr-12 md:pr-0">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold text-slate-900">Staff ({staff.length})</h1>
+          <p className="text-sm text-slate-500 mt-0.5">Teachers, gate officers, and school admins</p>
+        </div>
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="btn-primary flex items-center justify-center gap-2 text-sm shrink-0 w-full sm:w-auto"
+        >
+          <Plus size={16} /> Add Staff
+        </button>
+      </div>
 
       <div className="card-elevated divide-y divide-slate-100">
           {staff.map((s) => (
-            <div key={s.id} className="list-row">
+            <div key={s.id} className="list-row gap-4">
               <StudentAvatar
                 photoUrl={s.staff?.photo_url}
                 firstName={s.profile?.full_name?.split(' ')[0]}
                 lastName={s.profile?.full_name?.split(' ').slice(1).join(' ')}
                 size="sm"
               />
-              <div className="flex-1">
-                <p className="text-sm font-medium">{s.profile?.full_name || 'Unknown'}</p>
-                <p className="text-xs text-gray-500">{s.profile?.email}</p>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-slate-900 truncate">{s.profile?.full_name || 'Unknown'}</p>
+                <p className="text-xs text-slate-500 truncate">{s.profile?.email}</p>
               </div>
-              <span className="text-xs px-2 py-1 rounded-full bg-gray-100 capitalize flex items-center gap-1">{getRoleIcon(s.role)} {s.role.replace('_', ' ')}</span>
-              <button onClick={() => handleDelete(s.id, s.profile?.full_name)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600"><Trash2 size={14} /></button>
+              <span className="text-xs px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 capitalize flex items-center gap-1 shrink-0">
+                {getRoleIcon(s.role)} {s.role.replace('_', ' ')}
+              </span>
+              <button
+                type="button"
+                onClick={() => handleDelete(s.id, s.profile?.full_name)}
+                className="p-2 rounded-xl hover:bg-red-50 text-slate-400 hover:text-red-600 shrink-0"
+                aria-label="Remove staff"
+              >
+                <Trash2 size={16} />
+              </button>
             </div>
           ))}
-          {staff.length === 0 && <div className="py-8 text-center text-gray-400">No staff yet</div>}
+          {staff.length === 0 && <div className="py-12 text-center text-slate-400 text-sm">No staff yet — add your first team member</div>}
       </div>
 
       {showAddModal && <AddStaffModal schoolId={schoolId} onClose={() => setShowAddModal(false)} onSuccess={() => { setShowAddModal(false); loadStaff(); }} />}
