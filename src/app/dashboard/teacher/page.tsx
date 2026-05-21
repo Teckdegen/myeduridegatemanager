@@ -5,11 +5,12 @@ import { useEffect, useState } from 'react';
 import { fetchData } from '@/lib/api';
 import StudentAvatar from '@/components/shared/StudentAvatar';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { Users, UserCheck, AlertTriangle, ArrowRight, GraduationCap } from 'lucide-react';
+import { Users, UserCheck, AlertTriangle, ArrowRight, GraduationCap, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function TeacherDashboard() {
   const [students, setStudents] = useState([]);
+  const [stats, setStats] = useState({ present: 0, absent: 0, late: 0, total: 0 });
   const [loading, setLoading] = useState(true);
   const [schoolId, setSchoolId] = useState('');
   const [schoolName, setSchoolName] = useState('');
@@ -17,19 +18,22 @@ export default function TeacherDashboard() {
 
   useEffect(() => {
     loadClass();
+    const interval = setInterval(loadClass, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   const loadClass = async () => {
     try {
-      const schoolData = await fetchData('get_school_admin_data', { role: 'teacher' });
-      if (!schoolData.school_id) {
-        setLoading(false);
-        return;
-      }
-      setSchoolId(schoolData.school_id);
-      setSchoolName(schoolData.school?.name || '');
-      const { students: data } = await fetchData('get_students', { school_id: schoolData.school_id });
-      setStudents(data || []);
+      const data = await fetchData('get_teacher_dashboard');
+      setSchoolId(data.school_id || '');
+      setSchoolName(data.school?.name || '');
+      setStudents(data.students || []);
+      setStats({
+        present: data.present_count || 0,
+        absent: data.absent_count || 0,
+        late: data.late_count || 0,
+        total: (data.students || []).length,
+      });
     } catch (err) {
       console.error(err);
       toast.error('Could not load class');
@@ -43,6 +47,7 @@ export default function TeacherDashboard() {
       const res = await fetch('/api/notifications/dismissal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ student_id: studentId, school_id: schoolId, teacher_name: 'Teacher' }),
       });
       if (!res.ok) throw new Error('Failed');
@@ -71,7 +76,7 @@ export default function TeacherDashboard() {
           <div>
             <p className="text-white/70 text-xs font-medium uppercase tracking-wide">Teacher</p>
             <h1 className="text-xl font-bold">{schoolName || 'My class'}</h1>
-            <p className="text-white/80 text-sm">{students.length} students</p>
+            <p className="text-white/80 text-sm">{stats.total} students · updates every minute</p>
           </div>
         </div>
       </div>
@@ -80,29 +85,29 @@ export default function TeacherDashboard() {
         <div className="dash-stat">
           <div>
             <p className="text-[11px] font-medium text-slate-500 uppercase">Total</p>
-            <p className="text-2xl font-bold text-slate-900">{students.length}</p>
+            <p className="text-2xl font-bold text-slate-900">{stats.total}</p>
           </div>
           <Users size={20} className="text-primary-600" />
         </div>
         <div className="dash-stat">
           <div>
             <p className="text-[11px] font-medium text-slate-500 uppercase">Present</p>
-            <p className="text-2xl font-bold text-emerald-600">0</p>
+            <p className="text-2xl font-bold text-emerald-600">{stats.present}</p>
           </div>
           <UserCheck size={20} className="text-emerald-500" />
         </div>
         <div className="dash-stat">
           <div>
             <p className="text-[11px] font-medium text-slate-500 uppercase">Absent</p>
-            <p className="text-2xl font-bold text-red-500">{students.length}</p>
+            <p className="text-2xl font-bold text-red-500">{stats.absent}</p>
           </div>
           <AlertTriangle size={20} className="text-red-400" />
         </div>
       </div>
 
       <PageHeader
-        title="Students"
-        subtitle="Tap Dismiss to notify the parent for pickup"
+        title="Today's attendance"
+        subtitle="Present = scanned at gate (arrival). Absent = not scanned yet today."
       />
 
       <div className="card-elevated divide-y divide-slate-100">
@@ -119,28 +124,48 @@ export default function TeacherDashboard() {
                 {s.first_name} {s.last_name}
               </p>
               <p className="text-xs text-slate-500">{s.class?.name || 'No class'}</p>
-              {!s.photo_url && (
-                <p className="text-[10px] text-amber-600 mt-0.5">Photo missing — ask admin to re-enroll with camera</p>
+              {s.present ? (
+                <p className="text-[10px] text-emerald-600 mt-0.5 flex items-center gap-1">
+                  <Clock size={10} />
+                  {s.late ? 'Late' : 'Present'}
+                  {s.arrival_time &&
+                    ` · ${new Date(s.arrival_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                </p>
+              ) : (
+                <p className="text-[10px] text-red-500 mt-0.5">Not arrived (no gate scan today)</p>
               )}
             </div>
+            <span
+              className={`text-[10px] font-bold uppercase px-2 py-1 rounded-lg shrink-0 ${
+                s.present
+                  ? s.late
+                    ? 'bg-amber-100 text-amber-800'
+                    : 'bg-emerald-100 text-emerald-800'
+                  : 'bg-red-50 text-red-600'
+              }`}
+            >
+              {s.present ? (s.late ? 'Late' : 'In') : 'Out'}
+            </span>
             <button
               type="button"
               onClick={() => handleDismiss(s.id, `${s.first_name} ${s.last_name}`)}
               disabled={dismissing === s.id}
-              className="shrink-0 text-xs px-4 py-2 rounded-xl bg-orange-500 text-white font-semibold hover:bg-orange-600 flex items-center gap-1.5 disabled:opacity-50 shadow-sm"
+              className="shrink-0 text-xs px-3 py-2 rounded-xl bg-orange-500 text-white font-semibold hover:bg-orange-600 flex items-center gap-1 disabled:opacity-50 shadow-sm"
             >
-              <ArrowRight size={14} />
-              {dismissing === s.id ? 'Sending…' : 'Dismiss'}
+              <ArrowRight size={12} />
+              {dismissing === s.id ? '…' : 'Dismiss'}
             </button>
           </div>
         ))}
         {students.length === 0 && (
-          <div className="py-12 text-center text-slate-400 text-sm">No students in your class yet</div>
+          <div className="py-12 text-center text-slate-400 text-sm">
+            No students in your assigned class yet
+          </div>
         )}
       </div>
 
       <div className="alert-info mt-5">
-        When you dismiss a student, their parent gets a notification. The student must still scan their QR at the gate before leaving.
+        Attendance is recorded when the gate officer scans the student QR and taps Accept. Dismiss only notifies the parent for pickup.
       </div>
     </div>
   );

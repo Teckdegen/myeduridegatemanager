@@ -21,6 +21,8 @@ export default function GateOfficerDashboard() {
   const [currentTime, setCurrentTime] = useState(null);
   const [todayCount, setTodayCount] = useState(0);
   const [schoolId, setSchoolId] = useState('');
+  const [schoolReady, setSchoolReady] = useState(false);
+  const [gateSessionId, setGateSessionId] = useState(null);
   const [scannedPerson, setScannedPerson] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [accepting, setAccepting] = useState(false);
@@ -47,9 +49,14 @@ export default function GateOfficerDashboard() {
   const loadSchool = async () => {
     try {
       const data = await fetchData('get_school_admin_data', { role: 'gate_officer' });
-      if (data.school_id) setSchoolId(data.school_id);
+      if (data.school_id) {
+        setSchoolId(data.school_id);
+        setSchoolReady(true);
+      } else {
+        toast.error('No school linked to your gate officer account');
+      }
     } catch {
-      /* ignore */
+      toast.error('Could not load school');
     }
   };
 
@@ -133,6 +140,7 @@ export default function GateOfficerDashboard() {
       const res = await fetch('/api/gate/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ scan_data: scanData, school_id: schoolId }),
       });
       const data = await res.json();
@@ -156,6 +164,7 @@ export default function GateOfficerDashboard() {
     try {
       const body = {
         school_id: schoolId,
+        gate_session_id: gateSessionId,
         type: gateMode === 'arrival' ? 'arrival' : 'departure',
         verification_method: 'id_card_scan',
         person_type: scannedPerson.type,
@@ -170,16 +179,17 @@ export default function GateOfficerDashboard() {
       const res = await fetch('/api/gate/accept', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(body),
       });
       const data = await res.json();
       if (data.success) {
         const label = gateMode === 'dismissal' ? 'Dismissed' : data.is_late ? 'Late arrival' : 'Checked in';
-        toast.success(`${scannedPerson.person.name} — ${label}`);
+        toast.success(`${scannedPerson.person.name} — ${label} (saved)`);
         setTodayCount((prev) => prev + 1);
         resumeScanning();
       } else {
-        toast.error(data.error || 'Failed to log');
+        toast.error(data.error || 'Failed to log attendance');
       }
     } catch {
       toast.error('Failed to log — try again');
@@ -191,18 +201,46 @@ export default function GateOfficerDashboard() {
     resumeScanning();
   };
 
-  const handleStartSession = () => {
-    setSessionActive(true);
-    requestAnimationFrame(() => startCamera());
+  const handleStartSession = async () => {
+    if (!schoolReady || !schoolId) {
+      toast.error('School not loaded — refresh and try again');
+      return;
+    }
+    try {
+      const res = await fetch('/api/gate/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'start', school_id: schoolId, mode: gateMode }),
+      });
+      const data = await res.json();
+      if (!data.success || !data.session_id) {
+        toast.error(data.error || 'Could not start gate session');
+        return;
+      }
+      setGateSessionId(data.session_id);
+      setSessionActive(true);
+      requestAnimationFrame(() => startCamera());
+    } catch {
+      toast.error('Could not start session');
+    }
   };
 
-  const handleEndSession = () => {
-    if (confirm('End session?')) {
-      setSessionActive(false);
-      setTodayCount(0);
-      stopCamera();
-      setScannedPerson(null);
+  const handleEndSession = async () => {
+    if (!confirm('End session?')) return;
+    if (gateSessionId) {
+      await fetch('/api/gate/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'end', session_id: gateSessionId }),
+      }).catch(() => {});
     }
+    setSessionActive(false);
+    setGateSessionId(null);
+    setTodayCount(0);
+    stopCamera();
+    setScannedPerson(null);
   };
 
   if (!sessionActive) {
@@ -272,8 +310,13 @@ export default function GateOfficerDashboard() {
                 </span>
               </button>
             </div>
-            <button type="button" onClick={handleStartSession} className="btn-primary w-full py-3.5 text-base">
-              Start scanning
+            <button
+              type="button"
+              onClick={handleStartSession}
+              disabled={!schoolReady}
+              className="btn-primary w-full py-3.5 text-base disabled:opacity-50"
+            >
+              {schoolReady ? 'Start scanning' : 'Loading school…'}
             </button>
             <p className="text-xs text-center text-slate-400">Scan the QR code on each ID card only</p>
           </div>

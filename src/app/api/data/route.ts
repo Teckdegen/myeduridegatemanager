@@ -45,16 +45,131 @@ export async function POST(request: NextRequest) {
       case 'get_school_dashboard': {
         const schoolId = params?.school_id;
         if (!schoolId) return NextResponse.json({ error: 'school_id required' }, { status: 400 });
-        const today = new Date().toISOString().split('T')[0];
+        const dayStart = new Date();
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date();
+        dayEnd.setHours(23, 59, 59, 999);
         const { count: totalStudents } = await supabase.from('students').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('is_active', true);
         const { count: totalTeachers } = await supabase.from('user_school_roles').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('role', 'teacher').eq('is_active', true);
         const { count: totalParents } = await supabase.from('user_school_roles').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('role', 'parent').eq('is_active', true);
-        const { data: todayAttendance } = await supabase.from('attendance_records').select('student_id, status').eq('school_id', schoolId).eq('type', 'arrival').gte('timestamp', `${today}T00:00:00`).lte('timestamp', `${today}T23:59:59`);
-        const { data: recentActivity } = await supabase.from('attendance_records').select('*, student:students(first_name, last_name, photo_url, student_id_number)').eq('school_id', schoolId).order('timestamp', { ascending: false }).limit(10);
+        const { data: todayAttendance } = await supabase
+          .from('attendance_records')
+          .select('student_id, status')
+          .eq('school_id', schoolId)
+          .eq('type', 'arrival')
+          .gte('timestamp', dayStart.toISOString())
+          .lte('timestamp', dayEnd.toISOString());
+        const uniquePresent = new Set((todayAttendance || []).map((a: { student_id: string }) => a.student_id));
+        const { data: recentActivity } = await supabase
+          .from('attendance_records')
+          .select('*, student:students(first_name, last_name, photo_url, student_id_number)')
+          .eq('school_id', schoolId)
+          .order('timestamp', { ascending: false })
+          .limit(10);
         return NextResponse.json({
-          total_students: totalStudents || 0, total_teachers: totalTeachers || 0, total_parents: totalParents || 0,
-          present_today: todayAttendance?.length || 0, late_today: todayAttendance?.filter((a: any) => a.status === 'late').length || 0,
-          absent_today: (totalStudents || 0) - (todayAttendance?.length || 0), recent_activity: recentActivity || [],
+          total_students: totalStudents || 0,
+          total_teachers: totalTeachers || 0,
+          total_parents: totalParents || 0,
+          present_today: uniquePresent.size,
+          late_today: todayAttendance?.filter((a: { status: string }) => a.status === 'late').length || 0,
+          absent_today: Math.max(0, (totalStudents || 0) - uniquePresent.size),
+          recent_activity: recentActivity || [],
+        });
+      }
+
+      case 'get_teacher_dashboard': {
+        const { data: role } = await supabase
+          .from('user_school_roles')
+          .select('school_id')
+          .eq('user_id', session.user_id)
+          .eq('role', 'teacher')
+          .eq('is_active', true)
+          .limit(1)
+          .maybeSingle();
+
+        if (!role?.school_id) {
+          return NextResponse.json({ error: 'No teacher school', students: [], present_count: 0, absent_count: 0 });
+        }
+
+        const schoolId = role.school_id;
+        const { data: school } = await supabase.from('schools').select('name').eq('id', schoolId).single();
+
+        const { data: teacherProfile } = await supabase
+          .from('teacher_profiles')
+          .select('id')
+          .eq('user_id', session.user_id)
+          .eq('school_id', schoolId)
+          .maybeSingle();
+
+        let classIds: string[] = [];
+        if (teacherProfile?.id) {
+          const { data: assignments } = await supabase
+            .from('teacher_class_assignments')
+            .select('class_id')
+            .eq('teacher_profile_id', teacherProfile.id);
+          classIds = (assignments || []).map((a: { class_id: string }) => a.class_id);
+        }
+
+        let studentsQuery = supabase
+          .from('students')
+          .select('*, class:school_classes(name, grade)')
+          .eq('school_id', schoolId)
+          .eq('is_active', true)
+          .order('last_name');
+
+        if (classIds.length > 0) {
+          studentsQuery = studentsQuery.in('class_id', classIds);
+        }
+
+        const { data: students } = await studentsQuery;
+
+        const dayStart = new Date();
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date();
+        dayEnd.setHours(23, 59, 59, 999);
+
+        const studentIds = (students || []).map((s: { id: string }) => s.id);
+        let arrivals: { student_id: string; status: string; timestamp: string; type: string }[] = [];
+
+        if (studentIds.length > 0) {
+          const { data: records } = await supabase
+            .from('attendance_records')
+            .select('student_id, status, timestamp, type')
+            .eq('school_id', schoolId)
+            .in('student_id', studentIds)
+            .gte('timestamp', dayStart.toISOString())
+            .lte('timestamp', dayEnd.toISOString())
+            .order('timestamp', { ascending: false });
+
+          const seen = new Set<string>();
+          for (const r of records || []) {
+            if (r.type === 'arrival' && !seen.has(r.student_id)) {
+              seen.add(r.student_id);
+              arrivals.push(r);
+            }
+          }
+        }
+
+        const arrivalMap = new Map(arrivals.map((a) => [a.student_id, a]));
+
+        const enriched = (students || []).map((s: { id: string }) => {
+          const arrival = arrivalMap.get(s.id);
+          return {
+            ...s,
+            present: !!arrival,
+            late: arrival?.status === 'late',
+            arrival_time: arrival?.timestamp || null,
+          };
+        });
+
+        return NextResponse.json({
+          school_id: schoolId,
+          school,
+          class_ids: classIds,
+          students: enriched,
+          present_count: enriched.filter((s: { present: boolean }) => s.present).length,
+          absent_count: enriched.filter((s: { present: boolean }) => !s.present).length,
+          late_count: enriched.filter((s: { late: boolean }) => s.late).length,
         });
       }
 
