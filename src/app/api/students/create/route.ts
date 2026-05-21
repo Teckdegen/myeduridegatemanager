@@ -3,7 +3,7 @@ import { getAdminClient } from '@/lib/supabase/admin';
 
 export async function POST(request: NextRequest) {
   try {
-    const { school_id, class_id, first_name, last_name, custom_fields } = await request.json();
+    const { school_id, class_id, first_name, last_name, custom_fields, photo_base64 } = await request.json();
     const supabase = getAdminClient();
 
     if (!school_id || !first_name || !last_name) {
@@ -12,6 +12,23 @@ export async function POST(request: NextRequest) {
 
     const studentIdNumber = `STU-${school_id.slice(0, 4).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
     const qrCodeData = `MYEDURIDE:${studentIdNumber}`;
+
+    // Upload photo if provided
+    let photoUrl = null;
+    if (photo_base64) {
+      try {
+        const base64Data = photo_base64.replace(/^data:image\/\w+;base64,/, '');
+        const buffer = Buffer.from(base64Data, 'base64');
+        const fileName = `students/${school_id}/${studentIdNumber}.jpg`;
+        const { data: uploadData } = await supabase.storage.from('photos').upload(fileName, buffer, { contentType: 'image/jpeg', upsert: true });
+        if (uploadData) {
+          const { data: { publicUrl } } = supabase.storage.from('photos').getPublicUrl(fileName);
+          photoUrl = publicUrl;
+        }
+      } catch (photoErr) {
+        console.error('[STUDENT CREATE] Photo upload error:', photoErr);
+      }
+    }
 
     // If no class_id provided, try to get the first class for this school
     let finalClassId = class_id;
@@ -48,6 +65,7 @@ export async function POST(request: NextRequest) {
       last_name,
       student_id_number: studentIdNumber,
       qr_code_data: qrCodeData,
+      photo_url: photoUrl,
       custom_fields: custom_fields || {},
       is_active: true,
     }).select().single();

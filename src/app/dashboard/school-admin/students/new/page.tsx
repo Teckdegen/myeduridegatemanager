@@ -80,6 +80,7 @@ export default function AddStudentPage() {
           class_id: form.class_id || null,
           first_name: form.first_name,
           last_name: form.last_name,
+          photo_base64: facePhotos[0] || null,
           custom_fields: {
             address: form.address,
             parent_name: form.parent_name,
