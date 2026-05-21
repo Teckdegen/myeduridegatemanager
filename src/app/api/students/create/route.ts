@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
           if (authErr) {
             // User might exist in auth but not in profiles - try to find them
             const { data: { users } } = await supabase.auth.admin.listUsers();
-            const found = users?.find(u => u.email === email);
+            const found = users?.find((u: any) => u.email === email);
             if (found) {
               parentUserId = found.id;
               console.log('[PARENT] Found in auth:', parentUserId);
