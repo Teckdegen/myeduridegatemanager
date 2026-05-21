@@ -102,33 +102,78 @@ export default function SchoolAdminDashboard() {
         </div>
       </div>
 
-      {/* Second row */}
-      <div className="grid grid-cols-3 gap-4 mb-8">
-        <div className="card flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-green-50 flex items-center justify-center">
-            <UserCheck size={22} className="text-green-600" />
+      {/* Second row - Pie Chart */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+        <div className="card">
+          <h3 className="text-sm font-semibold mb-4">Today's Attendance</h3>
+          <div className="flex items-center justify-center">
+            <div className="relative w-40 h-40">
+              <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+                {(() => {
+                  const total = stats.present_today + stats.late_today + stats.absent_today || 1;
+                  const onTimePercent = (stats.present_today / total) * 100;
+                  const latePercent = (stats.late_today / total) * 100;
+                  const absentPercent = (stats.absent_today / total) * 100;
+                  const radius = 40;
+                  const circumference = 2 * Math.PI * radius;
+                  const onTimeOffset = 0;
+                  const lateOffset = onTimePercent;
+                  const absentOffset = onTimePercent + latePercent;
+                  return (
+                    <>
+                      <circle cx="50" cy="50" r={radius} fill="none" stroke="#e5e7eb" strokeWidth="12" />
+                      {stats.present_today > 0 && <circle cx="50" cy="50" r={radius} fill="none" stroke="#10b981" strokeWidth="12" strokeDasharray={`${(onTimePercent / 100) * circumference} ${circumference}`} strokeDashoffset={`-${(onTimeOffset / 100) * circumference}`} />}
+                      {stats.late_today > 0 && <circle cx="50" cy="50" r={radius} fill="none" stroke="#f59e0b" strokeWidth="12" strokeDasharray={`${(latePercent / 100) * circumference} ${circumference}`} strokeDashoffset={`-${(lateOffset / 100) * circumference}`} />}
+                      {stats.absent_today > 0 && <circle cx="50" cy="50" r={radius} fill="none" stroke="#ef4444" strokeWidth="12" strokeDasharray={`${(absentPercent / 100) * circumference} ${circumference}`} strokeDashoffset={`-${(absentOffset / 100) * circumference}`} />}
+                    </>
+                  );
+                })()}
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <p className="text-2xl font-bold">{stats.total_students}</p>
+                <p className="text-[10px] text-gray-500">Total</p>
+              </div>
+            </div>
           </div>
-          <div>
-            <p className="text-2xl font-bold">{stats.present_today}</p>
-            <p className="text-xs text-gray-500">On Time Today</p>
+          <div className="flex justify-center gap-4 mt-4">
+            <span className="flex items-center gap-1.5 text-xs"><span className="w-2.5 h-2.5 rounded-full bg-green-500" /> On Time ({stats.present_today})</span>
+            <span className="flex items-center gap-1.5 text-xs"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Late ({stats.late_today})</span>
+            <span className="flex items-center gap-1.5 text-xs"><span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Absent ({stats.absent_today})</span>
           </div>
         </div>
-        <div className="card flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-amber-50 flex items-center justify-center">
-            <Clock size={22} className="text-amber-600" />
+
+        <div className="card">
+          <h3 className="text-sm font-semibold mb-4">School Overview</h3>
+          <div className="flex items-center justify-center">
+            <div className="relative w-40 h-40">
+              <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+                {(() => {
+                  const total = stats.total_students + stats.total_teachers + stats.total_parents || 1;
+                  const studentsPercent = (stats.total_students / total) * 100;
+                  const teachersPercent = (stats.total_teachers / total) * 100;
+                  const parentsPercent = (stats.total_parents / total) * 100;
+                  const radius = 40;
+                  const circumference = 2 * Math.PI * radius;
+                  return (
+                    <>
+                      <circle cx="50" cy="50" r={radius} fill="none" stroke="#e5e7eb" strokeWidth="12" />
+                      {stats.total_students > 0 && <circle cx="50" cy="50" r={radius} fill="none" stroke="#8b5cf6" strokeWidth="12" strokeDasharray={`${(studentsPercent / 100) * circumference} ${circumference}`} strokeDashoffset="0" />}
+                      {stats.total_teachers > 0 && <circle cx="50" cy="50" r={radius} fill="none" stroke="#3b82f6" strokeWidth="12" strokeDasharray={`${(teachersPercent / 100) * circumference} ${circumference}`} strokeDashoffset={`-${(studentsPercent / 100) * circumference}`} />}
+                      {stats.total_parents > 0 && <circle cx="50" cy="50" r={radius} fill="none" stroke="#f97316" strokeWidth="12" strokeDasharray={`${(parentsPercent / 100) * circumference} ${circumference}`} strokeDashoffset={`-${((studentsPercent + teachersPercent) / 100) * circumference}`} />}
+                    </>
+                  );
+                })()}
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <p className="text-2xl font-bold">{stats.total_students + stats.total_teachers + stats.total_parents}</p>
+                <p className="text-[10px] text-gray-500">Total</p>
+              </div>
+            </div>
           </div>
-          <div>
-            <p className="text-2xl font-bold">{stats.late_today}</p>
-            <p className="text-xs text-gray-500">Late Today</p>
-          </div>
-        </div>
-        <div className="card flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center">
-            <AlertTriangle size={22} className="text-red-600" />
-          </div>
-          <div>
-            <p className="text-2xl font-bold">{stats.absent_today}</p>
-            <p className="text-xs text-gray-500">Absent Today</p>
+          <div className="flex justify-center gap-4 mt-4">
+            <span className="flex items-center gap-1.5 text-xs"><span className="w-2.5 h-2.5 rounded-full bg-purple-500" /> Students ({stats.total_students})</span>
+            <span className="flex items-center gap-1.5 text-xs"><span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Teachers ({stats.total_teachers})</span>
+            <span className="flex items-center gap-1.5 text-xs"><span className="w-2.5 h-2.5 rounded-full bg-orange-500" /> Parents ({stats.total_parents})</span>
           </div>
         </div>
       </div>
