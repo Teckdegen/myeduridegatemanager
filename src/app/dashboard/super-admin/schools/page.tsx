@@ -1,10 +1,2 @@
-'use client';
-
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-
-export default function SchoolsRedirect() {
-  const router = useRouter();
-  useEffect(() => { router.replace('/dashboard/super-admin'); }, [router]);
-  return null;
-}
+// Re-export the main super admin dashboard as the schools page
+export { default } from '../page';
