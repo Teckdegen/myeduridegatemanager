@@ -57,6 +57,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    // Auto-invite parent if email provided in custom_fields
+    const parentEmail = custom_fields?.parent_email;
+    if (parentEmail && parentEmail.includes('@') && data) {
+      try {
+        // Create parent user + link to student
+        const { data: existingUser } = await supabase.from('user_profiles').select('id').eq('email', parentEmail.toLowerCase()).single();
+        
+        let parentUserId;
+        if (existingUser) {
+          parentUserId = existingUser.id;
+        } else {
+          // Create auth user for parent
+          const { data: authUser } = await supabase.auth.admin.createUser({ email: parentEmail.toLowerCase(), email_confirm: true });
+          if (authUser?.user) {
+            parentUserId = authUser.user.id;
+            await supabase.from('user_profiles').insert({ id: parentUserId, email: parentEmail.toLowerCase(), full_name: custom_fields?.parent_name || 'Parent', phone: custom_fields?.parent_phone || null });
+          }
+        }
+
+        if (parentUserId) {
+          // Assign parent role
+          await supabase.from('user_school_roles').upsert({ user_id: parentUserId, school_id, role: 'parent', is_active: true }, { onConflict: 'user_id,school_id,role' });
+          // Link parent to student
+          await supabase.from('student_parents').upsert({ student_id: data.id, parent_user_id: parentUserId, relationship: custom_fields?.relationship || 'parent', is_primary: true }, { onConflict: 'student_id,parent_user_id' });
+        }
+      } catch (parentErr) {
+        console.error('[STUDENT CREATE] Parent invite error:', parentErr);
+        // Don't fail student creation if parent invite fails
+      }
+    }
+
     return NextResponse.json({ success: true, student: data });
   } catch (err: any) {
     console.error('[STUDENT CREATE] Crash:', err);

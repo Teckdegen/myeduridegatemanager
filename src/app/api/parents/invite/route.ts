@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceRoleClient } from '@/lib/supabase/server';
+import { getAdminClient } from '@/lib/supabase/admin';
 import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
   try {
     const { student_id, school_id, parent_email, parent_name, parent_phone, relationship } = await request.json();
 
-    const supabase = createServiceRoleClient();
+    const supabase = getAdminClient();
 
     // Check if parent already has an account
     const { data: existingUser } = await supabase

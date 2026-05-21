@@ -14,7 +14,7 @@ export default function GateOfficerDashboard() {
   const [schoolId, setSchoolId] = useState('');
   const [scannedPerson, setScannedPerson] = useState(null);
   const [manualInput, setManualInput] = useState('');
-  const [scanning, setScanning] = useState(false);
+  const [facingMode, setFacingMode] = useState('environment');
   const [cameraActive, setCameraActive] = useState(false);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -34,14 +34,26 @@ export default function GateOfficerDashboard() {
     } catch {}
   };
 
-  const startCamera = async () => {
+  const startCamera = async (facing = facingMode) => {
+    // Stop existing stream first
+    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); }
+    if (scanIntervalRef.current) { clearInterval(scanIntervalRef.current); }
+    
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: 640, height: 480 } });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing }, audio: false });
       streamRef.current = stream;
-      if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
       setCameraActive(true);
+      setTimeout(() => {
+        if (videoRef.current) { videoRef.current.srcObject = stream; }
+      }, 100);
       startBarcodeScanning();
     } catch { toast.error('Camera access denied'); }
+  };
+
+  const switchCamera = () => {
+    const newMode = facingMode === 'environment' ? 'user' : 'environment';
+    setFacingMode(newMode);
+    startCamera(newMode);
   };
 
   const stopCamera = () => {
@@ -109,12 +121,12 @@ export default function GateOfficerDashboard() {
       setTodayCount(prev => prev + 1);
     } else { toast.error('Failed to log'); }
     setScannedPerson(null);
-    startBarcodeScanning();
+    startCamera();
   };
 
   const handleReject = () => {
     setScannedPerson(null);
-    startBarcodeScanning();
+    startCamera();
   };
 
   const handleStartSession = () => {
@@ -200,9 +212,14 @@ export default function GateOfficerDashboard() {
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="w-48 h-32 border-2 border-white/50 rounded-xl" />
               </div>
-              <div className="absolute bottom-3 left-3 flex items-center gap-1.5 bg-black/60 px-3 py-1.5 rounded-full">
-                <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                <span className="text-xs text-white">{scanning ? 'Looking up...' : 'Scanning...'}</span>
+              <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
+                <div className="flex items-center gap-1.5 bg-black/60 px-3 py-1.5 rounded-full">
+                  <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                  <span className="text-xs text-white">Scanning...</span>
+                </div>
+                <button onClick={switchCamera} className="bg-black/60 px-3 py-1.5 rounded-full text-xs text-white hover:bg-black/80">
+                  Switch Camera
+                </button>
               </div>
             </div>
 
