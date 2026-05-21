@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceRoleClient } from '@/lib/supabase/server';
+import { getAdminClient } from '@/lib/supabase/admin';
+import { ensureAuthUser, ensureUserProfile } from '@/lib/auth/ensure-user';
 import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -24,13 +25,18 @@ export async function POST(request: NextRequest) {
   try {
     const { name, address, logo_url, admin_email, admin_name, admin_phone } = await request.json();
 
-    const supabase = createServiceRoleClient();
+    if (!name?.trim() || !admin_email?.trim() || !admin_name?.trim()) {
+      return NextResponse.json({ error: 'School name, admin name, and admin email are required' }, { status: 400 });
+    }
+
+    const normalizedEmail = admin_email.toLowerCase().trim();
+    const supabase = getAdminClient();
 
     // Create school (setup not completed yet)
     const { data: school, error: schoolError } = await supabase
       .from('schools')
       .insert({
-        name,
+        name: name.trim(),
         address: address || null,
         logo_url: logo_url || null,
         setup_completed: false,
@@ -40,8 +46,13 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (schoolError || !school) {
+      console.error('School insert error:', schoolError);
       return NextResponse.json({ error: 'Failed to create school' }, { status: 500 });
     }
+
+    const rollbackSchool = async () => {
+      await supabase.from('schools').delete().eq('id', school.id);
+    };
 
     // Insert default custom fields
     const studentFields = DEFAULT_STUDENT_FIELDS.map(f => ({
@@ -62,64 +73,78 @@ export async function POST(request: NextRequest) {
       is_active: true,
     }));
 
-    await supabase.from('school_custom_fields').insert([...studentFields, ...teacherFields]);
-
-    // Create or find admin user
-    let adminUserId: string;
-
-    const { data: existingUser } = await supabase
-      .from('user_profiles')
-      .select('id')
-      .eq('email', admin_email)
-      .single();
-
-    if (existingUser) {
-      adminUserId = existingUser.id;
-    } else {
-      // Try to create in Auth
-      const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
-        email: admin_email,
-        email_confirm: true,
-      });
-
-      if (authError) {
-        // User might already exist in Auth — try to find them
-        const { data: { users } } = await supabase.auth.admin.listUsers();
-        const found = users?.find((u: any) => u.email?.toLowerCase() === admin_email.toLowerCase());
-        if (found) {
-          adminUserId = found.id;
-        } else {
-          await supabase.from('schools').delete().eq('id', school.id);
-          return NextResponse.json({ error: `Failed to create admin account: ${authError.message}` }, { status: 500 });
-        }
-      } else if (authUser?.user) {
-        adminUserId = authUser.user.id;
-      }
-
-      if (adminUserId) {
-        // Upsert profile (handles case where profile might already exist)
-        await supabase.from('user_profiles').upsert({
-          id: adminUserId,
-          email: admin_email,
-          full_name: admin_name,
-          phone: admin_phone || null,
-        }, { onConflict: 'id' });
-      }
+    const { error: fieldsError } = await supabase.from('school_custom_fields').insert([...studentFields, ...teacherFields]);
+    if (fieldsError) {
+      console.error('Custom fields insert error:', fieldsError);
+      await rollbackSchool();
+      return NextResponse.json({ error: 'Failed to set up school fields' }, { status: 500 });
     }
 
-    // Assign school_admin role
-    await supabase.from('user_school_roles').insert({
-      user_id: adminUserId,
-      school_id: school.id,
-      role: 'school_admin',
-      is_active: true,
+    // Resolve or create admin user
+    let adminUserId: string;
+
+    const { data: existingProfile } = await supabase
+      .from('user_profiles')
+      .select('id')
+      .eq('email', normalizedEmail)
+      .maybeSingle();
+
+    if (existingProfile) {
+      adminUserId = existingProfile.id;
+    } else {
+      const { userId, error: authErr } = await ensureAuthUser(supabase, normalizedEmail);
+      if (!userId) {
+        await rollbackSchool();
+        return NextResponse.json(
+          { error: `Failed to create admin account${authErr ? `: ${authErr}` : ''}` },
+          { status: 500 }
+        );
+      }
+      adminUserId = userId;
+    }
+
+    const { error: profileError } = await ensureUserProfile(supabase, {
+      id: adminUserId,
+      email: normalizedEmail,
+      full_name: admin_name.trim(),
+      phone: admin_phone || null,
     });
+
+    if (profileError) {
+      console.error('Profile upsert error:', profileError);
+      await rollbackSchool();
+      return NextResponse.json({ error: `Failed to save admin profile: ${profileError.message}` }, { status: 500 });
+    }
+
+    // Assign school_admin role (skip if already assigned)
+    const { data: existingRole } = await supabase
+      .from('user_school_roles')
+      .select('id')
+      .eq('user_id', adminUserId)
+      .eq('school_id', school.id)
+      .eq('role', 'school_admin')
+      .maybeSingle();
+
+    if (!existingRole) {
+      const { error: roleError } = await supabase.from('user_school_roles').insert({
+        user_id: adminUserId,
+        school_id: school.id,
+        role: 'school_admin',
+        is_active: true,
+      });
+
+      if (roleError) {
+        console.error('Role insert error:', roleError);
+        await rollbackSchool();
+        return NextResponse.json({ error: `Failed to assign admin role: ${roleError.message}` }, { status: 500 });
+      }
+    }
 
     // Send welcome email
     try {
       await resend.emails.send({
         from: 'MyEduRide <noreply@assetid.site>',
-        to: admin_email,
+        to: normalizedEmail,
         subject: `Your school "${name}" is ready to set up`,
         html: `
           <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto;">
@@ -136,7 +161,7 @@ export async function POST(request: NextRequest) {
                 <li>Add your teachers</li>
                 <li>Add your students</li>
               </ul>
-              <p><strong>To login:</strong> Visit <a href="${process.env.NEXT_PUBLIC_APP_URL}">${process.env.NEXT_PUBLIC_APP_URL}</a> and enter your email (${admin_email}). You will receive a one-time code.</p>
+              <p><strong>To login:</strong> Visit <a href="${process.env.NEXT_PUBLIC_APP_URL}">${process.env.NEXT_PUBLIC_APP_URL}</a> and enter your email (${normalizedEmail}). You will receive a one-time code.</p>
               <br>
               <p style="color: #666; font-size: 12px;">MyEduRide — The Student Safety Platform</p>
             </div>
@@ -148,10 +173,11 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true, school_id: school.id });
-  } catch (error) {
-    console.error('School creation error:', error);
-    return NextResponse.json({ error: 'Failed to create school' }, { status: 500 });
+  } catch (error: any) {
+    console.error('School creation error:', error?.message || error);
+    const message = error?.message?.includes('SUPABASE')
+      ? 'Server configuration error. Check Supabase environment variables.'
+      : 'Failed to create school';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-
-

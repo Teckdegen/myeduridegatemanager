@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
+import { ensureAuthUser, ensureUserProfile } from '@/lib/auth/ensure-user';
 
 export async function POST(request: NextRequest) {
   try {
@@ -82,40 +83,23 @@ export async function POST(request: NextRequest) {
         const email = parentEmail.toLowerCase().trim();
         console.log('[PARENT] Registering parent:', email);
 
-        // Check if parent already exists
-        const { data: existingUser } = await supabase.from('user_profiles').select('id').eq('email', email).single();
-        
-        let parentUserId;
+        const { data: existingUser } = await supabase.from('user_profiles').select('id').eq('email', email).maybeSingle();
+
+        let parentUserId: string | undefined;
         if (existingUser) {
           parentUserId = existingUser.id;
-          console.log('[PARENT] Existing user found:', parentUserId);
         } else {
-          // Create auth user for parent
-          const { data: authUser, error: authErr } = await supabase.auth.admin.createUser({ email, email_confirm: true });
-          console.log('[PARENT] Auth create result:', authUser?.user?.id, 'error:', authErr?.message);
-          
-          if (authErr) {
-            // User might exist in auth but not in profiles - try to find them
-            const { data: { users } } = await supabase.auth.admin.listUsers();
-            const found = users?.find((u: any) => u.email === email);
-            if (found) {
-              parentUserId = found.id;
-              console.log('[PARENT] Found in auth:', parentUserId);
-            }
-          } else if (authUser?.user) {
-            parentUserId = authUser.user.id;
-          }
+          const { userId } = await ensureAuthUser(supabase, email);
+          parentUserId = userId || undefined;
+        }
 
-          if (parentUserId) {
-            // Create profile
-            await supabase.from('user_profiles').upsert({
-              id: parentUserId,
-              email,
-              full_name: custom_fields?.parent_name || 'Parent',
-              phone: custom_fields?.parent_phone || null,
-            }, { onConflict: 'id' });
-            console.log('[PARENT] Profile created');
-          }
+        if (parentUserId) {
+          await ensureUserProfile(supabase, {
+            id: parentUserId,
+            email,
+            full_name: custom_fields?.parent_name || 'Parent',
+            phone: custom_fields?.parent_phone || null,
+          });
         }
 
         if (parentUserId) {

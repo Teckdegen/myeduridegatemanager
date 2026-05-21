@@ -24,9 +24,6 @@ export function createServerSupabaseClient() {
 }
 
 export function createServiceRoleClient() {
-  const { createClient } = require('@supabase/supabase-js');
-  // Strip any trailing paths like /rest/v1/ from the URL
-  let url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  url = url.replace(/\/rest\/v1\/?$/, '').replace(/\/$/, '');
-  return createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const { getAdminClient } = require('./admin');
+  return getAdminClient();
 }

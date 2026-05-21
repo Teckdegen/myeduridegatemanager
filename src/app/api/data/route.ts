@@ -23,11 +23,10 @@ export async function POST(request: NextRequest) {
     
     const supabase = getAdminClient();
 
-    // Add timeout wrapper
-    const withTimeout = (promise: Promise<any>, ms = 10000) => {
+    const withTimeout = <T>(promise: PromiseLike<T>, ms = 10000): Promise<T> => {
       return Promise.race([
-        promise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Query timeout')), ms))
+        Promise.resolve(promise),
+        new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Query timeout')), ms)),
       ]);
     };
 

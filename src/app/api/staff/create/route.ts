@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceRoleClient } from '@/lib/supabase/server';
+import { getAdminClient } from '@/lib/supabase/admin';
+import { ensureAuthUser, ensureUserProfile } from '@/lib/auth/ensure-user';
 import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -8,39 +9,43 @@ export async function POST(request: NextRequest) {
   try {
     const { email, full_name, phone, role, school_id, class_id, custom_fields } = await request.json();
 
-    const supabase = createServiceRoleClient();
+    if (!email?.trim() || !full_name?.trim() || !role || !school_id) {
+      return NextResponse.json({ error: 'Email, name, role, and school are required' }, { status: 400 });
+    }
 
-    // Check if user already exists
+    const normalizedEmail = email.toLowerCase().trim();
+    const supabase = getAdminClient();
+
     const { data: existingUser } = await supabase
       .from('user_profiles')
       .select('id')
-      .eq('email', email)
-      .single();
+      .eq('email', normalizedEmail)
+      .maybeSingle();
 
     let userId: string;
 
     if (existingUser) {
       userId = existingUser.id;
     } else {
-      // Create new user via Supabase Auth
-      const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
-        email,
-        email_confirm: true,
-      });
-
-      if (authError || !authUser.user) {
-        return NextResponse.json({ error: 'Failed to create user account' }, { status: 500 });
+      const { userId: authId, error: authErr } = await ensureAuthUser(supabase, normalizedEmail);
+      if (!authId) {
+        return NextResponse.json(
+          { error: `Failed to create user account${authErr ? `: ${authErr}` : ''}` },
+          { status: 500 }
+        );
       }
+      userId = authId;
+    }
 
-      userId = authUser.user.id;
+    const { error: profileError } = await ensureUserProfile(supabase, {
+      id: userId,
+      email: normalizedEmail,
+      full_name: full_name.trim(),
+      phone: phone || null,
+    });
 
-      // Create user profile
-      await supabase.from('user_profiles').insert({
-        id: userId,
-        email,
-        full_name,
-        phone: phone || null,
-      });
+    if (profileError) {
+      return NextResponse.json({ error: `Failed to save user profile: ${profileError.message}` }, { status: 500 });
     }
 
     // Check if role already exists
@@ -50,19 +55,23 @@ export async function POST(request: NextRequest) {
       .eq('user_id', userId)
       .eq('school_id', school_id)
       .eq('role', role)
-      .single();
+      .maybeSingle();
 
     if (existingRole) {
       return NextResponse.json({ error: 'This person already has this role at this school' }, { status: 400 });
     }
 
     // Assign role
-    await supabase.from('user_school_roles').insert({
+    const { error: roleError } = await supabase.from('user_school_roles').insert({
       user_id: userId,
       school_id: school_id,
       role,
       is_active: true,
     });
+
+    if (roleError) {
+      return NextResponse.json({ error: `Failed to assign role: ${roleError.message}` }, { status: 500 });
+    }
 
     // If teacher, create teacher profile with class assignment and custom fields
     if (role === 'teacher') {
@@ -93,7 +102,7 @@ export async function POST(request: NextRequest) {
     try {
       await resend.emails.send({
         from: `MyEduRide <noreply@assetid.site>`,
-        to: email,
+        to: normalizedEmail,
         subject: `You have been added as ${role.replace('_', ' ')} at ${school?.name || 'a school'}`,
         html: `
           <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto;">
@@ -111,7 +120,6 @@ export async function POST(request: NextRequest) {
         `,
       });
     } catch (emailErr) {
-      // Don't fail the whole request if email fails
       console.error('Email send failed:', emailErr);
     }
 
@@ -121,5 +129,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to create staff member' }, { status: 500 });
   }
 }
-
-
