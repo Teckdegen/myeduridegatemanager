@@ -1,6 +1,7 @@
 import { getAdminClient } from '@/lib/supabase/admin';
 import { Resend } from 'resend';
 import { sendPushToUser } from '@/lib/push/send';
+import { formatDateLagos, formatTimeLagos } from '@/lib/timezone';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -57,9 +58,8 @@ export async function notifyParentsOfAttendance(params: {
   const schoolColor = school?.primary_color || '#1B4D3E';
   const className = schoolClass?.name || '—';
 
-  const timestamp = new Date(record.timestamp);
-  const timeStr = timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const dateStr = timestamp.toLocaleDateString();
+  const timeStr = formatTimeLagos(record.timestamp);
+  const dateStr = formatDateLagos(record.timestamp);
 
   const notifType = record.status === 'late' && type === 'arrival' ? 'late' : type;
 

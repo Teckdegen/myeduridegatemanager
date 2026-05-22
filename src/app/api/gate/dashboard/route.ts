@@ -27,10 +27,7 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = getAdminClient();
-    const dayStart = new Date();
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date();
-    dayEnd.setHours(23, 59, 59, 999);
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' });
 
     const { data: students } = await supabase
       .from('students')
@@ -47,9 +44,8 @@ export async function GET(request: NextRequest) {
          requested_by:user_profiles!requested_by_user_id(full_name)`
       )
       .eq('school_id', schoolId)
+      .eq('dismissal_date', today)
       .in('status', ['pending', 'approved'])
-      .gte('created_at', dayStart.toISOString())
-      .lte('created_at', dayEnd.toISOString())
       .order('created_at', { ascending: true });
 
     const { data: pickupNotices } = await supabase
@@ -59,13 +55,52 @@ export async function GET(request: NextRequest) {
          parent:user_profiles!parent_user_id(full_name, phone)`
       )
       .eq('school_id', schoolId)
-      .eq('notice_date', dayStart.toISOString().split('T')[0])
+      .eq('notice_date', today)
       .order('created_at', { ascending: false });
+
+    // Pickup requests for today
+    const { data: pickupRequests } = await supabase
+      .from('pickup_requests')
+      .select(`
+        *,
+        student:students(id, first_name, last_name, student_id_number, photo_url, class:school_classes(name)),
+        parent:user_profiles!parent_user_id(full_name, phone)
+      `)
+      .eq('school_id', schoolId)
+      .eq('request_date', today)
+      .order('created_at', { ascending: false });
+
+    // Pickup persons for students in the ready queue
+    const readyStudentIds = (pickupQueue || [])
+      .map((q: any) => q.student?.id)
+      .filter(Boolean);
+
+    let pickupPersonsByStudent: Record<string, any[]> = {};
+    if (readyStudentIds.length > 0) {
+      const { data: ppLinks } = await supabase
+        .from('pickup_person_students')
+        .select(`
+          student_id,
+          pickup_person:pickup_persons(id, name, relationship, phone, photo_url)
+        `)
+        .in('student_id', readyStudentIds);
+
+      for (const link of ppLinks || []) {
+        if (!pickupPersonsByStudent[link.student_id]) {
+          pickupPersonsByStudent[link.student_id] = [];
+        }
+        if (link.pickup_person) {
+          pickupPersonsByStudent[link.student_id].push(link.pickup_person);
+        }
+      }
+    }
 
     return NextResponse.json({
       students: students || [],
       pickup_queue: pickupQueue || [],
       pickup_notices: pickupNotices || [],
+      pickup_requests: pickupRequests || [],
+      pickup_persons_by_student: pickupPersonsByStudent,
     });
   } catch (err: any) {
     console.error('[gate/dashboard]', err);

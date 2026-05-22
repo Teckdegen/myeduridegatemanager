@@ -1,13 +1,17 @@
 // @ts-nocheck
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { fetchData } from '@/lib/api';
 import StudentAvatar from '@/components/shared/StudentAvatar';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { Users, UserCheck, AlertTriangle, ArrowRight, GraduationCap, Clock, Download } from 'lucide-react';
+import {
+  Users, UserCheck, AlertTriangle, GraduationCap, Clock, Download,
+  ScanLine, BookOpen, Car, CheckCircle2,
+} from 'lucide-react';
 import Link from 'next/link';
 import { ATTENDANCE_UI_NOTE } from '@/lib/attendance/window';
+import { formatTimeLagos } from '@/lib/timezone';
 import { toast } from 'sonner';
 
 export default function TeacherDashboard() {
@@ -16,7 +20,11 @@ export default function TeacherDashboard() {
   const [loading, setLoading] = useState(true);
   const [schoolId, setSchoolId] = useState('');
   const [schoolName, setSchoolName] = useState('');
-  const [dismissing, setDismissing] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+  const [dismissAllBusy, setDismissAllBusy] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanCode, setScanCode] = useState('');
+  const [scanning, setScanning] = useState(false);
 
   useEffect(() => {
     loadClass();
@@ -26,7 +34,7 @@ export default function TeacherDashboard() {
 
   const loadClass = async () => {
     try {
-      const data = await fetchData('get_teacher_dashboard');
+      const data = await fetchData('get_teacher_dashboard_full');
       setSchoolId(data.school_id || '');
       setSchoolName(data.school?.name || '');
       setStudents(data.students || []);
@@ -43,22 +51,163 @@ export default function TeacherDashboard() {
     setLoading(false);
   };
 
-  const handleDismiss = async (studentId, studentName) => {
-    setDismissing(studentId);
+  const activeStudents = useMemo(
+    () => students.filter((s) => !s.ready_for_pickup && !s.in_extra_lesson),
+    [students]
+  );
+  const readyStudents = useMemo(() => students.filter((s) => s.ready_for_pickup), [students]);
+  const extraStudents = useMemo(() => students.filter((s) => s.in_extra_lesson), [students]);
+
+  const markReady = async (studentId, studentName) => {
+    setBusyId(studentId);
     try {
-      const res = await fetch('/api/notifications/dismissal', {
+      const res = await fetch('/api/teacher/ready-for-pickup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ student_id: studentId, school_id: schoolId, teacher_name: 'Teacher' }),
+        body: JSON.stringify({ student_id: studentId, school_id: schoolId }),
       });
-      if (!res.ok) throw new Error('Failed');
-      toast.success(`${studentName} dismissed — parent notified`);
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Already marked ready today');
+        await loadClass();
+        return;
+      }
+      toast.success(`${studentName} — ready for pickup`);
+      await loadClass();
     } catch {
-      toast.error('Failed to dismiss');
+      toast.error('Failed to mark ready');
     }
-    setDismissing(null);
+    setBusyId(null);
   };
+
+  const markExtraLesson = async (studentId, studentName) => {
+    setBusyId(studentId);
+    try {
+      const res = await fetch('/api/teacher/extra-lesson', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ student_id: studentId, school_id: schoolId, action: 'add' }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success(`${studentName} — extra lesson`);
+      await loadClass();
+    } catch {
+      toast.error('Failed');
+    }
+    setBusyId(null);
+  };
+
+  const releaseExtraLesson = async (studentId, studentName) => {
+    setBusyId(studentId);
+    try {
+      await fetch('/api/teacher/extra-lesson', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ student_id: studentId, school_id: schoolId, action: 'release' }),
+      });
+      toast.success(`${studentName} — extra lesson ended`);
+      await loadClass();
+    } catch {
+      toast.error('Failed');
+    }
+    setBusyId(null);
+  };
+
+  const dismissAllReady = async () => {
+    const eligible = activeStudents.filter((s) => s.present);
+    if (eligible.length === 0) {
+      toast.error('No present students to mark ready (extra lesson students are skipped)');
+      return;
+    }
+    if (!confirm(`Mark ${eligible.length} present student(s) ready for pickup?`)) return;
+    setDismissAllBusy(true);
+    let ok = 0;
+    for (const s of eligible) {
+      try {
+        const res = await fetch('/api/teacher/ready-for-pickup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ student_id: s.id, school_id: schoolId }),
+        });
+        if (res.ok) ok++;
+      } catch { /* skip */ }
+    }
+    toast.success(`${ok} student(s) marked ready for pickup`);
+    await loadClass();
+    setDismissAllBusy(false);
+  };
+
+  const handleScan = async () => {
+    if (!scanCode.trim()) {
+      toast.error('Enter QR code or student ID');
+      return;
+    }
+    setScanning(true);
+    try {
+      const res = await fetch('/api/teacher/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ school_id: schoolId, qr_code: scanCode.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Scan failed');
+      toast.success(data.is_late ? `Marked late (${data.minutes_late} min)` : 'Marked present');
+      setScanCode('');
+      setScanOpen(false);
+      await loadClass();
+    } catch (e) {
+      toast.error(e.message || 'Scan failed');
+    }
+    setScanning(false);
+  };
+
+  const markPresentManual = async (studentId, studentName) => {
+    setBusyId(studentId);
+    try {
+      const res = await fetch('/api/teacher/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ school_id: schoolId, student_id: studentId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      toast.success(`${studentName} marked present`);
+      await loadClass();
+    } catch (e) {
+      toast.error(e.message || 'Failed');
+    }
+    setBusyId(null);
+  };
+
+  const renderRow = (s, actions) => (
+    <div key={s.id} className="list-row">
+      <StudentAvatar photoUrl={s.photo_url} firstName={s.first_name} lastName={s.last_name} size="sm" />
+      <div className="flex-1 min-w-0">
+        <p className="font-semibold text-slate-900 truncate">{s.first_name} {s.last_name}</p>
+        <p className="text-xs text-slate-500">{s.class?.name || 'No class'}</p>
+        {s.present && (
+          <p className="text-[10px] text-emerald-600 mt-0.5 flex items-center gap-1">
+            <Clock size={10} />
+            {s.late ? `Late · ${formatTimeLagos(s.arrival_time)}` : `Present · ${formatTimeLagos(s.arrival_time)}`}
+          </p>
+        )}
+      </div>
+      <span
+        className={`text-[10px] font-bold uppercase px-2 py-1 rounded-lg shrink-0 ${
+          s.present ? (s.late ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800') : 'bg-red-50 text-red-600'
+        }`}
+      >
+        {s.present ? (s.late ? 'Late' : 'In') : 'Out'}
+      </span>
+      {actions}
+    </div>
+  );
 
   if (loading) {
     return (
@@ -78,104 +227,141 @@ export default function TeacherDashboard() {
           <div>
             <p className="text-white/70 text-xs font-medium uppercase tracking-wide">Teacher</p>
             <h1 className="text-xl font-bold">{schoolName || 'My class'}</h1>
-            <p className="text-white/80 text-sm">{stats.total} students · live status refreshes every minute</p>
+            <p className="text-white/80 text-sm">{stats.total} students · {readyStudents.length} ready for pickup</p>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-3 gap-3 mb-4">
         <div className="dash-stat">
-          <div>
-            <p className="text-[11px] font-medium text-slate-500 uppercase">Total</p>
-            <p className="text-2xl font-bold text-slate-900">{stats.total}</p>
-          </div>
+          <div><p className="text-[11px] font-medium text-slate-500 uppercase">Total</p><p className="text-2xl font-bold">{stats.total}</p></div>
           <Users size={20} className="text-primary-600" />
         </div>
         <div className="dash-stat">
-          <div>
-            <p className="text-[11px] font-medium text-slate-500 uppercase">Present</p>
-            <p className="text-2xl font-bold text-emerald-600">{stats.present}</p>
-          </div>
+          <div><p className="text-[11px] font-medium text-slate-500 uppercase">Present</p><p className="text-2xl font-bold text-emerald-600">{stats.present}</p></div>
           <UserCheck size={20} className="text-emerald-500" />
         </div>
         <div className="dash-stat">
-          <div>
-            <p className="text-[11px] font-medium text-slate-500 uppercase">Absent</p>
-            <p className="text-2xl font-bold text-red-500">{stats.absent}</p>
-          </div>
+          <div><p className="text-[11px] font-medium text-slate-500 uppercase">Absent</p><p className="text-2xl font-bold text-red-500">{stats.absent}</p></div>
           <AlertTriangle size={20} className="text-red-400" />
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <PageHeader
-          title="Live attendance"
-          subtitle="Present = gate scan within the last 12 hours"
-        />
-        <Link href="/dashboard/teacher/reports" className="btn-secondary flex items-center gap-2 text-sm shrink-0">
-          <Download size={16} /> Reports & CSV
+      <div className="flex flex-wrap gap-2 mb-4">
+        <button type="button" onClick={() => setScanOpen(true)} className="btn-secondary text-sm flex items-center gap-2">
+          <ScanLine size={16} /> Scan / Mark present
+        </button>
+        <button
+          type="button"
+          onClick={dismissAllReady}
+          disabled={dismissAllBusy}
+          className="btn-primary text-sm flex items-center gap-2"
+        >
+          <Car size={16} />
+          {dismissAllBusy ? 'Marking…' : 'Dismiss all (ready only)'}
+        </button>
+        <Link href="/dashboard/teacher/reports" className="btn-secondary text-sm flex items-center gap-2">
+          <Download size={16} /> Reports
         </Link>
       </div>
 
-      <p className="text-xs text-slate-500 mb-4 leading-relaxed">{ATTENDANCE_UI_NOTE}</p>
+      <PageHeader title="Active students" subtitle="Mark Ready for Pickup or Extra Lesson — each student once per day" />
+      <p className="text-xs text-slate-500 mb-3">{ATTENDANCE_UI_NOTE}</p>
 
-      <div className="card-elevated divide-y divide-slate-100">
-        {students.map((s) => (
-          <div key={s.id} className="list-row">
-            <StudentAvatar
-              photoUrl={s.photo_url}
-              firstName={s.first_name}
-              lastName={s.last_name}
-              size="sm"
-            />
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-slate-900 truncate">
-                {s.first_name} {s.last_name}
-              </p>
-              <p className="text-xs text-slate-500">{s.class?.name || 'No class'}</p>
-              {s.present ? (
-                <p className="text-[10px] text-emerald-600 mt-0.5 flex items-center gap-1">
-                  <Clock size={10} />
-                  {s.late ? 'Late' : 'Present'}
-                  {s.arrival_time &&
-                    ` · ${new Date(s.arrival_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
-                </p>
-              ) : (
-                <p className="text-[10px] text-red-500 mt-0.5">Not in 12h window (scan at gate or see Reports)</p>
+      <div className="card-elevated divide-y divide-slate-100 mb-6">
+        {activeStudents.map((s) =>
+          renderRow(s, (
+            <div className="flex flex-col gap-1 shrink-0">
+              {!s.present && (
+                <button
+                  type="button"
+                  onClick={() => markPresentManual(s.id, `${s.first_name} ${s.last_name}`)}
+                  disabled={busyId === s.id}
+                  className="text-[10px] px-2 py-1 rounded-lg bg-slate-100 font-semibold"
+                >
+                  Mark present
+                </button>
               )}
+              <button
+                type="button"
+                onClick={() => markReady(s.id, `${s.first_name} ${s.last_name}`)}
+                disabled={busyId === s.id}
+                className="text-xs px-3 py-2 rounded-xl bg-orange-500 text-white font-semibold disabled:opacity-50"
+              >
+                {busyId === s.id ? '…' : 'Ready for Pickup'}
+              </button>
+              <button
+                type="button"
+                onClick={() => markExtraLesson(s.id, `${s.first_name} ${s.last_name}`)}
+                disabled={busyId === s.id}
+                className="text-[10px] px-2 py-1.5 rounded-lg border border-violet-200 text-violet-700 font-semibold flex items-center gap-1"
+              >
+                <BookOpen size={10} /> Extra lesson
+              </button>
             </div>
-            <span
-              className={`text-[10px] font-bold uppercase px-2 py-1 rounded-lg shrink-0 ${
-                s.present
-                  ? s.late
-                    ? 'bg-amber-100 text-amber-800'
-                    : 'bg-emerald-100 text-emerald-800'
-                  : 'bg-red-50 text-red-600'
-              }`}
-            >
-              {s.present ? (s.late ? 'Late' : 'In') : 'Out'}
-            </span>
-            <button
-              type="button"
-              onClick={() => handleDismiss(s.id, `${s.first_name} ${s.last_name}`)}
-              disabled={dismissing === s.id}
-              className="shrink-0 text-xs px-3 py-2 rounded-xl bg-orange-500 text-white font-semibold hover:bg-orange-600 flex items-center gap-1 disabled:opacity-50 shadow-sm"
-            >
-              <ArrowRight size={12} />
-              {dismissing === s.id ? '…' : 'Dismiss'}
-            </button>
-          </div>
-        ))}
-        {students.length === 0 && (
-          <div className="py-12 text-center text-slate-400 text-sm">
-            No students in your assigned class yet
-          </div>
+          ))
+        )}
+        {activeStudents.length === 0 && (
+          <p className="py-8 text-center text-slate-400 text-sm">No active students — all ready or in extra lesson</p>
         )}
       </div>
 
-      <div className="alert-info mt-5">
-        Dismiss notifies parents for pickup. Gate scans are saved forever — export any day or all years under Reports & CSV.
-      </div>
+      {extraStudents.length > 0 && (
+        <>
+          <PageHeader title="Extra lesson" subtitle="Not ready for pickup until you release them" />
+          <div className="card-elevated divide-y mb-6">
+            {extraStudents.map((s) =>
+              renderRow(s, (
+                <button
+                  type="button"
+                  onClick={() => releaseExtraLesson(s.id, `${s.first_name} ${s.last_name}`)}
+                  disabled={busyId === s.id}
+                  className="text-xs px-3 py-2 rounded-xl bg-violet-600 text-white font-semibold shrink-0"
+                >
+                  End extra lesson
+                </button>
+              ))
+            )}
+          </div>
+        </>
+      )}
+
+      {readyStudents.length > 0 && (
+        <>
+          <PageHeader title="Ready for pickup" subtitle="Sent to gate — cannot mark again today" />
+          <div className="card-elevated divide-y">
+            {readyStudents.map((s) =>
+              renderRow(s, (
+                <span className="text-xs text-emerald-700 font-semibold flex items-center gap-1 shrink-0">
+                  <CheckCircle2 size={14} /> Ready
+                </span>
+              ))
+            )}
+          </div>
+        </>
+      )}
+
+      {scanOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-5 w-full max-w-md shadow-xl">
+            <h3 className="font-bold text-lg mb-2">Mark attendance</h3>
+            <p className="text-xs text-slate-500 mb-3">Scan QR or enter student ID number</p>
+            <input
+              className="input mb-3 font-mono"
+              value={scanCode}
+              onChange={(e) => setScanCode(e.target.value)}
+              placeholder="QR / Student ID"
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setScanOpen(false)} className="btn-secondary flex-1">Cancel</button>
+              <button type="button" onClick={handleScan} disabled={scanning} className="btn-primary flex-1">
+                {scanning ? 'Saving…' : 'Mark present'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

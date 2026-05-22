@@ -17,6 +17,8 @@ import {
   UserCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { formatTimeLagos } from '@/lib/timezone';
+import { photoSrc } from '@/lib/photo';
 
 function splitName(fullName) {
   const parts = (fullName || '').trim().split(/\s+/).filter(Boolean);
@@ -39,6 +41,7 @@ export default function GateOfficerDashboard() {
   const [allStudents, setAllStudents] = useState([]);
   const [pickupQueue, setPickupQueue] = useState([]);
   const [pickupNotices, setPickupNotices] = useState([]);
+  const [pickupPersonsByStudent, setPickupPersonsByStudent] = useState({});
   const [studentSearch, setStudentSearch] = useState('');
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -65,6 +68,7 @@ export default function GateOfficerDashboard() {
       if (data.students) setAllStudents(data.students);
       if (data.pickup_queue) setPickupQueue(data.pickup_queue);
       if (data.pickup_notices) setPickupNotices(data.pickup_notices);
+      if (data.pickup_persons_by_student) setPickupPersonsByStudent(data.pickup_persons_by_student);
     } catch {
       /* ignore */
     }
@@ -196,7 +200,8 @@ export default function GateOfficerDashboard() {
       if (data.person) {
         stopCamera();
         const notice = noticeForStudent(data.person.id);
-        setScannedPerson({ ...data, pickup_notice: notice || null });
+        const pickupPersons = pickupPersonsByStudent[data.person.id] || [];
+        setScannedPerson({ ...data, pickup_notice: notice || null, pickup_persons: pickupPersons });
         setGateTab('scan');
       } else {
         toast.error(data.error || 'ID not found');
@@ -211,11 +216,13 @@ export default function GateOfficerDashboard() {
 
   const openStudentForRelease = (student, fromQueue = false) => {
     const notice = noticeForStudent(student.id);
+    const pickupPersons = pickupPersonsByStudent[student.id] || [];
     setGateMode('dismissal');
     setScannedPerson({
       type: 'student',
       from_queue: fromQueue,
       pickup_notice: notice || null,
+      pickup_persons: pickupPersons,
       person: {
         id: student.id,
         name: `${student.first_name} ${student.last_name}`,
@@ -245,6 +252,9 @@ export default function GateOfficerDashboard() {
         body.user_id = scannedPerson.person.user_id;
       } else {
         body.student_id = scannedPerson.person.id;
+        if (gateMode === 'dismissal') {
+          body.from_ready_queue = !!scannedPerson.from_queue;
+        }
       }
       const res = await fetch('/api/gate/accept', {
         method: 'POST',
@@ -341,6 +351,27 @@ export default function GateOfficerDashboard() {
           )}
         </div>
       )}
+      {gateMode === 'dismissal' && scannedPerson.pickup_persons?.length > 0 && (
+        <div className="mb-4">
+          <p className="text-xs font-semibold text-slate-600 mb-2">Authorised pickup persons — verify face matches</p>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {scannedPerson.pickup_persons.map((pp) => {
+              const src = photoSrc(pp.photo_url);
+              return (
+                <div key={pp.id} className="shrink-0 w-24 text-center">
+                  {src ? (
+                    <img src={src} alt={pp.name} className="w-20 h-20 rounded-xl object-cover mx-auto border-2 border-slate-200" />
+                  ) : (
+                    <div className="w-20 h-20 rounded-xl bg-slate-100 mx-auto flex items-center justify-center text-xs text-slate-400">No photo</div>
+                  )}
+                  <p className="text-[10px] font-semibold mt-1 truncate">{pp.name}</p>
+                  <p className="text-[9px] text-slate-500">{pp.relationship}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
       {scannedPerson.from_queue && (
         <p className="text-xs font-semibold text-orange-700 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2 mb-4">
           Ready for pickup — teacher dismissed this student
@@ -409,7 +440,7 @@ export default function GateOfficerDashboard() {
             <ScanLine size={14} className="inline mr-1" /> Scan
           </button>
           <button type="button" onClick={() => setGateTab('pickup')} className={gateTab === 'pickup' ? 'pill-tab-active' : 'pill-tab-inactive'}>
-            <Car size={14} className="inline mr-1" /> Pickup ({pickupQueue.length})
+            <Car size={14} className="inline mr-1" /> Ready ({pickupQueue.length})
           </button>
           <button type="button" onClick={() => setGateTab('students')} className={gateTab === 'students' ? 'pill-tab-active' : 'pill-tab-inactive'}>
             <Users size={14} className="inline mr-1" /> All ({allStudents.length})
@@ -437,7 +468,8 @@ export default function GateOfficerDashboard() {
 
         {gateTab === 'pickup' && !scannedPerson && (
           <div className="space-y-2 pb-4">
-            <p className="text-xs text-slate-500 mb-2">Students dismissed by teachers — fast track release at gate.</p>
+            <h2 className="text-sm font-bold text-slate-800">Ready for Pickup – Awaiting Release</h2>
+            <p className="text-xs text-slate-500 mb-2">Only students marked ready by teachers. Release is recorded at server time (WAT).</p>
             {pickupQueue.length === 0 ? (
               <div className="card text-center py-10 text-slate-400 text-sm">No students waiting for pickup</div>
             ) : (
@@ -450,7 +482,7 @@ export default function GateOfficerDashboard() {
                     <StudentAvatar photoUrl={s.photo_url} firstName={s.first_name} lastName={s.last_name} size="sm" />
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-sm truncate">{s.first_name} {s.last_name}</p>
-                      <p className="text-xs text-slate-500">{s.class?.name} · {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                      <p className="text-xs text-slate-500">{s.class?.name} · Ready {formatTimeLagos(item.created_at)}</p>
                       {notice && (
                         <p className="text-[10px] text-blue-700 mt-0.5">Pickup: {notice.pickup_person_name}</p>
                       )}
@@ -467,6 +499,9 @@ export default function GateOfficerDashboard() {
 
         {gateTab === 'students' && !scannedPerson && (
           <div className="pb-4">
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-3">
+              Reference only — release students from the Ready tab after teacher marks them ready.
+            </p>
             <div className="relative mb-3">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
               <input
@@ -490,13 +525,24 @@ export default function GateOfficerDashboard() {
                       {inQueue && <span className="text-[10px] text-orange-600 font-semibold">Waiting pickup</span>}
                       {notice && <p className="text-[10px] text-blue-600">Pickup: {notice.pickup_person_name}</p>}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => (s.qr_code_data ? lookupPerson(s.qr_code_data) : openStudentForRelease(s))}
-                      className="text-xs btn-secondary px-2 py-1.5 shrink-0"
-                    >
-                      {inQueue ? 'Release' : 'Select'}
-                    </button>
+                    {inQueue ? (
+                      <button
+                        type="button"
+                        onClick={() => openStudentForRelease(s, true)}
+                        className="text-xs btn-primary px-2 py-1.5 shrink-0"
+                      >
+                        Release
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => s.qr_code_data && lookupPerson(s.qr_code_data)}
+                        className="text-xs btn-secondary px-2 py-1.5 shrink-0"
+                        title="Arrival scan only"
+                      >
+                        Scan
+                      </button>
+                    )}
                   </div>
                 );
               })}

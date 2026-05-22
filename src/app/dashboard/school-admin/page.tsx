@@ -6,6 +6,8 @@ import { fetchData, getSession } from '@/lib/api';
 import { Users, GraduationCap, UserCheck, Clock, TrendingUp, AlertTriangle, Plus, Bell, School } from 'lucide-react';
 import Link from 'next/link';
 import StudentAvatar from '@/components/shared/StudentAvatar';
+import PickupRequestsPanel from '@/components/admin/PickupRequestsPanel';
+import { formatTimeLagos } from '@/lib/timezone';
 
 export default function SchoolAdminDashboard() {
   const [stats, setStats] = useState({
@@ -16,6 +18,7 @@ export default function SchoolAdminDashboard() {
   const [schoolName, setSchoolName] = useState('');
   const [userName, setUserName] = useState('');
   const [loading, setLoading] = useState(true);
+  const [schoolId, setSchoolId] = useState('');
 
   useEffect(() => {
     const session = getSession();
@@ -27,6 +30,7 @@ export default function SchoolAdminDashboard() {
     try {
       const schoolData = await fetchData('get_school_admin_data', { role: 'school_admin' });
       if (!schoolData.school) { setLoading(false); return; }
+      setSchoolId(schoolData.school_id);
       setSchoolName(schoolData.school.name);
       const dashboard = await fetchData('get_school_dashboard', { school_id: schoolData.school_id });
       setStats(dashboard);
@@ -179,6 +183,10 @@ export default function SchoolAdminDashboard() {
         </div>
       </div>
 
+      <div className="mb-8">
+        <PickupRequestsPanel schoolId={schoolId} />
+      </div>
+
       {/* Quick Actions + Recent Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Quick Actions */}
@@ -227,7 +235,7 @@ export default function SchoolAdminDashboard() {
                   <p className="text-xs text-gray-400">{record.type === 'arrival' ? 'Arrived' : 'Left'}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-gray-500">{new Date(record.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                  <p className="text-xs text-gray-500">{formatTimeLagos(record.timestamp)}</p>
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
                     record.status === 'on_time' ? 'bg-green-50 text-green-700' : record.status === 'late' ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-500'
                   }`}>{record.status === 'on_time' ? 'On Time' : record.status === 'late' ? 'Late' : ''}</span>

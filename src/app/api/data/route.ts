@@ -106,6 +106,15 @@ export async function POST(request: NextRequest) {
             .select('class_id')
             .eq('teacher_profile_id', teacherProfile.id);
           classIds = (assignments || []).map((a: { class_id: string }) => a.class_id);
+          if (classIds.length === 0) {
+            const { data: directClasses } = await supabase
+              .from('school_classes')
+              .select('id')
+              .eq('assigned_teacher_id', teacherProfile.id)
+              .eq('school_id', schoolId)
+              .eq('is_active', true);
+            classIds = (directClasses || []).map((c: { id: string }) => c.id);
+          }
         }
 
         let studentsQuery = supabase
@@ -206,6 +215,134 @@ export async function POST(request: NextRequest) {
         }));
 
         return NextResponse.json({ children });
+      }
+
+      case 'get_teacher_dashboard_full': {
+        // Extended teacher dashboard: includes dismissal status and extra lesson status for today
+        const { data: role } = await supabase
+          .from('user_school_roles')
+          .select('school_id')
+          .eq('user_id', session.user_id)
+          .eq('role', 'teacher')
+          .eq('is_active', true)
+          .limit(1)
+          .maybeSingle();
+
+        if (!role?.school_id) {
+          return NextResponse.json({ error: 'No teacher school', students: [], present_count: 0, absent_count: 0 });
+        }
+
+        const schoolId = role.school_id;
+        const { data: school } = await supabase.from('schools').select('name').eq('id', schoolId).single();
+
+        const { data: teacherProfile } = await supabase
+          .from('teacher_profiles')
+          .select('id')
+          .eq('user_id', session.user_id)
+          .eq('school_id', schoolId)
+          .maybeSingle();
+
+        let classIds: string[] = [];
+        if (teacherProfile?.id) {
+          const { data: assignments } = await supabase
+            .from('teacher_class_assignments')
+            .select('class_id')
+            .eq('teacher_profile_id', teacherProfile.id);
+          classIds = (assignments || []).map((a: { class_id: string }) => a.class_id);
+          if (classIds.length === 0) {
+            const { data: directClasses } = await supabase
+              .from('school_classes')
+              .select('id')
+              .eq('assigned_teacher_id', teacherProfile.id)
+              .eq('school_id', schoolId)
+              .eq('is_active', true);
+            classIds = (directClasses || []).map((c: { id: string }) => c.id);
+          }
+        }
+
+        let studentsQuery = supabase
+          .from('students')
+          .select('*, class:school_classes(name, grade)')
+          .eq('school_id', schoolId)
+          .eq('is_active', true)
+          .order('last_name');
+
+        if (classIds.length > 0) {
+          studentsQuery = studentsQuery.in('class_id', classIds);
+        }
+
+        const { data: students } = await studentsQuery;
+        const presentSince = getUiPresentWindowStart().toISOString();
+        const today = new Date().toISOString().split('T')[0];
+        const studentIds = (students || []).map((s: { id: string }) => s.id);
+
+        let arrivals: { student_id: string; status: string; timestamp: string; type: string }[] = [];
+        if (studentIds.length > 0) {
+          const { data: records } = await supabase
+            .from('attendance_records')
+            .select('student_id, status, timestamp, type')
+            .eq('school_id', schoolId)
+            .in('student_id', studentIds)
+            .gte('timestamp', presentSince)
+            .order('timestamp', { ascending: false });
+
+          const seen = new Set<string>();
+          for (const r of records || []) {
+            if (r.type === 'arrival' && !seen.has(r.student_id)) {
+              seen.add(r.student_id);
+              arrivals.push(r);
+            }
+          }
+        }
+
+        // Get dismissal requests for today
+        const { data: dismissals } = await supabase
+          .from('dismissal_requests')
+          .select('student_id, status')
+          .eq('school_id', schoolId)
+          .in('student_id', studentIds.length > 0 ? studentIds : ['none'])
+          .eq('dismissal_date', today);
+
+        // Get extra lessons for today
+        const { data: extraLessons } = await supabase
+          .from('extra_lessons')
+          .select('student_id, is_released, lesson_end_time')
+          .eq('school_id', schoolId)
+          .in('student_id', studentIds.length > 0 ? studentIds : ['none'])
+          .eq('date', today);
+
+        const arrivalMap = new Map(arrivals.map((a) => [a.student_id, a]));
+        const dismissalMap = new Map((dismissals || []).map((d: any) => [d.student_id, d]));
+        const extraLessonMap = new Map((extraLessons || []).map((e: any) => [e.student_id, e]));
+
+        const enriched = (students || []).map((s: { id: string }) => {
+          const arrival = arrivalMap.get(s.id);
+          const dismissal = dismissalMap.get(s.id);
+          const extraLesson = extraLessonMap.get(s.id);
+          return {
+            ...s,
+            present: !!arrival,
+            late: arrival?.status === 'late',
+            arrival_time: arrival?.timestamp || null,
+            ready_for_pickup: !!dismissal && dismissal.status !== 'completed',
+            dismissal_status: dismissal?.status || null,
+            in_extra_lesson: !!extraLesson && !extraLesson.is_released,
+            extra_lesson_end_time: extraLesson?.lesson_end_time || null,
+          };
+        });
+
+        return NextResponse.json({
+          school_id: schoolId,
+          school,
+          class_ids: classIds,
+          students: enriched,
+          present_count: enriched.filter((s: any) => s.present).length,
+          absent_count: enriched.filter((s: any) => !s.present).length,
+          late_count: enriched.filter((s: any) => s.late).length,
+          ready_count: enriched.filter((s: any) => s.ready_for_pickup).length,
+          extra_lesson_count: enriched.filter((s: any) => s.in_extra_lesson).length,
+          attendance_ui_note: ATTENDANCE_UI_NOTE,
+        });
       }
 
       case 'get_parent_notifications': {

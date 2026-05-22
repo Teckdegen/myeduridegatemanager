@@ -14,8 +14,10 @@ import {
   ChevronRight,
   Car,
   Send,
+  Calendar,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { formatTimeLagos, formatDateTimeLagos } from '@/lib/timezone';
 
 export default function ParentDashboard() {
   const [children, setChildren] = useState([]);
@@ -33,6 +35,14 @@ export default function ParentDashboard() {
   });
   const [submittingPickup, setSubmittingPickup] = useState(false);
   const [recentNotices, setRecentNotices] = useState([]);
+  const [selectedChild, setSelectedChild] = useState('');
+  const [historyType, setHistoryType] = useState('daily');
+  const [historyDate, setHistoryDate] = useState(new Date().toISOString().split('T')[0]);
+  const [historyYear, setHistoryYear] = useState(String(new Date().getFullYear()));
+  const [historyTerm, setHistoryTerm] = useState('1');
+  const [historyData, setHistoryData] = useState(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [notifyMessage, setNotifyMessage] = useState('');
 
   useEffect(() => {
     const session = getSession();
@@ -90,9 +100,11 @@ export default function ParentDashboard() {
       setNotifications(notifRes.notifications || []);
       const sess = getSession();
       if (kidsRes.children?.[0]) {
+        const firstId = kidsRes.children[0].id;
+        setSelectedChild((c) => c || firstId);
         setPickupForm((f) => ({
           ...f,
-          student_id: f.student_id || kidsRes.children[0].id,
+          student_id: f.student_id || firstId,
           pickup_person_name: f.is_self ? (sess?.full_name || '') : f.pickup_person_name,
         }));
       }
@@ -112,6 +124,83 @@ export default function ParentDashboard() {
   };
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;
+
+  const loadAttendanceHistory = async () => {
+    if (!selectedChild) return;
+    setHistoryLoading(true);
+    try {
+      const params = new URLSearchParams({
+        student_id: selectedChild,
+        type: historyType,
+        date: historyDate,
+      });
+      if (historyType === 'yearly') {
+        params.set('year', historyYear);
+        if (historyTerm) params.set('term', historyTerm);
+      }
+      const res = await fetch(`/api/parent/attendance-history?${params}`, { credentials: 'include' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setHistoryData(data);
+    } catch (e) {
+      toast.error(e.message || 'Could not load history');
+      setHistoryData(null);
+    }
+    setHistoryLoading(false);
+  };
+
+  useEffect(() => {
+    if (tab === 'attendance' && selectedChild) loadAttendanceHistory();
+  }, [tab, selectedChild, historyType, historyDate, historyYear, historyTerm]);
+
+  const submitNotifySchool = async () => {
+    if (!pickupForm.student_id || !pickupForm.pickup_person_name.trim()) {
+      toast.error('Select child and pickup person');
+      return;
+    }
+    setSubmittingPickup(true);
+    const msg =
+      notifyMessage.trim() ||
+      `Today, ${pickupForm.pickup_person_name.trim()} will pick up my child.${pickupForm.pickup_person_phone ? ` Phone: ${pickupForm.pickup_person_phone}` : ''}`;
+    try {
+      const res = await fetch('/api/pickup-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          student_id: pickupForm.student_id,
+          pickup_person_name: pickupForm.pickup_person_name.trim(),
+          pickup_person_phone: pickupForm.pickup_person_phone,
+          message: msg,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+
+      await fetch('/api/parents/pickup-notice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          student_id: pickupForm.student_id,
+          pickup_person_name: pickupForm.pickup_person_name.trim(),
+          pickup_person_phone: pickupForm.pickup_person_phone,
+          relationship: pickupForm.relationship,
+          notes: pickupForm.notes,
+          is_self: pickupForm.is_self,
+        }),
+      });
+
+      toast.success('School admin and gate notified');
+      setNotifyMessage('');
+      const noticeRes = await fetch('/api/parents/pickup-notice', { credentials: 'include' });
+      const noticeData = await noticeRes.json();
+      setRecentNotices(noticeData.notices || []);
+    } catch (e) {
+      toast.error(e.message || 'Failed to notify school');
+    }
+    setSubmittingPickup(false);
+  };
 
   const notifIcon = (type) => {
     if (type === 'late') return <Clock size={18} className="text-amber-500" />;
@@ -228,13 +317,16 @@ export default function ParentDashboard() {
                 />
                 <button
                   type="button"
-                  onClick={submitPickupNotice}
+                  onClick={submitNotifySchool}
                   disabled={submittingPickup}
                   className="btn-primary w-full flex items-center justify-center gap-2 py-3"
                 >
                   <Send size={18} />
-                  {submittingPickup ? 'Sending…' : 'Send to school & gate'}
+                  {submittingPickup ? 'Sending…' : 'Notify School'}
                 </button>
+                <p className="text-[10px] text-gray-400 mt-2 text-center">
+                  Also alerts gate officers. Message appears under Pickup Requests on admin dashboard.
+                </p>
               </div>
               {recentNotices.length > 0 && (
                 <div>
@@ -242,11 +334,108 @@ export default function ParentDashboard() {
                   {recentNotices.map((n) => (
                     <div key={n.id} className="bg-white rounded-xl p-3 border border-gray-100 mb-2 text-sm">
                       <p className="font-medium">{n.pickup_person_name}</p>
-                      <p className="text-xs text-gray-500">{new Date(n.created_at).toLocaleString()}</p>
+                      <p className="text-xs text-gray-500">{formatDateTimeLagos(n.created_at)}</p>
                       {n.notes && <p className="text-xs text-gray-600 mt-1">{n.notes}</p>}
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+          )
+        ) : tab === 'attendance' ? (
+          children.length === 0 ? (
+            <div className="bg-white rounded-2xl p-10 text-center shadow-sm border border-gray-100">
+              <Calendar size={36} className="mx-auto text-gray-300 mb-3" />
+              <p className="font-medium text-gray-700">No children linked</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <select className="input" value={selectedChild} onChange={(e) => setSelectedChild(e.target.value)}>
+                {children.map((c) => (
+                  <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>
+                ))}
+              </select>
+              <div className="pill-tabs">
+                {['daily', 'weekly', 'monthly', 'yearly'].map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setHistoryType(t)}
+                    className={historyType === t ? 'pill-tab-active' : 'pill-tab-inactive'}
+                  >
+                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                  </button>
+                ))}
+              </div>
+              {historyType !== 'yearly' ? (
+                <input type="date" className="input" value={historyDate} onChange={(e) => setHistoryDate(e.target.value)} />
+              ) : (
+                <div className="flex gap-2">
+                  <input type="number" className="input flex-1" value={historyYear} onChange={(e) => setHistoryYear(e.target.value)} placeholder="Year" />
+                  <select className="input flex-1" value={historyTerm} onChange={(e) => setHistoryTerm(e.target.value)}>
+                    <option value="">Full year</option>
+                    <option value="1">Term 1</option>
+                    <option value="2">Term 2</option>
+                    <option value="3">Term 3</option>
+                  </select>
+                </div>
+              )}
+              {historyLoading && <p className="text-sm text-gray-400 animate-pulse">Loading…</p>}
+              {!historyLoading && historyData?.type === 'daily' && (
+                <div className="bg-white rounded-2xl p-4 border border-gray-100">
+                  <p className="text-xs text-gray-500 mb-2">Today ({historyData.date})</p>
+                  <p className={`text-lg font-bold capitalize ${
+                    historyData.status === 'absent' ? 'text-red-600' :
+                    historyData.status === 'late' ? 'text-amber-600' : 'text-emerald-600'
+                  }`}>
+                    {historyData.status === 'on_time' ? 'Present' : historyData.status}
+                  </p>
+                  <p className="text-sm mt-2">Check-in: {formatTimeLagos(historyData.check_in_time)}</p>
+                  <p className="text-sm">Check-out: {formatTimeLagos(historyData.check_out_time)}</p>
+                  {historyData.minutes_late && (
+                    <p className="text-sm text-amber-700">{historyData.minutes_late} minutes late</p>
+                  )}
+                </div>
+              )}
+              {!historyLoading && historyData?.calendar && (
+                <>
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    <div className="bg-emerald-50 rounded-lg p-2"><p className="font-bold text-emerald-700">{historyData.summary?.present}</p><p>On time</p></div>
+                    <div className="bg-amber-50 rounded-lg p-2"><p className="font-bold text-amber-700">{historyData.summary?.late}</p><p>Late</p></div>
+                    <div className="bg-red-50 rounded-lg p-2"><p className="font-bold text-red-700">{historyData.summary?.absent}</p><p>Absent</p></div>
+                  </div>
+                  {historyType === 'monthly' || historyType === 'yearly' ? (
+                    <div className="grid grid-cols-7 gap-1">
+                      {(historyData.calendar || []).map((d) => (
+                        <div
+                          key={d.date}
+                          title={`${d.date}: ${d.status}`}
+                          className={`aspect-square rounded text-[8px] flex items-center justify-center font-medium ${
+                            d.color === 'green' ? 'bg-emerald-400 text-white' :
+                            d.color === 'yellow' ? 'bg-amber-400 text-white' :
+                            d.color === 'red' ? 'bg-red-400 text-white' : 'bg-gray-100 text-gray-400'
+                          }`}
+                        >
+                          {d.date.split('-')[2]}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {(historyData.calendar || []).filter((d) => !d.is_weekend).map((d) => (
+                        <div key={d.date} className="flex justify-between text-sm bg-white rounded-lg px-3 py-2 border border-gray-100">
+                          <span>{d.date}</span>
+                          <span className={
+                            d.status === 'absent' ? 'text-red-600' :
+                            d.status === 'late' ? 'text-amber-600' : 'text-emerald-600'
+                          }>
+                            {d.status === 'on_time' ? 'On time' : d.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )
@@ -336,7 +525,7 @@ export default function ParentDashboard() {
                       </p>
                     )}
                     <p className="text-[11px] text-gray-400 mt-2">
-                      {new Date(n.created_at).toLocaleString()}
+                      {formatDateTimeLagos(n.created_at)}
                     </p>
                   </div>
                   <ChevronRight size={16} className="text-gray-300 shrink-0 mt-1" />
@@ -359,6 +548,16 @@ export default function ParentDashboard() {
           >
             <Users size={22} strokeWidth={tab === 'children' ? 2.5 : 2} />
             <span>My Kids</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('attendance')}
+            className={`flex-1 flex flex-col items-center gap-1 py-3 text-xs font-medium transition-colors ${
+              tab === 'attendance' ? 'text-primary-700' : 'text-gray-400'
+            }`}
+          >
+            <Calendar size={22} strokeWidth={tab === 'attendance' ? 2.5 : 2} />
+            <span>History</span>
           </button>
           <button
             type="button"

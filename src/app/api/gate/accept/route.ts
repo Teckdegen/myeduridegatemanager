@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest } from '@/lib/session';
 import { notifyParentsOfAttendance } from '@/lib/notifications/parent-notify';
+import { isLateByThreshold, minutesAfterThreshold, nowUtcIso, todayInLagos } from '@/lib/timezone';
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,15 +17,23 @@ export async function POST(request: NextRequest) {
       staff_profile_id,
       user_id,
       gate_session_id,
+      from_ready_queue,
     } = body;
 
     const supabase = getAdminClient();
-    const now = new Date();
-    const lateHour = 7;
-    const lateMinute = 15;
-    const isLate =
-      type === 'arrival' &&
-      (now.getHours() > lateHour || (now.getHours() === lateHour && now.getMinutes() > lateMinute));
+    const nowIso = nowUtcIso();
+
+    let lateThreshold = '08:15';
+    if (bodySchoolId || student_id) {
+      const sid = bodySchoolId || (student_id ? (await supabase.from('students').select('school_id').eq('id', student_id).single()).data?.school_id : null);
+      if (sid) {
+        const { data: sch } = await supabase.from('schools').select('late_threshold').eq('id', sid).single();
+        if (sch?.late_threshold) lateThreshold = sch.late_threshold;
+      }
+    }
+
+    const isLate = type === 'arrival' && isLateByThreshold(lateThreshold);
+    const minutesLate = isLate ? minutesAfterThreshold(lateThreshold) : null;
 
     const verifiedBy = session?.user_id || null;
 
@@ -53,7 +62,7 @@ export async function POST(request: NextRequest) {
           type: staffType,
           verification_method: verification_method || 'id_card_scan',
           verified_by_user_id: verifiedBy,
-          timestamp: now.toISOString(),
+          timestamp: nowIso,
         })
         .select()
         .single();
@@ -97,6 +106,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Student does not belong to this school' }, { status: 400 });
     }
 
+    if (type === 'departure' && !from_ready_queue) {
+      const today = todayInLagos();
+      const { data: readyReq } = await supabase
+        .from('dismissal_requests')
+        .select('id')
+        .eq('student_id', student_id)
+        .eq('school_id', schoolId)
+        .eq('dismissal_date', today)
+        .in('status', ['pending', 'approved'])
+        .maybeSingle();
+
+      if (!readyReq) {
+        return NextResponse.json(
+          { error: 'Release only from Ready for Pickup list — teacher must mark student ready first' },
+          { status: 403 }
+        );
+      }
+    }
+
     const { data, error } = await supabase
       .from('attendance_records')
       .insert({
@@ -108,7 +136,8 @@ export async function POST(request: NextRequest) {
         verified_by_user_id: verifiedBy,
         status: type === 'arrival' ? (isLate ? 'late' : 'on_time') : 'on_time',
         source: 'gate',
-        timestamp: now.toISOString(),
+        minutes_late: minutesLate,
+        timestamp: nowIso,
       })
       .select()
       .single();
@@ -121,7 +150,7 @@ export async function POST(request: NextRequest) {
     if (type === 'departure') {
       await supabase
         .from('dismissal_requests')
-        .update({ status: 'completed', completed_at: now.toISOString() })
+        .update({ status: 'completed', completed_at: nowIso })
         .eq('student_id', student_id)
         .eq('school_id', schoolId)
         .in('status', ['pending', 'approved']);

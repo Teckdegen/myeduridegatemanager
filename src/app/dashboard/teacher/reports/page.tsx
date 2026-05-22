@@ -3,18 +3,20 @@
 
 import { useEffect, useState } from 'react';
 import { fetchData } from '@/lib/api';
-import AttendanceReportPanel from '@/components/attendance/AttendanceReportPanel';
+import DetailedAttendanceReports from '@/components/attendance/DetailedAttendanceReports';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 
 export default function TeacherReportsPage() {
   const [schoolId, setSchoolId] = useState('');
+  const [classIds, setClassIds] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
-      const data = await fetchData('get_teacher_dashboard');
+      const data = await fetchData('get_teacher_dashboard_full');
       setSchoolId(data.school_id || '');
+      setClassIds(data.class_ids || []);
       setLoading(false);
     })();
   }, []);
@@ -32,10 +34,14 @@ export default function TeacherReportsPage() {
       <Link href="/dashboard/teacher" className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-800 mb-4">
         <ArrowLeft size={16} /> Back to class
       </Link>
-      <h1 className="text-2xl font-bold text-slate-900 mb-1">Attendance reports</h1>
-      <p className="text-sm text-slate-500 mb-6">Download CSV for your class — every day, all years.</p>
+      <h1 className="text-2xl font-bold text-slate-900 mb-1">Class attendance reports</h1>
+      <p className="text-sm text-slate-500 mb-6">Your assigned class only — filter by date.</p>
       <div className="card-elevated p-5">
-        <AttendanceReportPanel schoolId={schoolId} />
+        <DetailedAttendanceReports
+          schoolId={schoolId}
+          classFilter={classIds[0] || null}
+          title="Teacher class report"
+        />
       </div>
     </div>
   );

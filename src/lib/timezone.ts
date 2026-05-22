@@ -1,0 +1,69 @@
+/** Nigeria (WAT, UTC+1) — store UTC in DB, display in Africa/Lagos. */
+
+export const APP_TIMEZONE = 'Africa/Lagos';
+
+export function nowUtcIso(): string {
+  return new Date().toISOString();
+}
+
+/** Calendar date YYYY-MM-DD in Lagos */
+export function todayInLagos(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: APP_TIMEZONE }).format(new Date());
+}
+
+export function formatTimeLagos(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleTimeString('en-NG', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: APP_TIMEZONE,
+  });
+}
+
+export function formatDateTimeLagos(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-NG', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: APP_TIMEZONE,
+  });
+}
+
+export function formatDateLagos(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-NG', {
+    dateStyle: 'medium',
+    timeZone: APP_TIMEZONE,
+  });
+}
+
+/** Parse school TIME column against today's Lagos date for late checks */
+export function nigeriaNowParts(): { hours: number; minutes: number; dateStr: string } {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: APP_TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || '0';
+  return {
+    hours: parseInt(get('hour'), 10),
+    minutes: parseInt(get('minute'), 10),
+    dateStr: `${get('year')}-${get('month')}-${get('day')}`,
+  };
+}
+
+export function minutesAfterThreshold(threshold: string): number | null {
+  const [h, m] = threshold.split(':').map(Number);
+  const { hours, minutes } = nigeriaNowParts();
+  if (hours < h || (hours === h && minutes <= m)) return null;
+  return (hours - h) * 60 + (minutes - m);
+}
+
+export function isLateByThreshold(threshold: string): boolean {
+  return minutesAfterThreshold(threshold) !== null;
+}
