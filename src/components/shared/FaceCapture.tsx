@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { Camera, X } from 'lucide-react';
+import { Camera, X, SwitchCamera } from 'lucide-react';
 import { toast } from 'sonner';
 import { averageDescriptors, computeDescriptorFromDataUrl } from '@/lib/face/descriptor';
 
@@ -9,6 +9,8 @@ type FaceCaptureProps = {
   label?: string;
   minPhotos?: number;
   maxPhotos?: number;
+  /** 'user' = front/selfie, 'environment' = back/rear (better for photographing someone else) */
+  defaultFacingMode?: 'user' | 'environment';
   onChange: (payload: { photos: string[]; face_descriptor: number[] | null }) => void;
 };
 
@@ -16,10 +18,12 @@ export default function FaceCapture({
   label = 'Face photos',
   minPhotos = 3,
   maxPhotos = 3,
+  defaultFacingMode = 'environment',
   onChange,
 }: FaceCaptureProps) {
   const [photos, setPhotos] = useState<string[]>([]);
   const [cameraActive, setCameraActive] = useState(false);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>(defaultFacingMode);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -36,21 +40,30 @@ export default function FaceCapture({
     }
   };
 
-  const startCamera = async () => {
+  const startCamera = async (facing: 'user' | 'environment' = facingMode) => {
     try {
       if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: facing },
         audio: false,
       });
       streamRef.current = stream;
+      setFacingMode(facing);
       setCameraActive(true);
       setTimeout(() => {
-        if (videoRef.current) videoRef.current.srcObject = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(() => {});
+        }
       }, 100);
     } catch {
       toast.error('Camera access denied');
     }
+  };
+
+  const flipCamera = () => {
+    const next = facingMode === 'user' ? 'environment' : 'user';
+    startCamera(next);
   };
 
   const stopCamera = () => {
@@ -90,27 +103,38 @@ export default function FaceCapture({
     await updateParent(next);
   };
 
+  const facingLabel = facingMode === 'environment' ? 'Back camera' : 'Front camera';
+
   return (
     <div>
       <h3 className="font-semibold text-sm mb-1">{label} *</h3>
       <p className="text-xs text-gray-500 mb-3">
-        Take {minPhotos} clear face photos (front, slight left, slight right) for gate recognition.
+        Take {minPhotos} clear photos. Use <strong>back camera</strong> to photograph the student; flip to front if needed.
       </p>
 
       {!cameraActive ? (
         <button
           type="button"
-          onClick={startCamera}
+          onClick={() => startCamera()}
           className="w-full py-6 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center gap-2 hover:border-primary-400 hover:bg-primary-50"
         >
           <Camera size={24} className="text-gray-400" />
-          <span className="text-sm text-gray-500">Open camera</span>
+          <span className="text-sm text-gray-500">Open camera ({facingLabel})</span>
         </button>
       ) : (
         <div>
           <div className="relative rounded-xl overflow-hidden bg-gray-900 mb-3">
-            <video ref={videoRef} autoPlay playsInline muted className="w-full min-h-[200px] object-cover" />
+            <video ref={videoRef} autoPlay playsInline muted className="w-full min-h-[220px] object-cover" />
+            <button
+              type="button"
+              onClick={flipCamera}
+              className="absolute bottom-3 right-3 bg-black/60 backdrop-blur text-white text-xs font-medium px-3 py-2 rounded-full flex items-center gap-1.5"
+            >
+              <SwitchCamera size={14} />
+              Flip ({facingMode === 'user' ? 'back' : 'front'})
+            </button>
           </div>
+          <p className="text-xs text-center text-slate-500 mb-2">Active: {facingLabel}</p>
           <button
             type="button"
             onClick={capturePhoto}

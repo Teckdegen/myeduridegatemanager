@@ -1,6 +1,7 @@
 -- ============================================
--- MyEduRide Gate Manager - Production Database Schema
--- Run this in your Supabase SQL Editor
+-- MyEduRide Gate Manager - Complete Database Schema
+-- Single file: run entire script in Supabase SQL Editor (fresh project)
+-- For existing DBs, run only the STORAGE section if the photos bucket is missing
 -- ============================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -189,6 +190,22 @@ CREATE TABLE dismissal_requests (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- ============ PARENT PICKUP NOTICES ============
+-- Parent tells school who will pick up the child today (self or another person)
+CREATE TABLE pickup_notices (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  student_id UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  parent_user_id UUID NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
+  pickup_person_name TEXT NOT NULL,
+  pickup_person_phone TEXT,
+  relationship TEXT DEFAULT 'authorized pickup',
+  is_self_pickup BOOLEAN DEFAULT FALSE,
+  notes TEXT,
+  notice_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- ============ NOTIFICATIONS ============
 CREATE TABLE notifications (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -236,6 +253,9 @@ CREATE INDEX idx_notifications_user ON notifications(user_id, is_read);
 CREATE INDEX idx_user_roles ON user_school_roles(user_id);
 CREATE INDEX idx_user_roles_school ON user_school_roles(school_id, role);
 CREATE INDEX idx_student_parents ON student_parents(parent_user_id);
+CREATE INDEX idx_pickup_notices_school_date ON pickup_notices(school_id, notice_date);
+CREATE INDEX idx_pickup_notices_student ON pickup_notices(student_id);
+CREATE INDEX idx_dismissal_requests_school_status ON dismissal_requests(school_id, status, created_at);
 
 -- ============ ROW LEVEL SECURITY ============
 ALTER TABLE schools ENABLE ROW LEVEL SECURITY;
@@ -251,6 +271,7 @@ ALTER TABLE gate_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE staff_attendance ENABLE ROW LEVEL SECURITY;
 ALTER TABLE dismissal_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pickup_notices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
 
@@ -383,6 +404,16 @@ CREATE POLICY "Gate officers update dismissals" ON dismissal_requests
     school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid() AND role IN ('gate_officer', 'school_admin'))
   );
 
+-- Pickup notices (parents see own; staff see school — app uses service role in API)
+CREATE POLICY "Parents see own pickup notices" ON pickup_notices
+  FOR SELECT USING (parent_user_id = auth.uid());
+CREATE POLICY "Parents create pickup notices" ON pickup_notices
+  FOR INSERT WITH CHECK (parent_user_id = auth.uid());
+CREATE POLICY "Staff see school pickup notices" ON pickup_notices
+  FOR SELECT USING (
+    school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid())
+  );
+
 -- Notifications
 CREATE POLICY "Users see own notifications" ON notifications
   FOR SELECT USING (user_id = auth.uid());
@@ -426,3 +457,31 @@ CREATE INDEX idx_otp_email ON otp_codes(email, used, expires_at);
 -- Auto-cleanup expired codes (run periodically or let them accumulate)
 -- ALTER TABLE otp_codes ENABLE ROW LEVEL SECURITY;
 -- No RLS needed - only accessed via service role key from API routes
+
+-- ============ COLUMN DOCUMENTATION ============
+-- photo_url stores a storage path (e.g. students/{school_id}/{id}.jpg) or legacy public URL.
+-- The app serves images via /api/photo using the service role (bucket is private).
+COMMENT ON COLUMN students.photo_url IS 'Storage path under photos bucket (e.g. students/{school_id}/{id}.jpg) or legacy public URL';
+COMMENT ON COLUMN teacher_profiles.photo_url IS 'Storage path under photos bucket or legacy public URL';
+
+-- ============ STORAGE: PHOTOS BUCKET ============
+-- Private bucket for student/staff face images (required for ID cards and gate UI)
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'photos',
+  'photos',
+  false,
+  5242880,
+  ARRAY['image/jpeg', 'image/png', 'image/webp']::text[]
+)
+ON CONFLICT (id) DO UPDATE SET
+  public = false,
+  file_size_limit = 5242880,
+  allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/webp']::text[];
+
+DROP POLICY IF EXISTS "Service role photos all" ON storage.objects;
+CREATE POLICY "Service role photos all"
+  ON storage.objects FOR ALL
+  TO service_role
+  USING (bucket_id = 'photos')
+  WITH CHECK (bucket_id = 'photos');

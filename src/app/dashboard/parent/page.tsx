@@ -12,6 +12,8 @@ import {
   Clock,
   AlertTriangle,
   ChevronRight,
+  Car,
+  Send,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -21,6 +23,16 @@ export default function ParentDashboard() {
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('');
   const [tab, setTab] = useState('children');
+  const [pickupForm, setPickupForm] = useState({
+    student_id: '',
+    pickup_person_name: '',
+    pickup_person_phone: '',
+    relationship: '',
+    notes: '',
+    is_self: true,
+  });
+  const [submittingPickup, setSubmittingPickup] = useState(false);
+  const [recentNotices, setRecentNotices] = useState([]);
 
   useEffect(() => {
     const session = getSession();
@@ -32,6 +44,42 @@ export default function ParentDashboard() {
     }
   }, []);
 
+  const submitPickupNotice = async () => {
+    if (!pickupForm.student_id || !pickupForm.pickup_person_name.trim()) {
+      toast.error('Select a child and who will pick them up');
+      return;
+    }
+    setSubmittingPickup(true);
+    try {
+      const res = await fetch('/api/parents/pickup-notice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          student_id: pickupForm.student_id,
+          pickup_person_name: pickupForm.pickup_person_name.trim(),
+          pickup_person_phone: pickupForm.pickup_person_phone,
+          relationship: pickupForm.relationship,
+          notes: pickupForm.notes,
+          is_self: pickupForm.is_self,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success('School and gate have been notified');
+        setPickupForm((f) => ({ ...f, notes: '', relationship: '' }));
+        const noticeRes = await fetch('/api/parents/pickup-notice', { credentials: 'include' });
+        const noticeData = await noticeRes.json();
+        setRecentNotices(noticeData.notices || []);
+      } else {
+        toast.error(data.error || 'Could not send');
+      }
+    } catch {
+      toast.error('Failed to send notice');
+    }
+    setSubmittingPickup(false);
+  };
+
   const loadData = async () => {
     try {
       const [kidsRes, notifRes] = await Promise.all([
@@ -40,6 +88,17 @@ export default function ParentDashboard() {
       ]);
       setChildren(kidsRes.children || []);
       setNotifications(notifRes.notifications || []);
+      const sess = getSession();
+      if (kidsRes.children?.[0]) {
+        setPickupForm((f) => ({
+          ...f,
+          student_id: f.student_id || kidsRes.children[0].id,
+          pickup_person_name: f.is_self ? (sess?.full_name || '') : f.pickup_person_name,
+        }));
+      }
+      const noticeRes = await fetch('/api/parents/pickup-notice', { credentials: 'include' });
+      const noticeData = await noticeRes.json();
+      setRecentNotices(noticeData.notices || []);
     } catch (err) {
       console.error(err);
       toast.error('Could not load your dashboard');
@@ -87,6 +146,110 @@ export default function ParentDashboard() {
           <div className="flex items-center justify-center py-20">
             <div className="w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
           </div>
+        ) : tab === 'pickup' ? (
+          children.length === 0 ? (
+            <div className="bg-white rounded-2xl p-10 text-center shadow-sm border border-gray-100">
+              <Car size={36} className="mx-auto text-gray-300 mb-3" />
+              <p className="font-medium text-gray-700">Link a child first</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                <h2 className="font-semibold text-gray-900 mb-1">Notify school — who is picking up?</h2>
+                <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+                  Tell the gate who will collect your child today. If someone else is coming, enter their name and phone.
+                </p>
+                <label className="text-xs font-medium text-gray-500 block mb-1">Child</label>
+                <select
+                  className="input mb-3"
+                  value={pickupForm.student_id}
+                  onChange={(e) => setPickupForm((f) => ({ ...f, student_id: e.target.value }))}
+                >
+                  {children.map((c) => (
+                    <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>
+                  ))}
+                </select>
+                <label className="flex items-center gap-2 mb-3 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={pickupForm.is_self}
+                    onChange={(e) =>
+                      setPickupForm((f) => ({
+                        ...f,
+                        is_self: e.target.checked,
+                        pickup_person_name: e.target.checked ? (userName || '') : '',
+                        relationship: e.target.checked ? 'parent (self)' : '',
+                      }))
+                    }
+                  />
+                  I am picking up myself
+                </label>
+                {!pickupForm.is_self && (
+                  <>
+                    <label className="text-xs font-medium text-gray-500 block mb-1">Pickup person name *</label>
+                    <input
+                      className="input mb-3"
+                      value={pickupForm.pickup_person_name}
+                      onChange={(e) => setPickupForm((f) => ({ ...f, pickup_person_name: e.target.value }))}
+                      placeholder="Full name of person picking up"
+                    />
+                    <label className="text-xs font-medium text-gray-500 block mb-1">Their phone</label>
+                    <input
+                      className="input mb-3"
+                      value={pickupForm.pickup_person_phone}
+                      onChange={(e) => setPickupForm((f) => ({ ...f, pickup_person_phone: e.target.value }))}
+                      placeholder="Phone number"
+                    />
+                    <label className="text-xs font-medium text-gray-500 block mb-1">Relationship</label>
+                    <input
+                      className="input mb-3"
+                      value={pickupForm.relationship}
+                      onChange={(e) => setPickupForm((f) => ({ ...f, relationship: e.target.value }))}
+                      placeholder="e.g. Aunt, Driver, Family friend"
+                    />
+                  </>
+                )}
+                {pickupForm.is_self && (
+                  <>
+                    <label className="text-xs font-medium text-gray-500 block mb-1">Your name</label>
+                    <input
+                      className="input mb-3"
+                      value={pickupForm.pickup_person_name}
+                      onChange={(e) => setPickupForm((f) => ({ ...f, pickup_person_name: e.target.value }))}
+                    />
+                  </>
+                )}
+                <label className="text-xs font-medium text-gray-500 block mb-1">Note to school (optional)</label>
+                <textarea
+                  className="input mb-4 min-h-[80px]"
+                  value={pickupForm.notes}
+                  onChange={(e) => setPickupForm((f) => ({ ...f, notes: e.target.value }))}
+                  placeholder="e.g. Black Toyota, ID at reception…"
+                />
+                <button
+                  type="button"
+                  onClick={submitPickupNotice}
+                  disabled={submittingPickup}
+                  className="btn-primary w-full flex items-center justify-center gap-2 py-3"
+                >
+                  <Send size={18} />
+                  {submittingPickup ? 'Sending…' : 'Send to school & gate'}
+                </button>
+              </div>
+              {recentNotices.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 px-1 mb-2">Sent today / recently</p>
+                  {recentNotices.map((n) => (
+                    <div key={n.id} className="bg-white rounded-xl p-3 border border-gray-100 mb-2 text-sm">
+                      <p className="font-medium">{n.pickup_person_name}</p>
+                      <p className="text-xs text-gray-500">{new Date(n.created_at).toLocaleString()}</p>
+                      {n.notes && <p className="text-xs text-gray-600 mt-1">{n.notes}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
         ) : tab === 'children' ? (
           children.length === 0 ? (
             <div className="bg-white rounded-2xl p-10 text-center shadow-sm border border-gray-100">
@@ -196,6 +359,16 @@ export default function ParentDashboard() {
           >
             <Users size={22} strokeWidth={tab === 'children' ? 2.5 : 2} />
             <span>My Kids</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('pickup')}
+            className={`flex-1 flex flex-col items-center gap-1 py-3 text-xs font-medium transition-colors ${
+              tab === 'pickup' ? 'text-primary-700' : 'text-gray-400'
+            }`}
+          >
+            <Car size={22} strokeWidth={tab === 'pickup' ? 2.5 : 2} />
+            <span>Pickup</span>
           </button>
           <button
             type="button"

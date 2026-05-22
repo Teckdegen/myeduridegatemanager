@@ -118,6 +118,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Could not save attendance: ${error.message}` }, { status: 500 });
     }
 
+    if (type === 'departure') {
+      await supabase
+        .from('dismissal_requests')
+        .update({ status: 'completed', completed_at: now.toISOString() })
+        .eq('student_id', student_id)
+        .eq('school_id', schoolId)
+        .in('status', ['pending', 'approved']);
+    }
+
     const notifyType = type === 'departure' ? 'departure' : 'arrival';
     const notifyResult = await notifyParentsOfAttendance({
       student_id,

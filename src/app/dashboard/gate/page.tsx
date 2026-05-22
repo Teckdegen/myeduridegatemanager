@@ -1,23 +1,32 @@
 // @ts-nocheck
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { fetchData } from '@/lib/api';
 import StudentAvatar from '@/components/shared/StudentAvatar';
-import { LogIn, LogOut, Camera, CheckCircle, XCircle, ScanLine } from 'lucide-react';
+import {
+  LogIn,
+  LogOut,
+  Camera,
+  CheckCircle,
+  XCircle,
+  ScanLine,
+  Users,
+  Car,
+  Search,
+  UserCheck,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 function splitName(fullName) {
   const parts = (fullName || '').trim().split(/\s+/).filter(Boolean);
-  return {
-    first: parts[0] || '',
-    last: parts.slice(1).join(' ') || '',
-  };
+  return { first: parts[0] || '', last: parts.slice(1).join(' ') || '' };
 }
 
 export default function GateOfficerDashboard() {
   const [gateMode, setGateMode] = useState('arrival');
   const [sessionActive, setSessionActive] = useState(false);
+  const [gateTab, setGateTab] = useState('scan');
   const [currentTime, setCurrentTime] = useState(null);
   const [todayCount, setTodayCount] = useState(0);
   const [schoolId, setSchoolId] = useState('');
@@ -27,6 +36,10 @@ export default function GateOfficerDashboard() {
   const [scanning, setScanning] = useState(false);
   const [accepting, setAccepting] = useState(false);
   const [facingMode, setFacingMode] = useState('environment');
+  const [allStudents, setAllStudents] = useState([]);
+  const [pickupQueue, setPickupQueue] = useState([]);
+  const [pickupNotices, setPickupNotices] = useState([]);
+  const [studentSearch, setStudentSearch] = useState('');
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const scanIntervalRef = useRef(null);
@@ -35,6 +48,27 @@ export default function GateOfficerDashboard() {
     if (!scannedPerson?.person?.name) return { first: '', last: '' };
     return splitName(scannedPerson.person.name);
   }, [scannedPerson]);
+
+  const noticeForStudent = useCallback(
+    (studentId) => pickupNotices.find((n) => n.student_id === studentId),
+    [pickupNotices]
+  );
+
+  const loadGateData = useCallback(async () => {
+    if (!schoolId) return;
+    try {
+      const res = await fetch(`/api/gate/dashboard?school_id=${schoolId}`, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const data = await res.json();
+      if (data.students) setAllStudents(data.students);
+      if (data.pickup_queue) setPickupQueue(data.pickup_queue);
+      if (data.pickup_notices) setPickupNotices(data.pickup_notices);
+    } catch {
+      /* ignore */
+    }
+  }, [schoolId]);
 
   useEffect(() => {
     setCurrentTime(new Date());
@@ -45,6 +79,21 @@ export default function GateOfficerDashboard() {
       stopCamera();
     };
   }, []);
+
+  useEffect(() => {
+    if (!sessionActive || !schoolId) return;
+    loadGateData();
+    const poll = setInterval(loadGateData, 15000);
+    return () => clearInterval(poll);
+  }, [sessionActive, schoolId, loadGateData]);
+
+  useEffect(() => {
+    if (sessionActive && gateTab === 'scan' && !scannedPerson) {
+      requestAnimationFrame(() => startCamera());
+    } else if (gateTab !== 'scan') {
+      stopCamera();
+    }
+  }, [gateTab, sessionActive, scannedPerson]);
 
   const loadSchool = async () => {
     try {
@@ -79,7 +128,6 @@ export default function GateOfficerDashboard() {
       const vw = videoRef.current.videoWidth;
       const vh = videoRef.current.videoHeight;
       if (!vw || !vh) return;
-
       const canvas = document.createElement('canvas');
       canvas.width = vw;
       canvas.height = vh;
@@ -87,7 +135,6 @@ export default function GateOfficerDashboard() {
       if (!ctx) return;
       ctx.drawImage(videoRef.current, 0, 0);
       const imageData = ctx.getImageData(0, 0, vw, vh);
-
       try {
         const jsQR = (await import('jsqr')).default;
         const code = jsQR(imageData.data, imageData.width, imageData.height);
@@ -97,7 +144,7 @@ export default function GateOfficerDashboard() {
           await lookupPerson(code.data);
         }
       } catch {
-        /* skip frame */
+        /* skip */
       }
     }, 400);
   };
@@ -110,6 +157,7 @@ export default function GateOfficerDashboard() {
         audio: false,
       });
       streamRef.current = stream;
+      setFacingMode(facing);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play().catch(() => {});
@@ -123,9 +171,10 @@ export default function GateOfficerDashboard() {
   const resumeScanning = () => {
     setScannedPerson(null);
     setScanning(false);
-    requestAnimationFrame(() => {
-      setTimeout(() => startCamera(), 150);
-    });
+    loadGateData();
+    if (gateTab === 'scan') {
+      requestAnimationFrame(() => setTimeout(() => startCamera(), 150));
+    }
   };
 
   const switchCamera = () => {
@@ -146,9 +195,11 @@ export default function GateOfficerDashboard() {
       const data = await res.json();
       if (data.person) {
         stopCamera();
-        setScannedPerson(data);
+        const notice = noticeForStudent(data.person.id);
+        setScannedPerson({ ...data, pickup_notice: notice || null });
+        setGateTab('scan');
       } else {
-        toast.error(data.error || 'ID not found — scan the QR on the card');
+        toast.error(data.error || 'ID not found');
         startQrScanning();
       }
     } catch {
@@ -156,6 +207,26 @@ export default function GateOfficerDashboard() {
       startQrScanning();
     }
     setScanning(false);
+  };
+
+  const openStudentForRelease = (student, fromQueue = false) => {
+    const notice = noticeForStudent(student.id);
+    setGateMode('dismissal');
+    setScannedPerson({
+      type: 'student',
+      from_queue: fromQueue,
+      pickup_notice: notice || null,
+      person: {
+        id: student.id,
+        name: `${student.first_name} ${student.last_name}`,
+        student_id: student.student_id_number,
+        class_name: student.class?.name || '',
+        photo_url: student.photo_url,
+        qr_code_data: student.qr_code_data,
+      },
+    });
+    setGateTab('scan');
+    stopCamera();
   };
 
   const handleAccept = async () => {
@@ -175,7 +246,6 @@ export default function GateOfficerDashboard() {
       } else {
         body.student_id = scannedPerson.person.id;
       }
-
       const res = await fetch('/api/gate/accept', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -184,26 +254,21 @@ export default function GateOfficerDashboard() {
       });
       const data = await res.json();
       if (data.success) {
-        const label = gateMode === 'dismissal' ? 'Dismissed' : data.is_late ? 'Late arrival' : 'Checked in';
-        toast.success(`${scannedPerson.person.name} — ${label} (saved)`);
-        setTodayCount((prev) => prev + 1);
+        toast.success(`${scannedPerson.person.name} — released (saved)`);
+        setTodayCount((p) => p + 1);
         resumeScanning();
       } else {
-        toast.error(data.error || 'Failed to log attendance');
+        toast.error(data.error || 'Failed to log');
       }
     } catch {
-      toast.error('Failed to log — try again');
+      toast.error('Failed — try again');
     }
     setAccepting(false);
   };
 
-  const handleReject = () => {
-    resumeScanning();
-  };
-
   const handleStartSession = async () => {
     if (!schoolReady || !schoolId) {
-      toast.error('School not loaded — refresh and try again');
+      toast.error('School not loaded');
       return;
     }
     try {
@@ -215,12 +280,13 @@ export default function GateOfficerDashboard() {
       });
       const data = await res.json();
       if (!data.success || !data.session_id) {
-        toast.error(data.error || 'Could not start gate session');
+        toast.error(data.error || 'Could not start session');
         return;
       }
       setGateSessionId(data.session_id);
       setSessionActive(true);
-      requestAnimationFrame(() => startCamera());
+      await loadGateData();
+      setGateTab('scan');
     } catch {
       toast.error('Could not start session');
     }
@@ -243,6 +309,61 @@ export default function GateOfficerDashboard() {
     setScannedPerson(null);
   };
 
+  const filteredStudents = allStudents.filter((s) => {
+    const q = studentSearch.toLowerCase();
+    return `${s.first_name} ${s.last_name} ${s.student_id_number} ${s.class?.name || ''}`.toLowerCase().includes(q);
+  });
+
+  const renderAcceptCard = () => (
+    <div className="card-elevated p-5 mt-2">
+      <div className="flex items-center gap-4 mb-4">
+        <StudentAvatar
+          photoUrl={scannedPerson.person.photo_url}
+          firstName={scannedNames.first}
+          lastName={scannedNames.last}
+          size="lg"
+        />
+        <div className="min-w-0 flex-1">
+          <p className="text-xl font-bold text-slate-900 truncate">{scannedPerson.person.name}</p>
+          <p className="text-sm text-slate-500 font-mono">{scannedPerson.person.student_id || scannedPerson.person.staff_id}</p>
+          {scannedPerson.person.class_name && <p className="text-xs text-slate-400">{scannedPerson.person.class_name}</p>}
+        </div>
+      </div>
+      {scannedPerson.pickup_notice && (
+        <div className="mb-4 p-3 rounded-xl bg-blue-50 border border-blue-100 text-sm">
+          <p className="font-semibold text-blue-900">Parent pickup notice</p>
+          <p className="text-blue-800 mt-1">
+            <strong>{scannedPerson.pickup_notice.pickup_person_name}</strong>
+            {scannedPerson.pickup_notice.pickup_person_phone && ` · ${scannedPerson.pickup_notice.pickup_person_phone}`}
+          </p>
+          {scannedPerson.pickup_notice.notes && (
+            <p className="text-xs text-blue-700 mt-1">{scannedPerson.pickup_notice.notes}</p>
+          )}
+        </div>
+      )}
+      {scannedPerson.from_queue && (
+        <p className="text-xs font-semibold text-orange-700 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2 mb-4">
+          Ready for pickup — teacher dismissed this student
+        </p>
+      )}
+      <div
+        className={`text-center py-3 rounded-xl mb-4 text-sm font-bold ${
+          gateMode === 'arrival' ? 'bg-emerald-50 text-emerald-800' : 'bg-orange-50 text-orange-800'
+        }`}
+      >
+        {gateMode === 'arrival' ? 'CHECK IN' : 'CHECK OUT / RELEASE'}
+      </div>
+      <div className="flex gap-3">
+        <button type="button" onClick={resumeScanning} disabled={accepting} className="btn-danger flex-1 flex items-center justify-center gap-2 py-3">
+          <XCircle size={18} /> Cancel
+        </button>
+        <button type="button" onClick={handleAccept} disabled={accepting} className="btn-primary flex-1 flex items-center justify-center gap-2 py-3">
+          <CheckCircle size={18} /> {accepting ? 'Saving…' : 'Confirm release'}
+        </button>
+      </div>
+    </div>
+  );
+
   if (!sessionActive) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 pt-14 pb-8">
@@ -250,194 +371,143 @@ export default function GateOfficerDashboard() {
           <div className="hero-banner text-center mb-6">
             <ScanLine className="mx-auto mb-2 opacity-90" size={32} />
             <h1 className="text-2xl font-bold">Gate Manager</h1>
-            <p className="text-white/80 font-mono text-lg mt-1">
-              {currentTime ? currentTime.toLocaleTimeString() : '--:--'}
-            </p>
-            <p className="text-white/60 text-xs mt-1">
-              {currentTime
-                ? currentTime.toLocaleDateString(undefined, {
-                    weekday: 'long',
-                    month: 'long',
-                    day: 'numeric',
-                  })
-                : ''}
-            </p>
+            <p className="text-white/80 font-mono text-lg mt-1">{currentTime ? currentTime.toLocaleTimeString() : '--:--'}</p>
           </div>
-
           <div className="card-elevated p-5 space-y-4">
-            <p className="text-sm font-semibold text-slate-600">Session mode</p>
             <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setGateMode('arrival')}
-                className={`p-4 rounded-2xl border-2 transition-all ${
-                  gateMode === 'arrival'
-                    ? 'border-emerald-500 bg-emerald-50 shadow-sm'
-                    : 'border-slate-200 bg-white'
-                }`}
-              >
-                <LogIn
-                  className={`mx-auto mb-2 ${gateMode === 'arrival' ? 'text-emerald-600' : 'text-slate-400'}`}
-                  size={26}
-                />
-                <span
-                  className={`block text-sm font-semibold ${
-                    gateMode === 'arrival' ? 'text-emerald-800' : 'text-slate-500'
-                  }`}
-                >
-                  Arrival
-                </span>
+              <button type="button" onClick={() => setGateMode('arrival')} className={`p-4 rounded-2xl border-2 ${gateMode === 'arrival' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}`}>
+                <LogIn className="mx-auto mb-2 text-emerald-600" size={26} />
+                <span className="block text-sm font-semibold">Arrival</span>
               </button>
-              <button
-                type="button"
-                onClick={() => setGateMode('dismissal')}
-                className={`p-4 rounded-2xl border-2 transition-all ${
-                  gateMode === 'dismissal'
-                    ? 'border-orange-500 bg-orange-50 shadow-sm'
-                    : 'border-slate-200 bg-white'
-                }`}
-              >
-                <LogOut
-                  className={`mx-auto mb-2 ${gateMode === 'dismissal' ? 'text-orange-600' : 'text-slate-400'}`}
-                  size={26}
-                />
-                <span
-                  className={`block text-sm font-semibold ${
-                    gateMode === 'dismissal' ? 'text-orange-800' : 'text-slate-500'
-                  }`}
-                >
-                  Dismissal
-                </span>
+              <button type="button" onClick={() => setGateMode('dismissal')} className={`p-4 rounded-2xl border-2 ${gateMode === 'dismissal' ? 'border-orange-500 bg-orange-50' : 'border-slate-200'}`}>
+                <LogOut className="mx-auto mb-2 text-orange-600" size={26} />
+                <span className="block text-sm font-semibold">Dismissal</span>
               </button>
             </div>
-            <button
-              type="button"
-              onClick={handleStartSession}
-              disabled={!schoolReady}
-              className="btn-primary w-full py-3.5 text-base disabled:opacity-50"
-            >
-              {schoolReady ? 'Start scanning' : 'Loading school…'}
+            <button type="button" onClick={handleStartSession} disabled={!schoolReady} className="btn-primary w-full py-3.5 disabled:opacity-50">
+              {schoolReady ? 'Start gate session' : 'Loading…'}
             </button>
-            <p className="text-xs text-center text-slate-400">Scan the QR code on each ID card only</p>
           </div>
         </div>
       </div>
     );
   }
 
-  const modeColor = gateMode === 'arrival' ? 'emerald' : 'orange';
-
   return (
     <div className="min-h-screen flex flex-col pt-12 pb-6">
-      <header className="px-4 py-3 flex items-center justify-between gap-3 max-w-lg mx-auto w-full">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className={`w-3 h-3 rounded-full animate-pulse bg-${modeColor}-500 shrink-0`} style={{ backgroundColor: gateMode === 'arrival' ? '#10b981' : '#f97316' }} />
-          <div className="min-w-0">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-              {gateMode === 'arrival' ? 'Arrival' : 'Dismissal'}
-            </p>
-            <p className="text-lg font-mono font-bold text-slate-900">
-              {currentTime ? currentTime.toLocaleTimeString() : '--:--'}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="text-right bg-white rounded-xl px-3 py-1.5 border border-slate-100 shadow-sm">
-            <p className="text-[10px] text-slate-500 uppercase font-medium">Today</p>
-            <p className="text-lg font-bold text-slate-900 leading-none">{todayCount}</p>
-          </div>
-          <button type="button" onClick={handleEndSession} className="btn-danger text-xs px-3 py-2">
-            End
-          </button>
+      <header className="px-4 py-2 max-w-lg mx-auto w-full flex items-center justify-between gap-2">
+        <p className="text-lg font-mono font-bold">{currentTime ? currentTime.toLocaleTimeString() : '--:--'}</p>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-bold">{todayCount} scans</span>
+          <button type="button" onClick={handleEndSession} className="btn-danger text-xs px-3 py-2">End</button>
         </div>
       </header>
 
-      <main className="flex-1 px-4 max-w-lg mx-auto w-full">
-        {scannedPerson ? (
-          <div className="card-elevated p-5 mt-2 animate-in fade-in">
-            <div className="flex items-center gap-4 mb-5">
-              <StudentAvatar
-                photoUrl={scannedPerson.person.photo_url}
-                firstName={scannedNames.first}
-                lastName={scannedNames.last}
-                size="lg"
-              />
-              <div className="min-w-0 flex-1">
-                <p className="text-xl font-bold text-slate-900 truncate">{scannedPerson.person.name}</p>
-                <p className="text-sm text-slate-500 font-mono truncate">
-                  {scannedPerson.person.student_id || scannedPerson.person.staff_id}
-                </p>
-                {scannedPerson.person.class_name && (
-                  <p className="text-xs text-slate-400 mt-0.5">{scannedPerson.person.class_name}</p>
-                )}
-              </div>
-            </div>
+      <div className="px-4 max-w-lg mx-auto w-full">
+        <div className="pill-tabs mb-3">
+          <button type="button" onClick={() => { setGateTab('scan'); setScannedPerson(null); }} className={gateTab === 'scan' ? 'pill-tab-active' : 'pill-tab-inactive'}>
+            <ScanLine size={14} className="inline mr-1" /> Scan
+          </button>
+          <button type="button" onClick={() => setGateTab('pickup')} className={gateTab === 'pickup' ? 'pill-tab-active' : 'pill-tab-inactive'}>
+            <Car size={14} className="inline mr-1" /> Pickup ({pickupQueue.length})
+          </button>
+          <button type="button" onClick={() => setGateTab('students')} className={gateTab === 'students' ? 'pill-tab-active' : 'pill-tab-inactive'}>
+            <Users size={14} className="inline mr-1" /> All ({allStudents.length})
+          </button>
+        </div>
+      </div>
 
-            <div
-              className={`text-center py-3 rounded-xl mb-5 text-sm font-bold tracking-wide ${
-                gateMode === 'arrival'
-                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-100'
-                  : 'bg-orange-50 text-orange-800 border border-orange-100'
-              }`}
-            >
-              {gateMode === 'arrival' ? 'CHECK IN' : 'CHECK OUT'} ·{' '}
-              {scannedPerson.type === 'staff' ? 'STAFF' : 'STUDENT'}
-            </div>
+      <main className="flex-1 px-4 max-w-lg mx-auto w-full overflow-y-auto">
+        {scannedPerson && gateTab === 'scan' && renderAcceptCard()}
 
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={handleReject}
-                disabled={accepting}
-                className="btn-danger flex-1 flex items-center justify-center gap-2 py-3"
-              >
-                <XCircle size={18} /> Reject
-              </button>
-              <button
-                type="button"
-                onClick={handleAccept}
-                disabled={accepting}
-                className="btn-primary flex-1 flex items-center justify-center gap-2 py-3"
-              >
-                <CheckCircle size={18} />
-                {accepting ? 'Saving…' : 'Accept'}
-              </button>
-            </div>
-          </div>
-        ) : (
+        {gateTab === 'scan' && !scannedPerson && (
           <>
-            <div className="aspect-[4/3] bg-slate-900 rounded-3xl overflow-hidden relative mb-4 shadow-xl ring-4 ring-slate-200/50">
-              <video
-                ref={videoRef}
-                className="w-full h-full object-cover"
-                playsInline
-                muted
-                autoPlay
-              />
+            <div className="aspect-[4/3] bg-slate-900 rounded-3xl overflow-hidden relative mb-3 shadow-lg">
+              <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="w-48 h-48 border-2 border-white/80 rounded-2xl shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
+                <div className="w-44 h-44 border-2 border-white/80 rounded-2xl" />
               </div>
-              <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 bg-black/55 backdrop-blur px-3 py-2 rounded-full">
-                  <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="text-xs text-white font-medium">
-                    {scanning ? 'Looking up…' : 'Aim at QR on ID card'}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={switchCamera}
-                  className="bg-black/55 backdrop-blur px-3 py-2 rounded-full text-xs text-white font-medium flex items-center gap-1"
-                >
-                  <Camera size={14} /> Flip
-                </button>
-              </div>
+              <button type="button" onClick={switchCamera} className="absolute bottom-3 right-3 bg-black/60 text-white text-xs px-3 py-2 rounded-full flex items-center gap-1">
+                <Camera size={14} /> Flip
+              </button>
             </div>
-            <p className="text-sm text-center text-slate-500 px-2">
-              Hold the <strong className="text-slate-700">QR code</strong> on the ID card inside the frame
-            </p>
+            <p className="text-xs text-center text-slate-500">Scan QR on ID card</p>
           </>
         )}
+
+        {gateTab === 'pickup' && !scannedPerson && (
+          <div className="space-y-2 pb-4">
+            <p className="text-xs text-slate-500 mb-2">Students dismissed by teachers — fast track release at gate.</p>
+            {pickupQueue.length === 0 ? (
+              <div className="card text-center py-10 text-slate-400 text-sm">No students waiting for pickup</div>
+            ) : (
+              pickupQueue.map((item) => {
+                const s = item.student;
+                if (!s) return null;
+                const notice = noticeForStudent(s.id);
+                return (
+                  <div key={item.id} className="card-elevated p-3 flex items-center gap-3">
+                    <StudentAvatar photoUrl={s.photo_url} firstName={s.first_name} lastName={s.last_name} size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm truncate">{s.first_name} {s.last_name}</p>
+                      <p className="text-xs text-slate-500">{s.class?.name} · {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                      {notice && (
+                        <p className="text-[10px] text-blue-700 mt-0.5">Pickup: {notice.pickup_person_name}</p>
+                      )}
+                    </div>
+                    <button type="button" onClick={() => openStudentForRelease(s, true)} className="btn-primary text-xs px-3 py-2 shrink-0">
+                      Release
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+
+        {gateTab === 'students' && !scannedPerson && (
+          <div className="pb-4">
+            <div className="relative mb-3">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input
+                type="search"
+                value={studentSearch}
+                onChange={(e) => setStudentSearch(e.target.value)}
+                placeholder="Search all registered students…"
+                className="input pl-9"
+              />
+            </div>
+            <div className="card-elevated divide-y max-h-[60vh] overflow-y-auto">
+              {filteredStudents.map((s) => {
+                const inQueue = pickupQueue.some((q) => q.student?.id === s.id);
+                const notice = noticeForStudent(s.id);
+                return (
+                  <div key={s.id} className="list-row py-3">
+                    <StudentAvatar photoUrl={s.photo_url} firstName={s.first_name} lastName={s.last_name} size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm truncate">{s.first_name} {s.last_name}</p>
+                      <p className="text-xs text-slate-500 font-mono">{s.student_id_number}</p>
+                      {inQueue && <span className="text-[10px] text-orange-600 font-semibold">Waiting pickup</span>}
+                      {notice && <p className="text-[10px] text-blue-600">Pickup: {notice.pickup_person_name}</p>}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => (s.qr_code_data ? lookupPerson(s.qr_code_data) : openStudentForRelease(s))}
+                      className="text-xs btn-secondary px-2 py-1.5 shrink-0"
+                    >
+                      {inQueue ? 'Release' : 'Select'}
+                    </button>
+                  </div>
+                );
+              })}
+              {filteredStudents.length === 0 && (
+                <p className="py-8 text-center text-slate-400 text-sm">No students found</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {scannedPerson && gateTab !== 'scan' && renderAcceptCard()}
       </main>
     </div>
   );

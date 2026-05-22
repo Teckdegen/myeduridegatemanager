@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceRoleClient } from '@/lib/supabase/server';
+import { getAdminClient } from '@/lib/supabase/admin';
+import { getSessionFromRequest } from '@/lib/session';
 import { Resend } from 'resend';
 import { sendPushToUser } from '@/lib/push/send';
 
@@ -7,9 +8,10 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function POST(request: NextRequest) {
   try {
+    const session = getSessionFromRequest(request);
     const { student_id, school_id, teacher_name } = await request.json();
 
-    const supabase = createServiceRoleClient();
+    const supabase = getAdminClient();
 
     // Get student + school info
     const { data: student } = await supabase
@@ -56,6 +58,27 @@ export async function POST(request: NextRequest) {
     const schoolColor = student.school.primary_color || '#1B4D3E';
     const schoolName = student.school.name;
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const resolvedSchoolId = school_id || student.school_id;
+
+    await supabase
+      .from('dismissal_requests')
+      .update({ status: 'completed', completed_at: new Date().toISOString() })
+      .eq('student_id', student_id)
+      .eq('school_id', resolvedSchoolId)
+      .in('status', ['pending', 'approved']);
+
+    const { error: dismissErr } = await supabase.from('dismissal_requests').insert({
+      student_id,
+      school_id: resolvedSchoolId,
+      requested_by_user_id: session?.user_id || parentIds[0],
+      status: 'pending',
+      notes: `Dismissed by ${teacherDisplayName}`,
+    });
+
+    if (dismissErr) {
+      console.error('[dismissal] request insert:', dismissErr.message);
+    }
 
     const title = `${student.first_name} is ready for pickup`;
     const message = `${student.first_name} ${student.last_name} has been dismissed by ${teacherDisplayName} at ${schoolName}. Please proceed to pick up your child.`;
@@ -111,7 +134,7 @@ export async function POST(request: NextRequest) {
       // Log notification
       await supabase.from('notifications').insert({
         user_id: parent.id,
-        school_id: school_id,
+        school_id: resolvedSchoolId,
         student_id: student.id,
         title,
         message,
