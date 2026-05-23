@@ -19,27 +19,38 @@ export default function SuperAdminDashboard() {
 
   useEffect(() => {
     fetchSchools();
+    const onFocus = () => fetchSchools();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
   }, []);
 
   const fetchSchools = async () => {
+    setLoading(true);
     try {
-      const res = await fetch('/api/schools/list', { cache: 'no-store' });
+      const res = await fetch(`/api/schools/list?t=${Date.now()}`, {
+        cache: 'no-store',
+        credentials: 'include',
+      });
       const data = await res.json();
 
-      if (!res.ok || !data.schools) {
+      if (!res.ok) {
+        toast.error(data.error || 'Could not load schools');
+        setSchools([]);
+        setTotalStats({ schools: 0, students: 0, staff: 0 });
         setLoading(false);
         return;
       }
 
-      const schoolsWithStats = data.schools;
+      const schoolsWithStats = data.schools || [];
       setSchools(schoolsWithStats);
       setTotalStats({
         schools: schoolsWithStats.length,
-        students: schoolsWithStats.reduce((sum: number, s: any) => sum + s.student_count, 0),
-        staff: schoolsWithStats.reduce((sum: number, s: any) => sum + s.staff_count, 0),
+        students: schoolsWithStats.reduce((sum: number, s: SchoolWithStats) => sum + (s.student_count || 0), 0),
+        staff: schoolsWithStats.reduce((sum: number, s: SchoolWithStats) => sum + (s.staff_count || 0), 0),
       });
     } catch (err) {
       console.error('Failed to fetch schools:', err);
+      toast.error('Could not load schools');
     }
     setLoading(false);
   };
@@ -50,6 +61,7 @@ export default function SuperAdminDashboard() {
     const res = await fetch(`/api/schools/delete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ school_id: schoolId }),
       cache: 'no-store',
     });
@@ -79,7 +91,7 @@ export default function SuperAdminDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <main className="p-6 max-w-6xl mx-auto">
+      <main className="p-6 max-w-6xl mx-auto pb-12">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -130,14 +142,17 @@ export default function SuperAdminDashboard() {
               className="input pl-10"
             />
           </div>
+          <button type="button" onClick={() => fetchSchools()} className="btn-secondary flex items-center gap-1">
+            Refresh
+          </button>
           <button onClick={() => setShowAddModal(true)} className="btn-primary flex items-center gap-1">
             <Plus size={16} />
             Add School
           </button>
         </div>
 
-        {/* Schools list */}
-        <div className="space-y-3">
+        {/* Schools list — scrollable when many schools */}
+        <div className="space-y-3 max-h-[calc(100vh-22rem)] overflow-y-auto pr-1">
           {filteredSchools.map(school => (
             <div key={school.id} className="card flex items-center gap-4 py-4 cursor-pointer hover:shadow-md transition-all" onClick={() => window.location.href = `/dashboard/super-admin/school/${school.id}`}>
               <div className="w-12 h-12 rounded-xl bg-primary-100 flex items-center justify-center text-primary-700 font-bold">
@@ -178,7 +193,22 @@ export default function SuperAdminDashboard() {
       {showAddModal && (
         <AddSchoolModal
           onClose={() => setShowAddModal(false)}
-          onSuccess={() => { setShowAddModal(false); fetchSchools(); }}
+          onSuccess={(newSchool) => {
+            setShowAddModal(false);
+            if (newSchool) {
+              setSchools((prev) => {
+                const exists = prev.some((s) => s.id === newSchool.id);
+                const next = exists ? prev : [...prev, newSchool];
+                setTotalStats({
+                  schools: next.length,
+                  students: next.reduce((sum, s) => sum + (s.student_count || 0), 0),
+                  staff: next.reduce((sum, s) => sum + (s.staff_count || 0), 0),
+                });
+                return next;
+              });
+            }
+            fetchSchools();
+          }}
         />
       )}
     </div>
@@ -186,7 +216,13 @@ export default function SuperAdminDashboard() {
 }
 
 // ============ ADD SCHOOL MODAL ============
-function AddSchoolModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+function AddSchoolModal({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void;
+  onSuccess: (school?: SchoolWithStats) => void;
+}) {
   const [formData, setFormData] = useState({
     name: '',
     address: '',
@@ -205,13 +241,14 @@ function AddSchoolModal({ onClose, onSuccess }: { onClose: () => void; onSuccess
       const response = await fetch('/api/schools/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(formData),
       });
 
       const result = await response.json();
       if (result.success) {
         toast.success(`${formData.name} created with admin ${formData.admin_name}`);
-        onSuccess();
+        onSuccess(result.school);
       } else {
         toast.error(result.error || 'Failed to create school');
       }

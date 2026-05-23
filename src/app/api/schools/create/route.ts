@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { ensureAuthUser, ensureUserProfile } from '@/lib/auth/ensure-user';
+import { getSessionFromRequest, sessionHasRole } from '@/lib/session';
 import { Resend } from 'resend';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -23,6 +27,11 @@ const DEFAULT_TEACHER_FIELDS = [
 
 export async function POST(request: NextRequest) {
   try {
+    const session = getSessionFromRequest(request);
+    if (!session || !sessionHasRole(session, 'super_admin')) {
+      return NextResponse.json({ error: 'Super admin access required' }, { status: 403 });
+    }
+
     const { name, address, logo_url, admin_email, admin_name, admin_phone } = await request.json();
 
     if (!name?.trim() || !admin_email?.trim() || !admin_name?.trim()) {
@@ -172,7 +181,15 @@ export async function POST(request: NextRequest) {
       console.error('Email send failed:', emailErr);
     }
 
-    return NextResponse.json({ success: true, school_id: school.id });
+    return NextResponse.json({
+      success: true,
+      school_id: school.id,
+      school: {
+        ...school,
+        student_count: 0,
+        staff_count: 1,
+      },
+    });
   } catch (error: any) {
     console.error('School creation error:', error?.message || error);
     const message = error?.message?.includes('SUPABASE')

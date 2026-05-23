@@ -45,7 +45,7 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
             })}
           </nav>
         </aside>
-        <main className="flex-1 md:ml-56">{children}</main>
+        <main className="flex-1 md:ml-56 min-h-screen overflow-y-auto">{children}</main>
       </div>
     </RouteGuard>
   );
