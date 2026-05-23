@@ -36,7 +36,7 @@ CREATE TABLE school_classes (
   name TEXT NOT NULL,           -- e.g. "JSS 1A", "Year 3 Blue", "Grade 7"
   grade TEXT NOT NULL,          -- e.g. "Grade 7", "Year 3"
   section TEXT,                 -- e.g. "A", "Blue" (optional)
-  assigned_teacher_id UUID,     -- FK to teacher_profiles (set after teachers exist)
+  assigned_teacher_id UUID,
   sort_order INT DEFAULT 0,
   is_active BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -97,6 +97,12 @@ CREATE TABLE teacher_profiles (
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, school_id)
 );
+
+ALTER TABLE school_classes
+  DROP CONSTRAINT IF EXISTS school_classes_assigned_teacher_id_fkey;
+ALTER TABLE school_classes
+  ADD CONSTRAINT school_classes_assigned_teacher_id_fkey
+  FOREIGN KEY (assigned_teacher_id) REFERENCES teacher_profiles(id) ON DELETE SET NULL;
 
 -- ============ TEACHER CLASS ASSIGNMENTS ============
 CREATE TABLE teacher_class_assignments (

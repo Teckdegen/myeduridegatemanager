@@ -256,5 +256,5 @@ UPDATE dismissal_requests
 SET dismissal_date = (created_at AT TIME ZONE 'Africa/Lagos')::date
 WHERE dismissal_date IS NULL OR dismissal_date <> (created_at AT TIME ZONE 'Africa/Lagos')::date;
 
--- Done
+-- Done (school_classes list fix: run 20260523_school_classes_list_fix.sql)
 SELECT 'Migration 20260522_pilot_features applied successfully.' AS status;

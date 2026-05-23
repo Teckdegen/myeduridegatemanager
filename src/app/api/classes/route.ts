@@ -14,24 +14,41 @@ export async function GET(request: NextRequest) {
     if (!schoolId) return NextResponse.json({ error: 'school_id required' }, { status: 400 });
 
     const supabase = getAdminClient();
+    // Simple select — no embed on assigned_teacher_id (no FK in DB; embed breaks the whole query)
+    const isAdmin = session.roles.some(
+      (r: { role: string; school_id: string }) =>
+        r.role === 'super_admin' || (r.role === 'school_admin' && r.school_id === schoolId)
+    );
+    if (!isAdmin) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+    }
+
     const { data, error } = await supabase
       .from('school_classes')
-      .select(`
-        *,
-        assigned_teacher:teacher_profiles!assigned_teacher_id(
-          id,
-          user:user_profiles(full_name)
-        )
-      `)
+      .select('*')
       .eq('school_id', schoolId)
-      .eq('is_active', true)
-      .order('sort_order')
-      .order('name');
+      .order('name', { ascending: true });
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+    const teacherIds = [
+      ...new Set((data || []).map((c: { assigned_teacher_id?: string | null }) => c.assigned_teacher_id).filter(Boolean)),
+    ] as string[];
+    const teacherById: Record<string, { id: string; user: { full_name: string } | null }> = {};
+    if (teacherIds.length > 0) {
+      const { data: teachers } = await supabase
+        .from('teacher_profiles')
+        .select('id, user:user_profiles(full_name)')
+        .in('id', teacherIds);
+      for (const t of teachers || []) {
+        const row = t as { id: string; user?: { full_name: string } | { full_name: string }[] | null };
+        const user = Array.isArray(row.user) ? row.user[0] : row.user;
+        teacherById[row.id] = { id: row.id, user: user || null };
+      }
+    }
+
     // Count students per class
-    const classIds = (data || []).map((c: any) => c.id);
+    const classIds = (data || []).map((c: { id: string }) => c.id);
     let studentCounts: Record<string, number> = {};
     if (classIds.length > 0) {
       const { data: counts } = await supabase
@@ -44,10 +61,13 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const enriched = (data || []).map((c: any) => ({
-      ...c,
-      student_count: studentCounts[c.id] || 0,
-    }));
+    const enriched = (data || [])
+      .filter((c: { is_active?: boolean | null }) => c.is_active !== false)
+      .map((c: { id: string; assigned_teacher_id?: string | null }) => ({
+        ...c,
+        assigned_teacher: c.assigned_teacher_id ? teacherById[c.assigned_teacher_id] || null : null,
+        student_count: studentCounts[c.id] || 0,
+      }));
 
     return NextResponse.json({ classes: enriched });
   } catch (err: any) {

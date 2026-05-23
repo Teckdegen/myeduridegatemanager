@@ -187,8 +187,57 @@ export async function POST(request: NextRequest) {
       }
 
       case 'get_classes': {
-        const { data } = await supabase.from('school_classes').select('*').eq('school_id', params?.school_id).eq('is_active', true).order('sort_order');
-        return NextResponse.json({ classes: data || [] });
+        const schoolId = params?.school_id;
+        if (!schoolId) {
+          return NextResponse.json({ error: 'school_id required', classes: [] }, { status: 400 });
+        }
+
+        const canAccess = session.roles.some(
+          (r: { role: string; school_id?: string }) =>
+            r.role === 'super_admin' ||
+            ((r.role === 'school_admin' || r.role === 'teacher') && r.school_id === schoolId)
+        );
+
+        if (!canAccess) {
+          return NextResponse.json({ error: 'Access denied', classes: [] }, { status: 403 });
+        }
+
+        const { data, error } = await supabase
+          .from('school_classes')
+          .select('*')
+          .eq('school_id', schoolId)
+          .order('name', { ascending: true });
+
+        if (error) {
+          console.error('[DATA API] get_classes:', error.message);
+          return NextResponse.json({ error: error.message, classes: [] }, { status: 500 });
+        }
+
+        const rows = data || [];
+        const classIds = rows.map((c: { id: string }) => c.id);
+        const studentCounts: Record<string, number> = {};
+
+        if (classIds.length > 0) {
+          const { data: students } = await supabase
+            .from('students')
+            .select('class_id')
+            .eq('school_id', schoolId)
+            .in('class_id', classIds)
+            .eq('is_active', true);
+
+          for (const s of students || []) {
+            studentCounts[s.class_id] = (studentCounts[s.class_id] || 0) + 1;
+          }
+        }
+
+        const classes = rows
+          .filter((c: { is_active?: boolean | null }) => c.is_active !== false)
+          .map((c: { id: string }) => ({
+            ...c,
+            student_count: studentCounts[c.id] || 0,
+          }));
+
+        return NextResponse.json({ classes });
       }
 
       case 'get_custom_fields': {

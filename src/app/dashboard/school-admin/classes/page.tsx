@@ -19,25 +19,36 @@ export default function ClassesPage() {
   useEffect(() => { loadAll(); }, []);
 
   const loadAll = async () => {
+    setLoading(true);
     try {
       const schoolData = await fetchData('get_school_admin_data', { role: 'school_admin' });
-      if (!schoolData.school_id) { setLoading(false); return; }
+      if (!schoolData?.school_id) {
+        toast.error(schoolData?.error || 'No school linked to your admin account');
+        setLoading(false);
+        return;
+      }
       setSchoolId(schoolData.school_id);
 
-      const [classesRes, staffRes] = await Promise.all([
-        fetch(`/api/classes?school_id=${schoolData.school_id}`, { credentials: 'include' }),
-        fetchData('query', {
+      const classesData = await fetchData('get_classes', { school_id: schoolData.school_id });
+      if (classesData.error && !classesData.classes?.length) {
+        throw new Error(classesData.error);
+      }
+      setClasses(classesData.classes || []);
+
+      try {
+        const staffRes = await fetchData('query', {
           table: 'teacher_profiles',
           select: 'id, user:user_profiles(full_name)',
           filters: { school_id: schoolData.school_id },
-        }),
-      ]);
-      const classesJson = await classesRes.json();
-      setClasses(classesJson.classes || []);
-      setTeachers(staffRes.data || []);
+        });
+        setTeachers(staffRes.data || []);
+      } catch {
+        setTeachers([]);
+      }
     } catch (err) {
       console.error(err);
-      toast.error('Could not load classes');
+      toast.error(err.message || 'Could not load classes');
+      setClasses([]);
     }
     setLoading(false);
   };
@@ -106,17 +117,21 @@ export default function ClassesPage() {
 
   const teacherName = (cls) => {
     const t = cls.assigned_teacher;
-    if (!t) return 'No teacher assigned';
+    if (!t) {
+      const byId = teachers.find((tp) => tp.id === cls.assigned_teacher_id);
+      if (byId?.user?.full_name) return byId.user.full_name;
+      return 'No teacher assigned';
+    }
     const u = Array.isArray(t.user) ? t.user[0] : t.user;
     return u?.full_name || 'Teacher';
   };
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center md:ml-56"><div className="animate-pulse text-primary-600">Loading...</div></div>;
+    return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse text-primary-600">Loading...</div></div>;
   }
 
   return (
-    <div className="p-6 min-h-screen md:ml-56 pt-14 md:pt-6">
+    <div className="p-6 min-h-screen pt-14 md:pt-6">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">Classes</h1>
@@ -153,7 +168,7 @@ export default function ClassesPage() {
         ))}
         {classes.length === 0 && (
           <div className="col-span-full card text-center py-12 text-gray-400">
-            No classes yet. Click Add class to create one.
+            No classes yet. Click Add class to create one, or run setup to import classes.
           </div>
         )}
       </div>
