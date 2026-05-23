@@ -5,9 +5,12 @@ import { resolveAttendanceAccess } from '@/lib/attendance/access';
 import { todayInLagos } from '@/lib/timezone';
 import {
   lagosDateStringsInRange,
+  lagosWeekend,
   resolveLagosReportRange,
   timestampToLagosDateKey,
 } from '@/lib/attendance/lagos-dates';
+import { buildStaffMonthlyReport } from '@/lib/attendance/staff-report';
+import { normalizeArrivalStatus } from '@/lib/attendance/status';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +19,8 @@ export const dynamic = 'force-dynamic';
  * Query params:
  *   school_id  — required for admin/teacher
  *   type       — 'daily' | 'weekly' | 'monthly'
- *   date       — YYYY-MM-DD Lagos calendar (for daily; week/month anchor)
+ *   date       — YYYY-MM-DD (daily / week anchor)
+ *   month      — YYYY-MM full calendar month (monthly only; preferred over date)
  *   class_id   — optional filter
  *   format     — 'json' (default) | 'csv'
  */
@@ -28,9 +32,14 @@ export async function GET(request: NextRequest) {
     const sp = request.nextUrl.searchParams;
     const schoolId = sp.get('school_id');
     const reportType = sp.get('type') || 'daily';
-    const dateParam = sp.get('date') || todayInLagos();
+    const monthParam = sp.get('month');
+    let dateParam = sp.get('date') || todayInLagos();
+    if (reportType === 'monthly' && monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
+      dateParam = `${monthParam}-01`;
+    }
     const classId = sp.get('class_id');
     const format = sp.get('format') || 'json';
+    const monthLabel = reportType === 'monthly' ? (monthParam || dateParam.slice(0, 7)) : null;
 
     const supabase = getAdminClient();
     const access = await resolveAttendanceAccess(supabase, session, schoolId);
@@ -209,6 +218,48 @@ export async function GET(request: NextRequest) {
     const grandAbsent = dailySummaries.reduce((a, d) => a + d.absent, 0);
     const grandTotal = totalStudents * totalDays;
 
+    const schoolDayStrings = dayStrings.filter((d) => !lagosWeekend(d));
+
+    const studentMonthly = (students || []).map((s: {
+      id: string;
+      first_name: string;
+      last_name: string;
+      student_id_number: string;
+      class: unknown;
+    }) => {
+      const cls = Array.isArray(s.class) ? s.class[0] : s.class as { name?: string } | null;
+      let present = 0;
+      let late = 0;
+      let absent = 0;
+      const days = schoolDayStrings.map((dayKey) => {
+        const arrival = arrivalMap[s.id]?.[dayKey];
+        const normalized = normalizeArrivalStatus(arrival);
+        const status = normalized || 'absent';
+        if (status === 'late') late++;
+        else if (status === 'on_time') present++;
+        else absent++;
+        return { date: dayKey, status };
+      });
+      const total = schoolDayStrings.length;
+      return {
+        student_id: s.id,
+        student_id_number: s.student_id_number,
+        first_name: s.first_name,
+        last_name: s.last_name,
+        class_name: cls?.name || '',
+        present,
+        late,
+        absent,
+        attendance_pct: total > 0 ? Math.round(((present + late) / total) * 100) : 0,
+        days,
+      };
+    });
+
+    const staffReport =
+      reportType === 'monthly'
+        ? await buildStaffMonthlyReport(supabase, resolvedSchoolId, rangeStartIso, rangeEndIso, schoolDayStrings)
+        : [];
+
     if (format === 'csv') {
       const rows: Record<string, string | number | null>[] = [];
       for (const s of students || []) {
@@ -216,37 +267,61 @@ export async function GET(request: NextRequest) {
         for (const dayKey of dayStrings) {
           const arrival = arrivalMap[s.id]?.[dayKey];
           const departure = departureMap[s.id]?.[dayKey];
+          const normalized = normalizeArrivalStatus(arrival);
           rows.push({
+            entity: 'student',
             date: dayKey,
             student_id_number: s.student_id_number,
             first_name: s.first_name,
             last_name: s.last_name,
             class_name: cls?.name || '',
-            status: arrival ? arrival.status : 'absent',
+            status: normalized || 'absent',
             check_in_time: arrival?.timestamp || '',
             check_out_time: departure || '',
             minutes_late: arrival?.minutes_late ?? '',
           });
         }
       }
-      return buildCsvResponse(rows, `${reportType}_${dateParam}`);
+      for (const staff of staffReport) {
+        for (const day of staff.days) {
+          rows.push({
+            entity: 'staff',
+            date: day.date,
+            student_id_number: '',
+            first_name: staff.full_name,
+            last_name: '',
+            class_name: staff.role,
+            status: day.present ? 'present' : 'absent',
+            check_in_time: '',
+            check_out_time: '',
+            minutes_late: '',
+          });
+        }
+      }
+      const label = reportType === 'monthly' && monthLabel ? `monthly_${monthLabel}` : `${reportType}_${dateParam}`;
+      return buildCsvResponse(rows, label);
     }
 
     return NextResponse.json({
       type: reportType,
-      range: { start: rangeStartIso, end: rangeEndIso },
+      month: monthLabel,
+      range: { start: rangeStartIso, end: rangeEndIso, start_date: startDateStr, end_date: endDateStr },
       summary: {
         total_students: totalStudents,
         total_days: totalDays,
+        school_days: schoolDayStrings.length,
         grand_present: grandPresent,
         grand_late: grandLate,
         grand_absent: grandAbsent,
         attendance_pct: grandTotal > 0
           ? Math.round(((grandPresent + grandLate) / grandTotal) * 100)
           : 0,
+        total_staff: staffReport.length,
       },
       daily_summaries: dailySummaries,
       class_breakdown: classBreakdown,
+      student_monthly: reportType === 'monthly' ? studentMonthly : undefined,
+      staff_report: reportType === 'monthly' ? staffReport : undefined,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed';

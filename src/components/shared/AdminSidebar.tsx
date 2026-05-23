@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, GraduationCap, ClipboardList, Settings,
-  DoorOpen, BarChart3, School, Menu, X, LogOut,
+  DoorOpen, BarChart3, School, Menu, X, LogOut, Car, Bell,
 } from 'lucide-react';
 import { logout } from '@/lib/api';
 
@@ -18,6 +18,8 @@ const navItems: NavItem[] = [
   { label: 'Students', href: '/dashboard/school-admin/students', icon: <Users size={18} /> },
   { label: 'Staff', href: '/dashboard/school-admin/staff', icon: <GraduationCap size={18} /> },
   { label: 'Classes', href: '/dashboard/school-admin/classes', icon: <School size={18} /> },
+  { label: 'Pickup list', href: '/dashboard/school-admin/pickup-persons', icon: <Car size={18} /> },
+  { label: 'Notifications', href: '/dashboard/school-admin/notifications', icon: <Bell size={18} /> },
   { label: 'Attendance', href: '/dashboard/school-admin/attendance', icon: <ClipboardList size={18} /> },
   { label: 'Gate Activity', href: '/dashboard/school-admin/gate-log', icon: <DoorOpen size={18} /> },
   { label: 'Reports', href: '/dashboard/school-admin/reports', icon: <BarChart3 size={18} /> },

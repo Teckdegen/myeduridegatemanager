@@ -15,7 +15,9 @@ import {
   Car,
   Search,
   UserCheck,
+  Bell,
 } from 'lucide-react';
+import NotificationsInbox from '@/components/notifications/NotificationsInbox';
 import { toast } from 'sonner';
 import { formatTimeLagos } from '@/lib/timezone';
 import { photoSrc } from '@/lib/photo';
@@ -42,6 +44,7 @@ export default function GateOfficerDashboard() {
   const [pickupQueue, setPickupQueue] = useState([]);
   const [pickupNotices, setPickupNotices] = useState([]);
   const [pickupPersonsByStudent, setPickupPersonsByStudent] = useState({});
+  const [pickupRequests, setPickupRequests] = useState([]);
   const [studentSearch, setStudentSearch] = useState('');
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -73,6 +76,7 @@ export default function GateOfficerDashboard() {
       setPickupQueue(data.pickup_queue || []);
       if (data.pickup_notices) setPickupNotices(data.pickup_notices);
       if (data.pickup_persons_by_student) setPickupPersonsByStudent(data.pickup_persons_by_student);
+      if (data.pickup_requests) setPickupRequests(data.pickup_requests);
     } catch (e) {
       console.error(e);
       toast.error('Could not load gate data');
@@ -450,6 +454,9 @@ export default function GateOfficerDashboard() {
           <button type="button" onClick={() => setGateTab('students')} className={gateTab === 'students' ? 'pill-tab-active' : 'pill-tab-inactive'}>
             <Users size={14} className="inline mr-1" /> All ({allStudents.length})
           </button>
+          <button type="button" onClick={() => setGateTab('alerts')} className={gateTab === 'alerts' ? 'pill-tab-active' : 'pill-tab-inactive'}>
+            <Bell size={14} className="inline mr-1" /> Alerts
+          </button>
         </div>
       </div>
 
@@ -499,6 +506,33 @@ export default function GateOfficerDashboard() {
                 );
               })
             )}
+          </div>
+        )}
+
+        {gateTab === 'alerts' && !scannedPerson && (
+          <div className="space-y-4 pb-4">
+            <NotificationsInbox schoolId={schoolId} compact />
+            <div>
+              <h2 className="text-sm font-bold text-slate-800 mb-2">Today&apos;s pickup messages</h2>
+              {pickupRequests.length === 0 ? (
+                <div className="card text-center py-6 text-slate-400 text-sm">No parent pickup messages today</div>
+              ) : (
+                pickupRequests.map((r) => {
+                  const st = r.student;
+                  const s = Array.isArray(st) ? st[0] : st;
+                  return (
+                    <div key={r.id} className="card p-3 mb-2 text-sm">
+                      <p className="font-semibold">{s?.first_name} {s?.last_name}</p>
+                      <p className="text-blue-800 mt-1">
+                        <strong>{r.pickup_person_name}</strong>
+                        {r.pickup_person_phone ? ` · ${r.pickup_person_phone}` : ''}
+                      </p>
+                      {r.message && <p className="text-xs text-slate-600 mt-1">{r.message}</p>}
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         )}
 

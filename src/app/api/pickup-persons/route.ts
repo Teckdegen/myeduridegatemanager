@@ -4,6 +4,34 @@ import { getSessionFromRequest } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
 
+async function notifyStaffPickup(
+  supabase: ReturnType<typeof getAdminClient>,
+  schoolId: string,
+  studentId: string,
+  title: string,
+  message: string,
+  type: 'pickup_person' | 'pickup_request' = 'pickup_person'
+) {
+  const { data: staffRoles } = await supabase
+    .from('user_school_roles')
+    .select('user_id')
+    .eq('school_id', schoolId)
+    .in('role', ['school_admin', 'gate_officer'])
+    .eq('is_active', true);
+
+  for (const staff of staffRoles || []) {
+    await supabase.from('notifications').insert({
+      user_id: staff.user_id,
+      school_id: schoolId,
+      student_id: studentId,
+      title,
+      message,
+      type,
+      is_read: false,
+    });
+  }
+}
+
 /**
  * GET /api/pickup-persons?student_id=xxx
  * Returns all authorised pickup persons for a student (with photos).
@@ -74,6 +102,30 @@ export async function POST(request: NextRequest) {
 
     const supabase = getAdminClient();
 
+    const isAdmin = session.roles.some(
+      (r: { role: string; school_id: string }) =>
+        r.role === 'super_admin' || (r.role === 'school_admin' && r.school_id === school_id)
+    );
+    const isParent = session.roles.some((r: { role: string }) => r.role === 'parent');
+
+    if (!isAdmin && !isParent) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+    }
+
+    if (isParent && !isAdmin) {
+      for (const sid of student_ids) {
+        const { data: link } = await supabase
+          .from('student_parents')
+          .select('student_id')
+          .eq('student_id', sid)
+          .eq('parent_user_id', session.user_id)
+          .maybeSingle();
+        if (!link) {
+          return NextResponse.json({ error: 'You are not linked to one of the selected children' }, { status: 403 });
+        }
+      }
+    }
+
     const { data: person, error: personErr } = await supabase
       .from('pickup_persons')
       .insert({
@@ -97,6 +149,21 @@ export async function POST(request: NextRequest) {
 
     const { error: linkErr } = await supabase.from('pickup_person_students').insert(links);
     if (linkErr) return NextResponse.json({ error: linkErr.message }, { status: 500 });
+
+    const { data: student } = await supabase
+      .from('students')
+      .select('first_name, last_name')
+      .eq('id', student_ids[0])
+      .single();
+
+    await notifyStaffPickup(
+      supabase,
+      school_id,
+      student_ids[0],
+      `New pickup person: ${person.name}`,
+      `${person.name} (${person.relationship}) registered for ${student?.first_name || 'student'}${isParent ? ' by parent' : ''}`,
+      'pickup_person'
+    );
 
     return NextResponse.json({ success: true, pickup_person: person });
   } catch (err: any) {

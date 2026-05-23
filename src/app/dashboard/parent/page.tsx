@@ -19,6 +19,7 @@ import {
 import { toast } from 'sonner';
 import { formatTimeLagos, formatDateTimeLagos, todayInLagos } from '@/lib/timezone';
 import { DAY_STATUS_LABELS } from '@/lib/attendance/status';
+import PickupPersonsManager from '@/components/pickup/PickupPersonsManager';
 
 export default function ParentDashboard() {
   const [children, setChildren] = useState([]);
@@ -245,9 +246,16 @@ export default function ParentDashboard() {
           ) : (
             <div className="space-y-4">
               <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-                <h2 className="font-semibold text-gray-900 mb-1">Notify school — who is picking up?</h2>
+                <PickupPersonsManager
+                  mode="parent"
+                  students={children}
+                  schoolId={children[0]?.school_id}
+                />
+              </div>
+              <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                <h2 className="font-semibold text-gray-900 mb-1">Different person today?</h2>
                 <p className="text-xs text-gray-500 mb-4 leading-relaxed">
-                  Tell the gate who will collect your child today. If someone else is coming, enter their name and phone.
+                  If someone not on your authorised list will pick up today, notify the school and gate below.
                 </p>
                 <label className="text-xs font-medium text-gray-500 block mb-1">Child</label>
                 <select

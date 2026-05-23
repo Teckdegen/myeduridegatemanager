@@ -40,6 +40,11 @@ export function lagosMonthRange(anchorDateStr: string): { startDateStr: string; 
   return { startDateStr, endDateStr };
 }
 
+/** Full calendar month from YYYY-MM (no day in picker). */
+export function lagosMonthRangeFromYm(monthYm: string): { startDateStr: string; endDateStr: string } {
+  return lagosMonthRange(`${monthYm}-01`);
+}
+
 export function lagosDateStringsInRange(startDateStr: string, endDateStr: string): string[] {
   const days: string[] = [];
   let cur = startDateStr;

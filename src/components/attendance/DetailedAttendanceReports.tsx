@@ -2,7 +2,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Download, Calendar, BarChart3 } from 'lucide-react';
+import { Download, BarChart3 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatTimeLagos, todayInLagos } from '@/lib/timezone';
 
@@ -14,6 +14,12 @@ const STATUS_LABELS = {
   dismissed: 'Dismissed',
 };
 
+const DAY_CELL = {
+  on_time: 'P',
+  late: 'L',
+  absent: 'A',
+};
+
 export default function DetailedAttendanceReports({
   schoolId,
   classFilter = null,
@@ -22,7 +28,9 @@ export default function DetailedAttendanceReports({
 }) {
   const [reportType, setReportType] = useState('daily');
   const [date, setDate] = useState(todayInLagos());
+  const [month, setMonth] = useState(todayInLagos().slice(0, 7));
   const [classId, setClassId] = useState(classFilter || '');
+  const [monthView, setMonthView] = useState('students');
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
 
@@ -33,8 +41,12 @@ export default function DetailedAttendanceReports({
       const params = new URLSearchParams({
         school_id: schoolId,
         type: reportType,
-        date,
       });
+      if (reportType === 'monthly') {
+        params.set('month', month);
+      } else {
+        params.set('date', date);
+      }
       if (classId) params.set('class_id', classId);
       const res = await fetch(`/api/attendance/reports?${params}`, { credentials: 'include' });
       const json = await res.json();
@@ -45,7 +57,7 @@ export default function DetailedAttendanceReports({
       setData(null);
     }
     setLoading(false);
-  }, [schoolId, reportType, date, classId]);
+  }, [schoolId, reportType, date, month, classId]);
 
   useEffect(() => {
     loadReport();
@@ -57,9 +69,10 @@ export default function DetailedAttendanceReports({
       const params = new URLSearchParams({
         school_id: schoolId,
         type: reportType,
-        date,
         format: 'csv',
       });
+      if (reportType === 'monthly') params.set('month', month);
+      else params.set('date', date);
       if (classId) params.set('class_id', classId);
       const res = await fetch(`/api/attendance/reports?${params}`, { credentials: 'include' });
       if (!res.ok) throw new Error('Export failed');
@@ -116,7 +129,16 @@ export default function DetailedAttendanceReports({
           <label className="text-xs font-semibold text-slate-500 uppercase block mb-1">
             {reportType === 'daily' ? 'Date' : reportType === 'weekly' ? 'Week containing' : 'Month'}
           </label>
-          <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+          {reportType === 'monthly' ? (
+            <input
+              type="month"
+              className="input"
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+            />
+          ) : (
+            <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+          )}
         </div>
         {!classFilter && classes.length > 0 && (
           <div>
@@ -130,6 +152,25 @@ export default function DetailedAttendanceReports({
           </div>
         )}
       </div>
+
+      {reportType === 'monthly' && data?.type === 'monthly' && (
+        <div className="pill-tabs">
+          <button
+            type="button"
+            onClick={() => setMonthView('students')}
+            className={monthView === 'students' ? 'pill-tab-active' : 'pill-tab-inactive'}
+          >
+            Students
+          </button>
+          <button
+            type="button"
+            onClick={() => setMonthView('staff')}
+            className={monthView === 'staff' ? 'pill-tab-active' : 'pill-tab-inactive'}
+          >
+            Staff
+          </button>
+        </div>
+      )}
 
       {loading && <p className="text-sm text-slate-500 animate-pulse">Loading report…</p>}
 
@@ -170,7 +211,7 @@ export default function DetailedAttendanceReports({
                         r.status === 'absent' ? 'bg-red-50 text-red-700' :
                         r.status === 'late' ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-800'
                       }`}>
-                        {STATUS_LABELS[r.status] || r.status}{r.dismissed && r.status !== 'dismissed' ? ' · Released' : ''}
+                        {STATUS_LABELS[r.status] || r.status}
                       </span>
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">{formatTimeLagos(r.check_in_time)}</td>
@@ -184,7 +225,7 @@ export default function DetailedAttendanceReports({
         </>
       )}
 
-      {!loading && data && data.type !== 'daily' && (
+      {!loading && data && data.type !== 'daily' && data.type !== 'monthly' && (
         <>
           <div className="card p-4 flex items-center gap-3">
             <BarChart3 className="text-primary-600" size={28} />
@@ -222,7 +263,74 @@ export default function DetailedAttendanceReports({
         </>
       )}
 
-      <p className="text-xs text-slate-400">Times shown in West Africa Time (UTC+1, Lagos).</p>
+      {!loading && data?.type === 'monthly' && monthView === 'students' && (
+        <>
+          <div className="card p-4">
+            <p className="text-lg font-bold">{data.month}</p>
+            <p className="text-xs text-slate-500">
+              Full month · {data.summary?.school_days} school days · {data.summary?.total_students} students
+            </p>
+          </div>
+          <div className="card-elevated overflow-x-auto">
+            <table className="w-full text-sm min-w-[640px]">
+              <thead className="bg-slate-50 border-b">
+                <tr>
+                  <th className="text-left px-2 py-2 text-xs sticky left-0 bg-slate-50">Student</th>
+                  <th className="text-left px-2 py-2 text-xs">Class</th>
+                  <th className="px-1 py-2 text-xs text-emerald-700">P</th>
+                  <th className="px-1 py-2 text-xs text-amber-700">L</th>
+                  <th className="px-1 py-2 text-xs text-red-600">A</th>
+                  <th className="px-1 py-2 text-xs">%</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {(data.student_monthly || []).map((r) => (
+                  <tr key={r.student_id}>
+                    <td className="px-2 py-2 font-medium sticky left-0 bg-white">{r.first_name} {r.last_name}</td>
+                    <td className="px-2 py-2 text-slate-600 text-xs">{r.class_name}</td>
+                    <td className="px-2 py-2 text-center text-emerald-700">{r.present}</td>
+                    <td className="px-2 py-2 text-center text-amber-700">{r.late}</td>
+                    <td className="px-2 py-2 text-center text-red-600">{r.absent}</td>
+                    <td className="px-2 py-2 text-center font-semibold">{r.attendance_pct}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[10px] text-slate-400">P = on time · L = late · A = absent (school days only)</p>
+        </>
+      )}
+
+      {!loading && data?.type === 'monthly' && monthView === 'staff' && (
+        <>
+          <div className="card p-4">
+            <p className="text-lg font-bold">Staff — {data.month}</p>
+            <p className="text-xs text-slate-500">{data.summary?.total_staff} staff · clock-in days per person</p>
+          </div>
+          <div className="card-elevated overflow-x-auto">
+            <table className="w-full text-sm min-w-[480px]">
+              <thead className="bg-slate-50 border-b">
+                <tr>
+                  <th className="text-left px-2 py-2 text-xs">Name</th>
+                  <th className="text-left px-2 py-2 text-xs">Role</th>
+                  <th className="px-2 py-2 text-xs text-center">Days in</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {(data.staff_report || []).map((r) => (
+                  <tr key={r.user_id}>
+                    <td className="px-2 py-2 font-medium">{r.full_name}</td>
+                    <td className="px-2 py-2 text-slate-600 capitalize text-xs">{r.role}</td>
+                    <td className="px-2 py-2 text-center font-semibold">{r.days_present}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      <p className="text-xs text-slate-400">Times in West Africa Time (Lagos). Monthly reports use the full calendar month.</p>
     </div>
   );
 }
