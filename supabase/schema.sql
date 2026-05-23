@@ -77,7 +77,7 @@ CREATE TABLE user_school_roles (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
   school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
-  role TEXT NOT NULL CHECK (role IN ('super_admin', 'school_admin', 'teacher', 'gate_officer', 'parent')),
+  role TEXT NOT NULL CHECK (role IN ('super_admin', 'school_admin', 'teacher', 'gate_officer', 'parent', 'staff')),
   is_active BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, school_id, role)

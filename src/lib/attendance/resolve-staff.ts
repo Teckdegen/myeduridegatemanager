@@ -66,6 +66,19 @@ export async function resolveStaffRoleLabel(
   schoolId: string,
   userId: string
 ): Promise<string> {
+  const { data: profile } = await supabase
+    .from('teacher_profiles')
+    .select('custom_role:school_custom_roles(name)')
+    .eq('school_id', schoolId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  const custom = profile?.custom_role as unknown;
+  let customName: string | undefined;
+  if (Array.isArray(custom)) customName = (custom[0] as { name?: string })?.name;
+  else if (custom && typeof custom === 'object') customName = (custom as { name?: string }).name;
+  if (customName) return customName;
+
   const { data } = await supabase
     .from('user_school_roles')
     .select('role')
@@ -76,5 +89,6 @@ export async function resolveStaffRoleLabel(
     .maybeSingle();
 
   if (!data?.role) return 'Staff';
-  return data.role.replace('_', ' ');
+  if (data.role === 'staff') return 'Staff';
+  return data.role.replace(/_/g, ' ');
 }

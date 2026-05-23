@@ -68,15 +68,19 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const { students, error: studErr } = await fetchReportStudents(supabase, resolvedSchoolId, {
-      studentIds: caps.studentIds,
-      classId,
-    });
-    if (studErr) return NextResponse.json({ error: studErr }, { status: 500 });
+    let students: Awaited<ReturnType<typeof fetchReportStudents>>['students'] = [];
+    if (caps.canStudentReports) {
+      const studResult = await fetchReportStudents(supabase, resolvedSchoolId, {
+        studentIds: caps.studentIds,
+        classId,
+      });
+      if (studResult.error) return NextResponse.json({ error: studResult.error }, { status: 500 });
+      students = studResult.students;
+    }
 
     const studentIds = students.map((s) => s.id);
-    if (studentIds.length === 0) {
-      const emptyPayload = {
+    if (studentIds.length === 0 && caps.canStudentReports) {
+      const emptyPayload: Record<string, unknown> = {
         type: reportType,
         date: reportType === 'daily' ? dateParam : undefined,
         month: monthLabel,
@@ -85,7 +89,95 @@ export async function GET(request: NextRequest) {
         range: { start: rangeStartIso, end: rangeEndIso, start_date: startDateStr, end_date: endDateStr },
         message: 'No active students found for this school or class',
       };
+      if (includeStaff && reportType === 'daily') {
+        const { startIso: dayStartIso, endIso: dayEndIso } = lagosDayBoundsFromDateStr(dateParam);
+        const staffOnly = await buildStaffDailyReport(
+          supabase,
+          resolvedSchoolId,
+          dateParam,
+          dayStartIso,
+          dayEndIso,
+          { staffUserIds: caps.staffUserIds }
+        );
+        emptyPayload.staff_report = staffOnly;
+        emptyPayload.staff_summary = {
+          total: staffOnly.length,
+          present: staffOnly.filter((s) => s.status === 'present').length,
+          absent: staffOnly.filter((s) => s.status === 'absent').length,
+        };
+      }
       return NextResponse.json(emptyPayload);
+    }
+
+    if (studentIds.length === 0 && !includeStaff) {
+      return NextResponse.json({
+        type: reportType,
+        date: reportType === 'daily' ? dateParam : undefined,
+        month: monthLabel,
+        summary: { total: 0, present: 0, late: 0, absent: 0 },
+        report: [],
+        message: 'No data available',
+        range: { start: rangeStartIso, end: rangeEndIso, start_date: startDateStr, end_date: endDateStr },
+      });
+    }
+
+    if (studentIds.length === 0 && includeStaff && !caps.canStudentReports) {
+      const dayStrings = lagosDateStringsInRange(startDateStr, endDateStr);
+      const nonSchoolDays = await fetchNonSchoolDaysInRange(
+        supabase,
+        resolvedSchoolId,
+        startDateStr,
+        endDateStr
+      );
+      const monthCalendarDays =
+        reportType === 'monthly' || reportType === 'weekly' ? dayStrings : dayStrings.filter(
+            (d) => !lagosWeekend(d) && !nonSchoolDays.has(d)
+          );
+
+      if (reportType === 'daily') {
+        const { startIso: dayStartIso, endIso: dayEndIso } = lagosDayBoundsFromDateStr(dateParam);
+        const staffReport = await buildStaffDailyReport(
+          supabase,
+          resolvedSchoolId,
+          dateParam,
+          dayStartIso,
+          dayEndIso,
+          { staffUserIds: caps.staffUserIds, excluded: nonSchoolDays.has(dateParam) }
+        );
+        return NextResponse.json({
+          type: 'daily',
+          date: dateParam,
+          summary: { total: 0, present: 0, late: 0, absent: 0 },
+          report: [],
+          staff_report: staffReport,
+          staff_summary: {
+            total: staffReport.length,
+            present: staffReport.filter((s) => s.status === 'present').length,
+            absent: staffReport.filter((s) => s.status === 'absent').length,
+          },
+        });
+      }
+
+      const staffReport = await buildStaffMonthlyReport(
+        supabase,
+        resolvedSchoolId,
+        rangeStartIso,
+        rangeEndIso,
+        monthCalendarDays,
+        { staffUserIds: caps.staffUserIds, nonSchoolDays }
+      );
+
+      return NextResponse.json({
+        type: reportType,
+        month: monthLabel,
+        range: { start: rangeStartIso, end: rangeEndIso, start_date: startDateStr, end_date: endDateStr },
+        summary: {
+          total_students: 0,
+          total_days: monthCalendarDays.filter((d) => !lagosWeekend(d) && !nonSchoolDays.has(d)).length,
+          total_staff: staffReport.length,
+        },
+        staff_report: staffReport,
+      });
     }
 
     let records: {
@@ -97,41 +189,46 @@ export async function GET(request: NextRequest) {
       source: string | null;
     }[] = [];
 
-    const recRes = await supabase
-      .from('attendance_records')
-      .select('student_id, type, status, timestamp, minutes_late, source')
-      .eq('school_id', resolvedSchoolId)
-      .in('student_id', studentIds)
-      .gte('timestamp', rangeStartIso)
-      .lte('timestamp', rangeEndIso)
-      .order('timestamp', { ascending: true });
-
-    if (recRes.error && /minutes_late|source/i.test(recRes.error.message)) {
-      const legacy = await supabase
+    if (studentIds.length > 0) {
+      const recRes = await supabase
         .from('attendance_records')
-        .select('student_id, type, status, timestamp')
+        .select('student_id, type, status, timestamp, minutes_late, source')
         .eq('school_id', resolvedSchoolId)
         .in('student_id', studentIds)
         .gte('timestamp', rangeStartIso)
         .lte('timestamp', rangeEndIso)
         .order('timestamp', { ascending: true });
-      if (legacy.error) return NextResponse.json({ error: legacy.error.message }, { status: 500 });
-      records = (legacy.data || []).map((r) => ({ ...r, minutes_late: null, source: null }));
-    } else if (recRes.error) {
-      return NextResponse.json({ error: recRes.error.message }, { status: 500 });
-    } else {
-      records = recRes.data || [];
+
+      if (recRes.error && /minutes_late|source/i.test(recRes.error.message)) {
+        const legacy = await supabase
+          .from('attendance_records')
+          .select('student_id, type, status, timestamp')
+          .eq('school_id', resolvedSchoolId)
+          .in('student_id', studentIds)
+          .gte('timestamp', rangeStartIso)
+          .lte('timestamp', rangeEndIso)
+          .order('timestamp', { ascending: true });
+        if (legacy.error) return NextResponse.json({ error: legacy.error.message }, { status: 500 });
+        records = (legacy.data || []).map((r) => ({ ...r, minutes_late: null, source: null }));
+      } else if (recRes.error) {
+        return NextResponse.json({ error: recRes.error.message }, { status: 500 });
+      } else {
+        records = recRes.data || [];
+      }
     }
 
-    const { data: departures } = await supabase
-      .from('attendance_records')
-      .select('student_id, timestamp')
-      .eq('school_id', resolvedSchoolId)
-      .in('student_id', studentIds)
-      .eq('type', 'departure')
-      .gte('timestamp', rangeStartIso)
-      .lte('timestamp', rangeEndIso)
-      .order('timestamp', { ascending: false });
+    const { data: departures } =
+      studentIds.length > 0
+        ? await supabase
+            .from('attendance_records')
+            .select('student_id, timestamp')
+            .eq('school_id', resolvedSchoolId)
+            .in('student_id', studentIds)
+            .eq('type', 'departure')
+            .gte('timestamp', rangeStartIso)
+            .lte('timestamp', rangeEndIso)
+            .order('timestamp', { ascending: false })
+        : { data: [] };
 
     const departureMap: Record<string, Record<string, string>> = {};
     for (const d of departures || []) {

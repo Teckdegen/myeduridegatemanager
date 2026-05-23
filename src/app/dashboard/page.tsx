@@ -14,6 +14,7 @@ const ROLE_CONFIG = {
   teacher: { label: 'Teacher', desc: 'View class attendance and manage student dismissals', href: '/dashboard/teacher', icon: <Users size={22} />, gradient: 'from-green-500 to-emerald-600' },
   gate_officer: { label: 'Gate Officer', desc: 'Scan and verify students at the school gate', href: '/dashboard/gate', icon: <DoorOpen size={22} />, gradient: 'from-orange-500 to-amber-600' },
   parent: { label: 'Parent', desc: 'View your children attendance and notifications', href: '/dashboard/parent', icon: <User size={22} />, gradient: 'from-pink-500 to-rose-600' },
+  staff: { label: 'Staff', desc: 'View your sign-in history and attendance', href: '/dashboard/staff', icon: <User size={22} />, gradient: 'from-slate-500 to-slate-700' },
 };
 
 export default function DashboardRouter() {

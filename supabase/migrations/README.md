@@ -10,6 +10,7 @@ Run each file **once**, top to bottom. All scripts are idempotent where possible
 | 4 | `20260525_school_gate_hours.sql` | School **gate hour** columns (fixes settings not saving) |
 | 5 | `20260526_staf_limit.sql` | **Holidays/events** table + staff `record_source` (admin vs gate) |
 | 6 | `20260527_calendar_ranges.sql` | Calendar **date ranges** (one entry → many days highlighted) |
+| 7 | `20260528_school_custom_roles.sql` | **`staff`** app role + **custom job titles** (Accountant, Cleaner, etc.) |
 
 ## Already on production?
 

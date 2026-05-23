@@ -48,6 +48,7 @@ export function RouteGuard({ requiredRole, children }: Props) {
         teacher: '/dashboard/teacher',
         gate_officer: '/dashboard/gate',
         parent: '/dashboard/parent',
+        staff: '/dashboard/staff',
       };
       router.replace(roleToPath[roles[0]] || '/dashboard');
     } else {

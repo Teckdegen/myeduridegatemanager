@@ -27,14 +27,16 @@ export default function DetailedAttendanceReports({
   classFilter = null,
   classes = [],
   title = 'Attendance reports',
+  showStudentReports = true,
   showStaffTab = true,
   staffTabLabel = 'Staff',
+  defaultView = 'students',
 }) {
   const [reportType, setReportType] = useState('daily');
   const [date, setDate] = useState(todayInLagos());
   const [month, setMonth] = useState(todayInLagos().slice(0, 7));
   const [classId, setClassId] = useState(classFilter || '');
-  const [monthView, setMonthView] = useState('students');
+  const [monthView, setMonthView] = useState(defaultView === 'staff' ? 'staff' : 'students');
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
 
@@ -76,8 +78,8 @@ export default function DetailedAttendanceReports({
   }, [loadReport]);
 
   useEffect(() => {
-    setMonthView('students');
-  }, [reportType]);
+    setMonthView(showStudentReports ? 'students' : 'staff');
+  }, [reportType, showStudentReports]);
 
   const exportCsv = async () => {
     if (!schoolId) return;
@@ -169,7 +171,8 @@ export default function DetailedAttendanceReports({
         )}
       </div>
 
-      {reportType === 'daily' &&
+      {showStudentReports &&
+        reportType === 'daily' &&
         data?.type === 'daily' &&
         !data?.excluded &&
         showStaffTab &&
@@ -192,7 +195,8 @@ export default function DetailedAttendanceReports({
         </div>
       )}
 
-      {(reportType === 'monthly' || reportType === 'weekly') &&
+      {showStudentReports &&
+        (reportType === 'monthly' || reportType === 'weekly') &&
         data &&
         (data.type === 'monthly' || data.type === 'weekly') &&
         showStaffTab && (
@@ -287,7 +291,7 @@ export default function DetailedAttendanceReports({
         </>
       )}
 
-      {!loading && data?.type === 'daily' && !data?.excluded && monthView === 'students' && (
+      {!loading && showStudentReports && data?.type === 'daily' && !data?.excluded && monthView === 'students' && (
         <>
           <div className="grid grid-cols-4 gap-2">
             {[
@@ -338,7 +342,7 @@ export default function DetailedAttendanceReports({
         </>
       )}
 
-      {!loading && data && data.type !== 'daily' && data.type !== 'monthly' && (
+      {!loading && showStudentReports && data && data.type !== 'daily' && data.type !== 'monthly' && (
         <>
           <div className="card p-4 flex items-center gap-3">
             <BarChart3 className="text-primary-600" size={28} />
@@ -377,6 +381,7 @@ export default function DetailedAttendanceReports({
       )}
 
       {!loading &&
+        showStudentReports &&
         (data?.type === 'monthly' || data?.type === 'weekly') &&
         monthView === 'students' &&
         data.student_monthly?.length > 0 && (

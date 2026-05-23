@@ -245,6 +245,44 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ fields: data || [] });
       }
 
+      case 'get_staff_dashboard': {
+        const { data: role } = await supabase
+          .from('user_school_roles')
+          .select('school_id')
+          .eq('user_id', session.user_id)
+          .eq('role', 'staff')
+          .eq('is_active', true)
+          .limit(1)
+          .maybeSingle();
+
+        if (!role?.school_id) {
+          return NextResponse.json({ error: 'No staff school' }, { status: 403 });
+        }
+
+        const schoolId = role.school_id;
+        const { data: school } = await supabase.from('schools').select('name').eq('id', schoolId).single();
+
+        let jobTitle = 'Staff';
+        const { data: profile } = await supabase
+          .from('teacher_profiles')
+          .select('custom_role:school_custom_roles(name)')
+          .eq('user_id', session.user_id)
+          .eq('school_id', schoolId)
+          .maybeSingle();
+
+        const custom = profile?.custom_role as unknown;
+        let customName: string | undefined;
+        if (Array.isArray(custom)) customName = (custom[0] as { name?: string })?.name;
+        else if (custom && typeof custom === 'object') customName = (custom as { name?: string }).name;
+        if (customName) jobTitle = customName;
+
+        return NextResponse.json({
+          school_id: schoolId,
+          school_name: school?.name || '',
+          job_title: jobTitle,
+        });
+      }
+
       case 'get_parent_children': {
         const { data: links } = await supabase
           .from('student_parents')

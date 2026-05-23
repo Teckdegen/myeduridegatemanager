@@ -48,6 +48,22 @@ export async function resolveReportCapabilities(
     };
   }
 
+  const staffRole = session.roles.find((r) => r.role === 'staff');
+  if (staffRole?.school_id) {
+    const sid = requestedSchoolId || staffRole.school_id;
+    if (requestedSchoolId && requestedSchoolId !== staffRole.school_id) {
+      return { error: 'Access denied for this school' };
+    }
+    return {
+      role: 'staff',
+      schoolId: sid,
+      studentIds: [],
+      canStudentReports: false,
+      canStaffReports: true,
+      staffUserIds: [session.user_id],
+    };
+  }
+
   if (sessionHasRole(session, 'gate_officer')) {
     return { error: 'Gate officers use Sign in/out log only' };
   }

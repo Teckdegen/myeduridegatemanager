@@ -12,6 +12,7 @@ const ROLE_CONFIG: Record<string, { label: string; href: string; icon: React.Rea
   teacher: { label: 'Teacher', href: '/dashboard/teacher', icon: <Users size={14} /> },
   gate_officer: { label: 'Gate Officer', href: '/dashboard/gate', icon: <DoorOpen size={14} /> },
   parent: { label: 'Parent', href: '/dashboard/parent', icon: <User size={14} /> },
+  staff: { label: 'Staff', href: '/dashboard/staff', icon: <User size={14} /> },
 };
 
 type RoleSwitcherProps = {
