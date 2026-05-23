@@ -12,6 +12,7 @@ import {
 } from '@/lib/attendance/lagos-dates';
 import { buildStaffMonthlyReport } from '@/lib/attendance/staff-report';
 import { normalizeArrivalStatus } from '@/lib/attendance/status';
+import { fetchReportStudents } from '@/lib/attendance/report-students';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,33 +55,36 @@ export async function GET(request: NextRequest) {
       dateParam
     );
 
-    let studentsQuery = supabase
-      .from('students')
-      .select('id, first_name, last_name, student_id_number, class_id, class:school_classes(id, name, grade)')
-      .eq('school_id', resolvedSchoolId)
-      .eq('is_active', true)
-      .order('last_name');
+    const { students, error: studErr } = await fetchReportStudents(supabase, resolvedSchoolId, {
+      studentIds: caps.studentIds,
+      classId,
+    });
+    if (studErr) return NextResponse.json({ error: studErr }, { status: 500 });
 
-    if (caps.studentIds) {
-      studentsQuery = studentsQuery.in('id', caps.studentIds);
-    }
-    if (classId) {
-      studentsQuery = studentsQuery.eq('class_id', classId);
-    }
-
-    const { data: students, error: studErr } = await studentsQuery;
-    if (studErr) return NextResponse.json({ error: studErr.message }, { status: 500 });
-
-    const studentIds = (students || []).map((s: { id: string }) => s.id);
+    const studentIds = students.map((s) => s.id);
     if (studentIds.length === 0) {
-      return NextResponse.json({
+      const emptyPayload = {
+        type: reportType,
+        date: reportType === 'daily' ? dateParam : undefined,
+        month: monthLabel,
+        summary: { total: 0, present: 0, late: 0, absent: 0 },
         report: [],
-        students: [],
-        range: { start: rangeStartIso, end: rangeEndIso },
-      });
+        range: { start: rangeStartIso, end: rangeEndIso, start_date: startDateStr, end_date: endDateStr },
+        message: 'No active students found for this school or class',
+      };
+      return NextResponse.json(emptyPayload);
     }
 
-    const { data: records, error: recErr } = await supabase
+    let records: {
+      student_id: string;
+      type: string;
+      status: string;
+      timestamp: string;
+      minutes_late: number | null;
+      source: string | null;
+    }[] = [];
+
+    const recRes = await supabase
       .from('attendance_records')
       .select('student_id, type, status, timestamp, minutes_late, source')
       .eq('school_id', resolvedSchoolId)
@@ -89,7 +93,22 @@ export async function GET(request: NextRequest) {
       .lte('timestamp', rangeEndIso)
       .order('timestamp', { ascending: true });
 
-    if (recErr) return NextResponse.json({ error: recErr.message }, { status: 500 });
+    if (recRes.error && /minutes_late|source/i.test(recRes.error.message)) {
+      const legacy = await supabase
+        .from('attendance_records')
+        .select('student_id, type, status, timestamp')
+        .eq('school_id', resolvedSchoolId)
+        .in('student_id', studentIds)
+        .gte('timestamp', rangeStartIso)
+        .lte('timestamp', rangeEndIso)
+        .order('timestamp', { ascending: true });
+      if (legacy.error) return NextResponse.json({ error: legacy.error.message }, { status: 500 });
+      records = (legacy.data || []).map((r) => ({ ...r, minutes_late: null, source: null }));
+    } else if (recRes.error) {
+      return NextResponse.json({ error: recRes.error.message }, { status: 500 });
+    } else {
+      records = recRes.data || [];
+    }
 
     const { data: departures } = await supabase
       .from('attendance_records')
@@ -139,17 +158,9 @@ export async function GET(request: NextRequest) {
           report: [],
         });
       }
-      const report = (students || []).map((s: {
-        id: string;
-        first_name: string;
-        last_name: string;
-        student_id_number: string;
-        class_id: string;
-        class: unknown;
-      }) => {
+      const report = students.map((s) => {
         const arrival = arrivalMap[s.id]?.[dayKey];
         const departure = departureMap[s.id]?.[dayKey];
-        const cls = Array.isArray(s.class) ? s.class[0] : s.class as { name?: string } | null;
         const rawStatus = arrival ? arrival.status : 'absent';
         const status =
           rawStatus === 'on_time' ? 'present' : rawStatus === 'absent' ? 'absent' : rawStatus;
@@ -158,7 +169,7 @@ export async function GET(request: NextRequest) {
           student_id_number: s.student_id_number,
           first_name: s.first_name,
           last_name: s.last_name,
-          class_name: cls?.name || '',
+          class_name: s.class_name,
           class_id: s.class_id,
           status: departure && !arrival ? 'dismissed' : status,
           dismissed: !!departure,
@@ -196,10 +207,9 @@ export async function GET(request: NextRequest) {
       !lagosWeekend(dayKey) && !nonSchoolDays.has(dayKey);
 
     const classMap: Record<string, { class_id: string; class_name: string; students: typeof students }> = {};
-    for (const s of students || []) {
-      const cls = Array.isArray(s.class) ? s.class[0] : s.class as { name?: string } | null;
+    for (const s of students) {
       if (!classMap[s.class_id]) {
-        classMap[s.class_id] = { class_id: s.class_id, class_name: cls?.name || '', students: [] };
+        classMap[s.class_id] = { class_id: s.class_id, class_name: s.class_name, students: [] };
       }
       classMap[s.class_id].students.push(s);
     }
@@ -264,14 +274,7 @@ export async function GET(request: NextRequest) {
     const grandTotal = totalStudents * totalDays;
     const monthCalendarDays = reportType === 'monthly' ? dayStrings : schoolDayStrings;
 
-    const studentMonthly = (students || []).map((s: {
-      id: string;
-      first_name: string;
-      last_name: string;
-      student_id_number: string;
-      class: unknown;
-    }) => {
-      const cls = Array.isArray(s.class) ? s.class[0] : s.class as { name?: string } | null;
+    const studentMonthly = students.map((s) => {
       let present = 0;
       let late = 0;
       let absent = 0;
@@ -298,7 +301,7 @@ export async function GET(request: NextRequest) {
         student_id_number: s.student_id_number,
         first_name: s.first_name,
         last_name: s.last_name,
-        class_name: cls?.name || '',
+        class_name: s.class_name,
         present,
         late,
         absent,
@@ -321,8 +324,7 @@ export async function GET(request: NextRequest) {
 
     if (format === 'csv') {
       const rows: Record<string, string | number | null>[] = [];
-      for (const s of students || []) {
-        const cls = Array.isArray(s.class) ? s.class[0] : s.class as { name?: string } | null;
+      for (const s of students) {
         for (const dayKey of dayStrings) {
           const arrival = arrivalMap[s.id]?.[dayKey];
           const departure = departureMap[s.id]?.[dayKey];
@@ -333,7 +335,7 @@ export async function GET(request: NextRequest) {
             student_id_number: s.student_id_number,
             first_name: s.first_name,
             last_name: s.last_name,
-            class_name: cls?.name || '',
+            class_name: s.class_name,
             status: normalized || 'absent',
             check_in_time: arrival?.timestamp || '',
             check_out_time: departure || '',

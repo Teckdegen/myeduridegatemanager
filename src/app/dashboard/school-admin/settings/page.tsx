@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { fetchData } from '@/lib/api';
 import { Save, Clock } from 'lucide-react';
 import { toast } from 'sonner';
-import { schoolToSettingsForm } from '@/lib/time-input';
+import { schoolToSettingsForm, TIME_FIELDS } from '@/lib/time-input';
 
 export default function SchoolSettingsPage() {
   const [loading, setLoading] = useState(true);
@@ -23,6 +23,9 @@ export default function SchoolSettingsPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load settings');
+      if (data.time_columns_available === false) {
+        toast.error('Run migration 20260525_school_gate_hours.sql in Supabase to save gate times');
+      }
       setFormData(schoolToSettingsForm(data.school));
     } catch (err) {
       console.error(err);
@@ -59,21 +62,28 @@ export default function SchoolSettingsPage() {
     }
     setSaving(true);
     try {
+      const payload = { school_id: schoolId, name: formData.name, address: formData.address, logo_url: formData.logo_url, primary_color: formData.primary_color, secondary_color: formData.secondary_color };
+      for (const field of TIME_FIELDS) {
+        payload[field] = formData[field];
+      }
       const res = await fetch('/api/schools/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         cache: 'no-store',
-        body: JSON.stringify({ school_id: schoolId, ...formData }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');
+      if (data.migration_required) {
+        toast.error('Gate times need DB migration 20260525_school_gate_hours.sql');
+      }
       if (data.school) {
         setFormData(schoolToSettingsForm(data.school));
       } else {
         await loadSettings(schoolId);
       }
-      toast.success('Settings saved');
+      if (!data.migration_required) toast.success('Settings saved');
     } catch (err) {
       toast.error(err.message || 'Could not save settings');
     }

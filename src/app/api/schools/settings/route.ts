@@ -2,11 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest, sessionHasRole } from '@/lib/session';
 import { TIME_FIELDS, timeInputToDb } from '@/lib/time-input';
+import { fetchSchoolSettings, updateSchoolSettings } from '@/lib/school-settings-db';
 
 export const dynamic = 'force-dynamic';
-
-const SCHOOL_SELECT =
-  'id, name, address, logo_url, primary_color, secondary_color, gate_open_time, school_start_time, late_threshold, gate_close_time, dismissal_start_time, dismissal_end_time, timezone, setup_completed, setup_step';
 
 function canEditSchool(
   session: NonNullable<ReturnType<typeof getSessionFromRequest>>,
@@ -41,18 +39,16 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = getAdminClient();
-    const { data, error } = await supabase
-      .from('schools')
-      .select(SCHOOL_SELECT)
-      .eq('id', schoolId)
-      .single();
+    const { data, error, timeColumnsAvailable } = await fetchSchoolSettings(supabase, schoolId);
 
-    if (error) {
-      console.error('[schools/settings GET]', error.message);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error || !data) {
+      return NextResponse.json({ error: error || 'School not found' }, { status: 500 });
     }
 
-    return NextResponse.json({ school: data });
+    return NextResponse.json({
+      school: data,
+      time_columns_available: timeColumnsAvailable,
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to load settings';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -61,9 +57,7 @@ export async function GET(request: NextRequest) {
 
 /**
  * PUT /api/schools/settings
- * body: { school_id, name?, address?, logo_url?, primary_color?, secondary_color?,
- *         gate_open_time?, school_start_time?, late_threshold?, gate_close_time?,
- *         dismissal_start_time?, dismissal_end_time? }
+ * body: { school_id, name?, address?, ... gate times ... }
  */
 export async function PUT(request: NextRequest) {
   try {
@@ -95,10 +89,11 @@ export async function PUT(request: NextRequest) {
     if (body.secondary_color !== undefined) updates.secondary_color = body.secondary_color;
 
     for (const field of TIME_FIELDS) {
-      if (body[field] !== undefined && body[field] !== '') {
-        const dbTime = timeInputToDb(body[field]);
-        if (dbTime) updates[field] = dbTime;
-      }
+      if (body[field] === undefined) continue;
+      const raw = String(body[field]).trim();
+      if (!raw) continue;
+      const dbTime = timeInputToDb(raw);
+      if (dbTime) updates[field] = dbTime;
     }
 
     if (Object.keys(updates).length === 0) {
@@ -106,23 +101,20 @@ export async function PUT(request: NextRequest) {
     }
 
     const supabase = getAdminClient();
-    const { data, error } = await supabase
-      .from('schools')
-      .update(updates)
-      .eq('id', schoolId)
-      .select(SCHOOL_SELECT)
-      .single();
+    const result = await updateSchoolSettings(supabase, schoolId, updates);
 
-    if (error) {
-      console.error('[schools/settings PUT]', error.message, updates);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (result.error) {
+      return NextResponse.json(
+        { error: result.error, migration_required: result.migrationRequired },
+        { status: result.migrationRequired ? 503 : 500 }
+      );
     }
 
-    if (!data) {
-      return NextResponse.json({ error: 'School not found or update failed' }, { status: 404 });
-    }
-
-    return NextResponse.json({ success: true, school: data });
+    return NextResponse.json({
+      success: true,
+      school: result.data,
+      migration_required: result.migrationRequired || false,
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to save settings';
     console.error('[schools/settings PUT]', err);

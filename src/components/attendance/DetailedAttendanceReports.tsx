@@ -55,6 +55,9 @@ export default function DetailedAttendanceReports({
       const res = await fetch(`/api/attendance/reports?${params}`, { credentials: 'include' });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to load report');
+      if (json.message && !json.report?.length && !json.student_monthly?.length) {
+        toast.info(json.message);
+      }
       setData(json);
     } catch (e) {
       toast.error(e.message || 'Could not load report');
@@ -178,7 +181,20 @@ export default function DetailedAttendanceReports({
 
       {loading && <p className="text-sm text-slate-500 animate-pulse">Loading report…</p>}
 
-      {!loading && data?.type === 'daily' && (
+      {!loading && data?.excluded && data?.type === 'daily' && (
+        <div className="card p-4 bg-slate-50 border border-slate-200">
+          <p className="font-semibold text-slate-800">Non-school day</p>
+          <p className="text-sm text-slate-600 mt-1">
+            {data.excluded_title || 'No attendance expected'} — not counted in reports.
+          </p>
+        </div>
+      )}
+
+      {!loading && data?.message && !data?.report?.length && data?.type !== 'daily' && (
+        <div className="card p-4 text-sm text-slate-600">{data.message}</div>
+      )}
+
+      {!loading && data?.type === 'daily' && !data?.excluded && (
         <>
           <div className="grid grid-cols-4 gap-2">
             {[

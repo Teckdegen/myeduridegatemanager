@@ -3,6 +3,7 @@ import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest } from '@/lib/session';
 import { notifyParentsOfAttendance } from '@/lib/notifications/parent-notify';
 import { isLateByThreshold, minutesAfterThreshold, nowUtcIso, todayInLagos } from '@/lib/timezone';
+import { getStudentTodayStatus, getStaffTodayStatus } from '@/lib/gate/daily-limits';
 
 export async function POST(request: NextRequest) {
   try {
@@ -53,6 +54,29 @@ export async function POST(request: NextRequest) {
       }
 
       const staffType = type === 'departure' ? 'clock_out' : 'clock_in';
+      const staffToday = await getStaffTodayStatus(supabase, schoolId, user_id);
+
+      if (staffType === 'clock_in' && staffToday.has_clock_in) {
+        return NextResponse.json(
+          { error: 'Staff already signed in today — one sign-in per day' },
+          { status: 409 }
+        );
+      }
+      if (staffType === 'clock_out') {
+        if (!staffToday.has_clock_in) {
+          return NextResponse.json(
+            { error: 'Staff must sign in before signing out' },
+            { status: 403 }
+          );
+        }
+        if (staffToday.has_clock_out) {
+          return NextResponse.json(
+            { error: 'Staff already signed out today — one sign-out per day' },
+            { status: 409 }
+          );
+        }
+      }
+
       const staffPayload = {
         user_id,
         school_id: schoolId,
@@ -125,6 +149,30 @@ export async function POST(request: NextRequest) {
 
     if (student.school_id !== schoolId) {
       return NextResponse.json({ error: 'Student does not belong to this school' }, { status: 400 });
+    }
+
+    const studentToday = await getStudentTodayStatus(supabase, schoolId, student_id);
+
+    if (type === 'arrival' && studentToday.has_arrival) {
+      return NextResponse.json(
+        { error: 'Student already checked in today — one sign-in per day' },
+        { status: 409 }
+      );
+    }
+
+    if (type === 'departure') {
+      if (!studentToday.has_arrival) {
+        return NextResponse.json(
+          { error: 'Student must check in before check out' },
+          { status: 403 }
+        );
+      }
+      if (studentToday.has_departure) {
+        return NextResponse.json(
+          { error: 'Student already checked out today — one sign-out per day' },
+          { status: 409 }
+        );
+      }
     }
 
     if (type === 'departure' && !from_ready_queue) {

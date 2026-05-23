@@ -35,7 +35,10 @@ export async function buildStaffMonthlyReport(
   if (!filteredRoles.length) return [];
 
   const userIds = filteredRoles.map((r: { user_id: string }) => r.user_id);
-  const { data: staffRecords } = await supabase
+  type StaffRow = { user_id: string; type: string; timestamp: string };
+  let staffRecords: StaffRow[] | null = null;
+
+  const primary = await supabase
     .from('staff_attendance')
     .select('user_id, type, timestamp, record_source')
     .eq('school_id', schoolId)
@@ -44,6 +47,20 @@ export async function buildStaffMonthlyReport(
     .eq('record_source', 'admin')
     .gte('timestamp', rangeStartIso)
     .lte('timestamp', rangeEndIso);
+
+  if (primary.error && /record_source/i.test(primary.error.message)) {
+    const fallback = await supabase
+      .from('staff_attendance')
+      .select('user_id, type, timestamp')
+      .eq('school_id', schoolId)
+      .in('user_id', userIds)
+      .eq('type', 'clock_in')
+      .gte('timestamp', rangeStartIso)
+      .lte('timestamp', rangeEndIso);
+    staffRecords = fallback.data;
+  } else {
+    staffRecords = primary.data;
+  }
 
   const presentByUserDay: Record<string, Record<string, boolean>> = {};
   for (const r of staffRecords || []) {

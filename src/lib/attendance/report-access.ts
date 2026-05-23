@@ -17,12 +17,8 @@ export async function resolveReportCapabilities(
   session: AppSession,
   requestedSchoolId?: string | null
 ): Promise<ReportCapabilities | { error: string }> {
-  if (sessionHasRole(session, 'parent')) {
+  if (sessionHasRole(session, 'parent') && !sessionHasRole(session, 'school_admin')) {
     return { error: 'Parents use the History tab on their dashboard' };
-  }
-
-  if (sessionHasRole(session, 'gate_officer')) {
-    return { error: 'Gate officers use Sign in/out log only' };
   }
 
   const base = await resolveAttendanceAccess(supabase, session, requestedSchoolId);
@@ -50,6 +46,10 @@ export async function resolveReportCapabilities(
       canStaffReports: true,
       staffUserIds: [session.user_id],
     };
+  }
+
+  if (sessionHasRole(session, 'gate_officer')) {
+    return { error: 'Gate officers use Sign in/out log only' };
   }
 
   return { error: 'Access denied' };

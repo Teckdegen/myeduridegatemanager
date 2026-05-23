@@ -256,9 +256,15 @@ export default function GateOfficerDashboard() {
       const data = await res.json();
       if (data.person) {
         stopCamera();
-        const notice = noticeForStudent(data.person.id);
-        const pickupPersons = pickupPersonsByStudent[data.person.id] || [];
-        setScannedPerson({ ...data, pickup_notice: notice || null, pickup_persons: pickupPersons });
+        const enriched = { ...data };
+        if (data.type === 'student') {
+          enriched.pickup_notice = noticeForStudent(data.person.id) || null;
+          enriched.pickup_persons = pickupPersonsByStudent[data.person.id] || [];
+        }
+        if (data.type === 'staff' && data.today_status?.has_clock_in && gateMode === 'arrival') {
+          setGateMode('dismissal');
+        }
+        setScannedPerson(enriched);
         setGateTab('scan');
       } else {
         toast.error(data.error || 'ID not found');
@@ -321,7 +327,15 @@ export default function GateOfficerDashboard() {
       });
       const data = await res.json();
       if (data.success) {
-        toast.success(`${scannedPerson.person.name} — released (saved)`);
+        const action =
+          scannedPerson.type === 'staff'
+            ? gateMode === 'arrival'
+              ? 'signed in'
+              : 'signed out'
+            : gateMode === 'arrival'
+              ? 'checked in'
+              : 'checked out';
+        toast.success(`${scannedPerson.person.name} — ${action}`);
         setTodayCount((p) => p + 1);
         resumeScanning();
       } else {
@@ -381,6 +395,25 @@ export default function GateOfficerDashboard() {
     return `${s.first_name} ${s.last_name} ${s.student_id_number} ${s.class?.name || ''}`.toLowerCase().includes(q);
   });
 
+  const gateBlockReason = (() => {
+    if (!scannedPerson?.today_status) return null;
+    const t = scannedPerson.today_status;
+    const isStaff = scannedPerson.type === 'staff';
+    if (gateMode === 'arrival') {
+      if (isStaff && t.has_clock_in) return 'Staff already signed in today (one per day)';
+      if (!isStaff && t.has_arrival) return 'Student already checked in today (one per day)';
+    } else {
+      if (isStaff) {
+        if (!t.has_clock_in) return 'Staff must sign in before signing out';
+        if (t.has_clock_out) return 'Staff already signed out today';
+      } else {
+        if (!t.has_arrival) return 'Student must check in before check out';
+        if (t.has_departure) return 'Student already checked out today';
+      }
+    }
+    return null;
+  })();
+
   const renderAcceptCard = () => (
     <div className="card-elevated p-5 mt-2">
       <div className="flex items-center gap-4 mb-4">
@@ -394,9 +427,17 @@ export default function GateOfficerDashboard() {
           <p className="text-xl font-bold text-slate-900 truncate">{scannedPerson.person.name}</p>
           <p className="text-sm text-slate-500 font-mono">{scannedPerson.person.student_id || scannedPerson.person.staff_id}</p>
           {scannedPerson.person.class_name && <p className="text-xs text-slate-400">{scannedPerson.person.class_name}</p>}
+          {scannedPerson.person.role_label && (
+            <p className="text-xs text-violet-600 capitalize">{scannedPerson.person.role_label}</p>
+          )}
         </div>
       </div>
-      {gateMode === 'dismissal' && (
+      {gateBlockReason && (
+        <p className="text-sm font-semibold text-red-700 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-4">
+          {gateBlockReason}
+        </p>
+      )}
+      {gateMode === 'dismissal' && scannedPerson.type === 'student' && (
         <div className="mb-4 p-4 rounded-2xl border-2 border-orange-200 bg-orange-50/80">
           <p className="text-xs font-bold text-orange-900 uppercase tracking-wide mb-3">
             Verify pickup person before release
@@ -444,14 +485,22 @@ export default function GateOfficerDashboard() {
           gateMode === 'arrival' ? 'bg-emerald-50 text-emerald-800' : 'bg-orange-50 text-orange-800'
         }`}
       >
-        {gateMode === 'arrival' ? 'CHECK IN' : 'CHECK OUT / RELEASE'}
+        {scannedPerson.type === 'staff'
+          ? (gateMode === 'arrival' ? 'STAFF SIGN IN' : 'STAFF SIGN OUT')
+          : (gateMode === 'arrival' ? 'CHECK IN' : 'CHECK OUT / RELEASE')}
       </div>
       <div className="flex gap-3">
         <button type="button" onClick={resumeScanning} disabled={accepting} className="btn-danger flex-1 flex items-center justify-center gap-2 py-3">
           <XCircle size={18} /> Cancel
         </button>
-        <button type="button" onClick={handleAccept} disabled={accepting} className="btn-primary flex-1 flex items-center justify-center gap-2 py-3">
-          <CheckCircle size={18} /> {accepting ? 'Saving…' : 'Confirm release'}
+        <button
+          type="button"
+          onClick={handleAccept}
+          disabled={accepting || !!gateBlockReason}
+          className="btn-primary flex-1 flex items-center justify-center gap-2 py-3 disabled:opacity-50"
+        >
+          <CheckCircle size={18} />
+          {accepting ? 'Saving…' : scannedPerson.type === 'staff' ? 'Confirm staff' : 'Confirm'}
         </button>
       </div>
     </div>
@@ -530,7 +579,9 @@ export default function GateOfficerDashboard() {
                 <Camera size={14} /> Flip
               </button>
             </div>
-            <p className="text-xs text-center text-slate-500">Scan QR on ID card</p>
+            <p className="text-xs text-center text-slate-500">
+              Scan student or staff ID card · one sign-in and one sign-out per day
+            </p>
           </>
         )}
 
