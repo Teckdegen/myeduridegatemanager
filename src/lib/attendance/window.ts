@@ -27,4 +27,4 @@ export function formatDateKey(date: Date): string {
 }
 
 export const ATTENDANCE_UI_NOTE =
-  'Live Present/In status clears 12 hours after each gate scan. Every scan is saved permanently — download full history anytime in Reports.';
+  'Present/In comes from gate check-in today (Lagos time). Teachers do not mark attendance — only dismiss for pickup.';

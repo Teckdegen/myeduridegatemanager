@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
-import { getUiPresentWindowStart, ATTENDANCE_UI_NOTE } from '@/lib/attendance/window';
-import { todayInLagos } from '@/lib/timezone';
+import { ATTENDANCE_UI_NOTE } from '@/lib/attendance/window';
+import { todayInLagos, lagosDayBounds } from '@/lib/timezone';
 
 export async function POST(request: NextRequest) {
   try {
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
       case 'get_school_dashboard': {
         const schoolId = params?.school_id;
         if (!schoolId) return NextResponse.json({ error: 'school_id required' }, { status: 400 });
-        const presentSince = getUiPresentWindowStart().toISOString();
+        const { startIso, endIso } = lagosDayBounds();
         const { count: totalStudents } = await supabase.from('students').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('is_active', true);
         const { count: totalTeachers } = await supabase.from('user_school_roles').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('role', 'teacher').eq('is_active', true);
         const { count: totalParents } = await supabase.from('user_school_roles').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('role', 'parent').eq('is_active', true);
@@ -56,7 +56,8 @@ export async function POST(request: NextRequest) {
           .select('student_id, status')
           .eq('school_id', schoolId)
           .eq('type', 'arrival')
-          .gte('timestamp', presentSince);
+          .gte('timestamp', startIso)
+          .lte('timestamp', endIso);
         const uniquePresent = new Set((liveAttendance || []).map((a: { student_id: string }) => a.student_id));
         const { data: recentActivity } = await supabase
           .from('attendance_records')
@@ -131,7 +132,7 @@ export async function POST(request: NextRequest) {
 
         const { data: students } = await studentsQuery;
 
-        const presentSince = getUiPresentWindowStart().toISOString();
+        const { startIso, endIso } = lagosDayBounds();
 
         const studentIds = (students || []).map((s: { id: string }) => s.id);
         let arrivals: { student_id: string; status: string; timestamp: string; type: string }[] = [];
@@ -142,12 +143,14 @@ export async function POST(request: NextRequest) {
             .select('student_id, status, timestamp, type')
             .eq('school_id', schoolId)
             .in('student_id', studentIds)
-            .gte('timestamp', presentSince)
+            .eq('type', 'arrival')
+            .gte('timestamp', startIso)
+            .lte('timestamp', endIso)
             .order('timestamp', { ascending: false });
 
           const seen = new Set<string>();
           for (const r of records || []) {
-            if (r.type === 'arrival' && !seen.has(r.student_id)) {
+            if (!seen.has(r.student_id)) {
               seen.add(r.student_id);
               arrivals.push(r);
             }
@@ -273,7 +276,7 @@ export async function POST(request: NextRequest) {
         }
 
         const { data: students } = await studentsQuery;
-        const presentSince = getUiPresentWindowStart().toISOString();
+        const { startIso, endIso } = lagosDayBounds();
         const today = todayInLagos();
         const studentIds = (students || []).map((s: { id: string }) => s.id);
 
@@ -284,12 +287,14 @@ export async function POST(request: NextRequest) {
             .select('student_id, status, timestamp, type')
             .eq('school_id', schoolId)
             .in('student_id', studentIds)
-            .gte('timestamp', presentSince)
+            .eq('type', 'arrival')
+            .gte('timestamp', startIso)
+            .lte('timestamp', endIso)
             .order('timestamp', { ascending: false });
 
           const seen = new Set<string>();
           for (const r of records || []) {
-            if (r.type === 'arrival' && !seen.has(r.student_id)) {
+            if (!seen.has(r.student_id)) {
               seen.add(r.student_id);
               arrivals.push(r);
             }

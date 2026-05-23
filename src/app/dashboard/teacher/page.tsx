@@ -7,14 +7,12 @@ import StudentAvatar from '@/components/shared/StudentAvatar';
 import { PageHeader } from '@/components/ui/PageHeader';
 import {
   Users, UserCheck, AlertTriangle, GraduationCap, Clock, Download,
-  ScanLine, BookOpen, Car, CheckCircle2,
+  BookOpen, Car, CheckCircle2,
 } from 'lucide-react';
 import Link from 'next/link';
 import { ATTENDANCE_UI_NOTE } from '@/lib/attendance/window';
 import { formatTimeLagos } from '@/lib/timezone';
 import { toast } from 'sonner';
-import TeacherScanModal from '@/components/teacher/TeacherScanModal';
-
 export default function TeacherDashboard() {
   const [students, setStudents] = useState([]);
   const [stats, setStats] = useState({ present: 0, absent: 0, late: 0, total: 0 });
@@ -23,8 +21,6 @@ export default function TeacherDashboard() {
   const [schoolName, setSchoolName] = useState('');
   const [busyId, setBusyId] = useState(null);
   const [dismissAllBusy, setDismissAllBusy] = useState(false);
-  const [scanOpen, setScanOpen] = useState(false);
-
   useEffect(() => {
     loadClass();
     const interval = setInterval(loadClass, 60000);
@@ -144,29 +140,6 @@ export default function TeacherDashboard() {
     setDismissAllBusy(false);
   };
 
-  const markPresentManual = async (studentId, studentName) => {
-    setBusyId(studentId);
-    try {
-      if (!schoolId) {
-        toast.error('School not loaded — refresh the page');
-        return;
-      }
-      const res = await fetch('/api/teacher/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ school_id: schoolId, student_id: studentId }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      toast.success(`${studentName} marked present`);
-      await loadClass();
-    } catch (e) {
-      toast.error(e.message || 'Failed');
-    }
-    setBusyId(null);
-  };
-
   const renderRow = (s, actions) => (
     <div key={s.id} className="list-row">
       <StudentAvatar photoUrl={s.photo_url} firstName={s.first_name} lastName={s.last_name} size="sm" />
@@ -230,9 +203,6 @@ export default function TeacherDashboard() {
       </div>
 
       <div className="flex flex-wrap gap-2 mb-4">
-        <button type="button" onClick={() => setScanOpen(true)} className="btn-secondary text-sm flex items-center gap-2">
-          <ScanLine size={16} /> Scan / Mark present
-        </button>
         <button
           type="button"
           onClick={dismissAllReady}
@@ -247,23 +217,13 @@ export default function TeacherDashboard() {
         </Link>
       </div>
 
-      <PageHeader title="Active students" subtitle="Mark Ready for Pickup or Extra Lesson — each student once per day" />
+      <PageHeader title="Active students" subtitle="Gate marks present — you mark Ready for Pickup or Extra Lesson (once per day)" />
       <p className="text-xs text-slate-500 mb-3">{ATTENDANCE_UI_NOTE}</p>
 
       <div className="card-elevated divide-y divide-slate-100 mb-6">
         {activeStudents.map((s) =>
           renderRow(s, (
             <div className="flex flex-col gap-1 shrink-0">
-              {!s.present && (
-                <button
-                  type="button"
-                  onClick={() => markPresentManual(s.id, `${s.first_name} ${s.last_name}`)}
-                  disabled={busyId === s.id}
-                  className="text-[10px] px-2 py-1 rounded-lg bg-slate-100 font-semibold"
-                >
-                  Mark present
-                </button>
-              )}
               <button
                 type="button"
                 onClick={() => markReady(s.id, `${s.first_name} ${s.last_name}`)}
@@ -323,13 +283,6 @@ export default function TeacherDashboard() {
         </>
       )}
 
-      {scanOpen && (
-        <TeacherScanModal
-          schoolId={schoolId}
-          onClose={() => setScanOpen(false)}
-          onSuccess={loadClass}
-        />
-      )}
     </div>
   );
 }

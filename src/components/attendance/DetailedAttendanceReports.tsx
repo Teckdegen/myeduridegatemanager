@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Download, Calendar, BarChart3 } from 'lucide-react';
 import { toast } from 'sonner';
-import { formatTimeLagos } from '@/lib/timezone';
+import { formatTimeLagos, todayInLagos } from '@/lib/timezone';
 
 const STATUS_LABELS = {
   present: 'Present',
@@ -21,7 +21,7 @@ export default function DetailedAttendanceReports({
   title = 'Attendance reports',
 }) {
   const [reportType, setReportType] = useState('daily');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(todayInLagos());
   const [classId, setClassId] = useState(classFilter || '');
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);

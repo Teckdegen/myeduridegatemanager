@@ -17,7 +17,7 @@ import {
   Calendar,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { formatTimeLagos, formatDateTimeLagos } from '@/lib/timezone';
+import { formatTimeLagos, formatDateTimeLagos, todayInLagos } from '@/lib/timezone';
 
 export default function ParentDashboard() {
   const [children, setChildren] = useState([]);
@@ -37,7 +37,7 @@ export default function ParentDashboard() {
   const [recentNotices, setRecentNotices] = useState([]);
   const [selectedChild, setSelectedChild] = useState('');
   const [historyType, setHistoryType] = useState('daily');
-  const [historyDate, setHistoryDate] = useState(new Date().toISOString().split('T')[0]);
+  const [historyDate, setHistoryDate] = useState(todayInLagos());
   const [historyYear, setHistoryYear] = useState(String(new Date().getFullYear()));
   const [historyTerm, setHistoryTerm] = useState('1');
   const [historyData, setHistoryData] = useState(null);
@@ -383,7 +383,10 @@ export default function ParentDashboard() {
               {historyLoading && <p className="text-sm text-gray-400 animate-pulse">Loading…</p>}
               {!historyLoading && historyData?.type === 'daily' && (
                 <div className="bg-white rounded-2xl p-4 border border-gray-100">
-                  <p className="text-xs text-gray-500 mb-2">Today ({historyData.date})</p>
+                  <p className="text-xs text-gray-500 mb-2">
+                    {children.find((c) => c.id === selectedChild)?.first_name}{' '}
+                    {children.find((c) => c.id === selectedChild)?.last_name} · {historyData.date}
+                  </p>
                   <p className={`text-lg font-bold capitalize ${
                     historyData.status === 'absent' ? 'text-red-600' :
                     historyData.status === 'late' ? 'text-amber-600' : 'text-emerald-600'
