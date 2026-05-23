@@ -53,19 +53,40 @@ export async function POST(request: NextRequest) {
       }
 
       const staffType = type === 'departure' ? 'clock_out' : 'clock_in';
-      const { data, error } = await supabase
+      const staffPayload = {
+        user_id,
+        school_id: schoolId,
+        gate_session_id: gate_session_id || null,
+        type: staffType,
+        verification_method: verification_method || 'id_card_scan',
+        verified_by_user_id: verifiedBy,
+        timestamp: nowIso,
+        record_source: 'gate' as const,
+      };
+
+      let { data, error } = await supabase
         .from('staff_attendance')
-        .insert({
-          user_id,
-          school_id: schoolId,
-          gate_session_id: gate_session_id || null,
-          type: staffType,
-          verification_method: verification_method || 'id_card_scan',
-          verified_by_user_id: verifiedBy,
-          timestamp: nowIso,
-        })
+        .insert(staffPayload)
         .select()
         .single();
+
+      if (error && /record_source/i.test(error.message)) {
+        const legacy = await supabase
+          .from('staff_attendance')
+          .insert({
+            user_id,
+            school_id: schoolId,
+            gate_session_id: gate_session_id || null,
+            type: staffType,
+            verification_method: verification_method || 'id_card_scan',
+            verified_by_user_id: verifiedBy,
+            timestamp: nowIso,
+          })
+          .select()
+          .single();
+        data = legacy.data;
+        error = legacy.error;
+      }
 
       if (error) {
         console.error('[gate/accept] staff_attendance:', error.message);

@@ -7,8 +7,9 @@ import StudentAvatar from '@/components/shared/StudentAvatar';
 import { PageHeader } from '@/components/ui/PageHeader';
 import {
   Users, UserCheck, AlertTriangle, GraduationCap, Clock, Download,
-  BookOpen, Car, CheckCircle2,
+  BookOpen, Car, CheckCircle2, ScanLine,
 } from 'lucide-react';
+import TeacherScanModal from '@/components/teacher/TeacherScanModal';
 import Link from 'next/link';
 import { ATTENDANCE_UI_NOTE } from '@/lib/attendance/window';
 import { formatTimeLagos } from '@/lib/timezone';
@@ -21,6 +22,7 @@ export default function TeacherDashboard() {
   const [schoolName, setSchoolName] = useState('');
   const [busyId, setBusyId] = useState(null);
   const [dismissAllBusy, setDismissAllBusy] = useState(false);
+  const [showScan, setShowScan] = useState(false);
   useEffect(() => {
     loadClass();
     const interval = setInterval(loadClass, 60000);
@@ -212,10 +214,25 @@ export default function TeacherDashboard() {
           <Car size={16} />
           {dismissAllBusy ? 'Marking…' : 'Dismiss all (ready only)'}
         </button>
+        <button
+          type="button"
+          onClick={() => setShowScan(true)}
+          className="btn-secondary text-sm flex items-center gap-2"
+        >
+          <ScanLine size={16} /> Scan ID (mark present)
+        </button>
         <Link href="/dashboard/teacher/reports" className="btn-secondary text-sm flex items-center gap-2">
           <Download size={16} /> Reports
         </Link>
       </div>
+
+      {showScan && (
+        <TeacherScanModal
+          schoolId={schoolId}
+          onClose={() => setShowScan(false)}
+          onSuccess={loadClass}
+        />
+      )}
 
       <PageHeader title="Active students" subtitle="Gate marks present — you mark Ready for Pickup or Extra Lesson (once per day)" />
       <p className="text-xs text-slate-500 mb-3">{ATTENDANCE_UI_NOTE}</p>

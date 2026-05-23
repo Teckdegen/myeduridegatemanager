@@ -35,12 +35,15 @@ export default function TeacherReportsPage() {
         <ArrowLeft size={16} /> Back to class
       </Link>
       <h1 className="text-2xl font-bold text-slate-900 mb-1">Class attendance reports</h1>
-      <p className="text-sm text-slate-500 mb-6">Gate check-ins for your class — filter by Lagos date.</p>
+      <p className="text-sm text-slate-500 mb-6">
+        Your class students only. Use &quot;My attendance&quot; for your own staff days.
+      </p>
       <div className="card-elevated p-5">
         <DetailedAttendanceReports
           schoolId={schoolId}
           classFilter={classIds[0] || null}
-          title="Teacher class report"
+          title="Class report"
+          staffTabLabel="My attendance"
         />
       </div>
     </div>

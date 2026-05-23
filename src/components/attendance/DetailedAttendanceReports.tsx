@@ -18,6 +18,8 @@ const DAY_CELL = {
   on_time: 'P',
   late: 'L',
   absent: 'A',
+  excluded: '—',
+  weekend: '·',
 };
 
 export default function DetailedAttendanceReports({
@@ -25,6 +27,8 @@ export default function DetailedAttendanceReports({
   classFilter = null,
   classes = [],
   title = 'Attendance reports',
+  showStaffTab = true,
+  staffTabLabel = 'Staff',
 }) {
   const [reportType, setReportType] = useState('daily');
   const [date, setDate] = useState(todayInLagos());
@@ -153,7 +157,7 @@ export default function DetailedAttendanceReports({
         )}
       </div>
 
-      {reportType === 'monthly' && data?.type === 'monthly' && (
+      {reportType === 'monthly' && data?.type === 'monthly' && showStaffTab && (
         <div className="pill-tabs">
           <button
             type="button"
@@ -167,7 +171,7 @@ export default function DetailedAttendanceReports({
             onClick={() => setMonthView('staff')}
             className={monthView === 'staff' ? 'pill-tab-active' : 'pill-tab-inactive'}
           >
-            Staff
+            {staffTabLabel}
           </button>
         </div>
       )}
@@ -297,15 +301,15 @@ export default function DetailedAttendanceReports({
                     {(r.days || []).map((d) => (
                       <td key={d.date} className="px-0.5 py-1 text-center">
                         <span
-                          title={`${d.date}: ${d.status}`}
+                          title={`${d.date}: ${d.label || d.status}`}
                           className={`inline-flex w-5 h-5 items-center justify-center rounded text-[8px] font-bold ${
-                            d.status === 'weekend' ? 'bg-slate-100 text-slate-400' :
+                            d.status === 'weekend' || d.status === 'excluded' ? 'bg-slate-100 text-slate-400' :
                             d.status === 'late' ? 'bg-amber-400 text-white' :
                             d.status === 'on_time' ? 'bg-emerald-500 text-white' :
                             'bg-red-400 text-white'
                           }`}
                         >
-                          {d.status === 'weekend' ? '·' : DAY_CELL[d.status] || 'A'}
+                          {DAY_CELL[d.status] || (d.status === 'weekend' ? '·' : 'A')}
                         </span>
                       </td>
                     ))}
@@ -318,7 +322,9 @@ export default function DetailedAttendanceReports({
               </tbody>
             </table>
           </div>
-          <p className="text-[10px] text-slate-400">P = on time · L = late · A = absent · grey = weekend · totals use school days only</p>
+          <p className="text-[10px] text-slate-400">
+            P = on time · L = late · A = absent · — = holiday/event · grey dot = weekend · totals exclude non-school days
+          </p>
         </>
       )}
 
@@ -327,7 +333,7 @@ export default function DetailedAttendanceReports({
           <div className="card p-4">
             <p className="text-lg font-bold">Staff — {data.month}</p>
             <p className="text-xs text-slate-500">
-              Full month clock-ins · {data.summary?.total_staff} staff (teachers, gate, admins)
+              Admin-marked official attendance · {data.summary?.total_staff} staff · gate scans are audit-only
             </p>
           </div>
           <div className="card-elevated overflow-x-auto">
@@ -354,11 +360,11 @@ export default function DetailedAttendanceReports({
                         <span
                           title={`${d.date}`}
                           className={`inline-flex w-5 h-5 items-center justify-center rounded text-[8px] font-bold ${
-                            d.status === 'weekend' ? 'bg-slate-100 text-slate-400' :
+                            d.status === 'weekend' || d.status === 'excluded' ? 'bg-slate-100 text-slate-400' :
                             d.status === 'present' ? 'bg-emerald-500 text-white' : 'bg-red-400 text-white'
                           }`}
                         >
-                          {d.status === 'weekend' ? '·' : d.status === 'present' ? '✓' : '—'}
+                          {d.status === 'weekend' || d.status === 'excluded' ? '·' : d.status === 'present' ? '✓' : '—'}
                         </span>
                       </td>
                     ))}

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest } from '@/lib/session';
-import { resolveAttendanceAccess } from '@/lib/attendance/access';
 import { todayInLagos } from '@/lib/timezone';
+import { resolveReportCapabilities } from '@/lib/attendance/report-access';
+import { fetchNonSchoolDaysInRange } from '@/lib/attendance/non-school-days';
 import {
   lagosDateStringsInRange,
   lagosWeekend,
@@ -42,10 +43,11 @@ export async function GET(request: NextRequest) {
     const monthLabel = reportType === 'monthly' ? (monthParam || dateParam.slice(0, 7)) : null;
 
     const supabase = getAdminClient();
-    const access = await resolveAttendanceAccess(supabase, session, schoolId);
-    if ('error' in access) return NextResponse.json({ error: access.error }, { status: 403 });
+    const caps = await resolveReportCapabilities(supabase, session, schoolId);
+    if ('error' in caps) return NextResponse.json({ error: caps.error }, { status: 403 });
 
-    const resolvedSchoolId = access.schoolId!;
+    const resolvedSchoolId = caps.schoolId;
+    const includeStaff = caps.canStaffReports;
 
     const { startDateStr, endDateStr, rangeStartIso, rangeEndIso } = resolveLagosReportRange(
       reportType,
@@ -59,8 +61,8 @@ export async function GET(request: NextRequest) {
       .eq('is_active', true)
       .order('last_name');
 
-    if (access.studentIds) {
-      studentsQuery = studentsQuery.in('id', access.studentIds);
+    if (caps.studentIds) {
+      studentsQuery = studentsQuery.in('id', caps.studentIds);
     }
     if (classId) {
       studentsQuery = studentsQuery.eq('class_id', classId);
@@ -120,6 +122,23 @@ export async function GET(request: NextRequest) {
 
     if (reportType === 'daily') {
       const dayKey = dateParam;
+      const dailyNonSchool = await fetchNonSchoolDaysInRange(
+        supabase,
+        resolvedSchoolId,
+        dayKey,
+        dayKey
+      );
+      if (dailyNonSchool.has(dayKey)) {
+        const info = dailyNonSchool.get(dayKey)!;
+        return NextResponse.json({
+          type: 'daily',
+          date: dayKey,
+          excluded: true,
+          excluded_title: info.title,
+          summary: { total: (students || []).length, present: 0, late: 0, absent: 0 },
+          report: [],
+        });
+      }
       const report = (students || []).map((s: {
         id: string;
         first_name: string;
@@ -167,6 +186,15 @@ export async function GET(request: NextRequest) {
     }
 
     const dayStrings = lagosDateStringsInRange(startDateStr, endDateStr);
+    const nonSchoolDays = await fetchNonSchoolDaysInRange(
+      supabase,
+      resolvedSchoolId,
+      startDateStr,
+      endDateStr
+    );
+    const isCountableDay = (dayKey: string) =>
+      !lagosWeekend(dayKey) && !nonSchoolDays.has(dayKey);
+
     const classMap: Record<string, { class_id: string; class_name: string; students: typeof students }> = {};
     for (const s of students || []) {
       const cls = Array.isArray(s.class) ? s.class[0] : s.class as { name?: string } | null;
@@ -177,27 +205,43 @@ export async function GET(request: NextRequest) {
     }
 
     const dailySummaries = dayStrings.map((dayKey) => {
+      if (!isCountableDay(dayKey)) {
+        const excluded = nonSchoolDays.get(dayKey);
+        return {
+          date: dayKey,
+          present: 0,
+          late: 0,
+          absent: 0,
+          total: (students || []).length,
+          excluded: true,
+          excluded_title: excluded?.title || (lagosWeekend(dayKey) ? 'Weekend' : ''),
+        };
+      }
       let present = 0, late = 0, absent = 0;
       for (const s of students || []) {
         const arrival = arrivalMap[s.id]?.[dayKey];
-        if (!arrival) absent++;
-        else if (arrival.status === 'late') late++;
+        const normalized = normalizeArrivalStatus(arrival);
+        if (!normalized) absent++;
+        else if (normalized === 'late') late++;
         else present++;
       }
-      return { date: dayKey, present, late, absent, total: (students || []).length };
+      return { date: dayKey, present, late, absent, total: (students || []).length, excluded: false };
     });
 
     const classBreakdown = Object.values(classMap).map((cls) => {
       let totalPresent = 0, totalLate = 0, totalAbsent = 0;
       for (const s of cls.students) {
         for (const dayKey of dayStrings) {
+          if (!isCountableDay(dayKey)) continue;
           const arrival = arrivalMap[s.id]?.[dayKey];
-          if (!arrival) totalAbsent++;
-          else if (arrival.status === 'late') totalLate++;
+          const normalized = normalizeArrivalStatus(arrival);
+          if (!normalized) totalAbsent++;
+          else if (normalized === 'late') totalLate++;
           else totalPresent++;
         }
       }
-      const totalPossible = cls.students.length * dayStrings.length;
+      const countableDays = dayStrings.filter(isCountableDay).length;
+      const totalPossible = cls.students.length * countableDays;
       return {
         class_id: cls.class_id,
         class_name: cls.class_name,
@@ -211,14 +255,13 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    const totalDays = dayStrings.length;
+    const schoolDayStrings = dayStrings.filter(isCountableDay);
+    const totalDays = schoolDayStrings.length;
     const totalStudents = (students || []).length;
     const grandPresent = dailySummaries.reduce((a, d) => a + d.present, 0);
     const grandLate = dailySummaries.reduce((a, d) => a + d.late, 0);
     const grandAbsent = dailySummaries.reduce((a, d) => a + d.absent, 0);
     const grandTotal = totalStudents * totalDays;
-
-    const schoolDayStrings = dayStrings.filter((d) => !lagosWeekend(d));
     const monthCalendarDays = reportType === 'monthly' ? dayStrings : schoolDayStrings;
 
     const studentMonthly = (students || []).map((s: {
@@ -236,12 +279,17 @@ export async function GET(request: NextRequest) {
         if (lagosWeekend(dayKey)) {
           return { date: dayKey, status: 'weekend' as const };
         }
+        if (nonSchoolDays.has(dayKey)) {
+          return { date: dayKey, status: 'excluded' as const, label: nonSchoolDays.get(dayKey)?.title };
+        }
         const arrival = arrivalMap[s.id]?.[dayKey];
         const normalized = normalizeArrivalStatus(arrival);
         const status = normalized || 'absent';
-        if (status === 'late') late++;
-        else if (status === 'on_time') present++;
-        else absent++;
+        if (isCountableDay(dayKey)) {
+          if (status === 'late') late++;
+          else if (status === 'on_time') present++;
+          else absent++;
+        }
         return { date: dayKey, status };
       });
       const total = schoolDayStrings.length;
@@ -260,8 +308,15 @@ export async function GET(request: NextRequest) {
     });
 
     const staffReport =
-      reportType === 'monthly'
-        ? await buildStaffMonthlyReport(supabase, resolvedSchoolId, rangeStartIso, rangeEndIso, monthCalendarDays)
+      reportType === 'monthly' && includeStaff
+        ? await buildStaffMonthlyReport(
+            supabase,
+            resolvedSchoolId,
+            rangeStartIso,
+            rangeEndIso,
+            monthCalendarDays,
+            { staffUserIds: caps.staffUserIds, nonSchoolDays }
+          )
         : [];
 
     if (format === 'csv') {

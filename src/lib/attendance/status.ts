@@ -4,7 +4,8 @@ export type DayAttendanceStatus =
   | 'late'
   | 'absent'
   | 'weekend'
-  | 'upcoming';
+  | 'upcoming'
+  | 'excluded';
 
 export type ArrivalLike = {
   status?: string | null;
@@ -28,8 +29,9 @@ export function normalizeArrivalStatus(arrival: ArrivalLike): 'on_time' | 'late'
 export function resolveCalendarDayStatus(
   dayKey: string,
   arrival: ArrivalLike,
-  opts: { isWeekend: boolean; todayLagos: string }
+  opts: { isWeekend: boolean; todayLagos: string; isExcluded?: boolean }
 ): DayAttendanceStatus {
+  if (opts.isExcluded) return 'excluded';
   if (opts.isWeekend) return 'weekend';
   if (dayKey > opts.todayLagos) return 'upcoming';
   const normalized = normalizeArrivalStatus(arrival);
@@ -43,6 +45,7 @@ export const DAY_STATUS_LABELS: Record<DayAttendanceStatus, string> = {
   absent: 'Absent',
   weekend: 'Weekend',
   upcoming: 'Upcoming',
+  excluded: 'No school',
 };
 
 export function dayStatusColor(status: DayAttendanceStatus): 'green' | 'yellow' | 'red' | 'gray' {

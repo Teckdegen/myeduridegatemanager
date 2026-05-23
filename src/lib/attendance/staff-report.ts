@@ -1,12 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { timestampToLagosDateKey, lagosWeekend } from '@/lib/attendance/lagos-dates';
+import type { NonSchoolDay } from '@/lib/attendance/non-school-days';
 
 export type StaffMonthlyRow = {
   user_id: string;
   full_name: string;
   role: string;
   days_present: number;
-  days: { date: string; present: boolean; status: 'present' | 'absent' | 'weekend' }[];
+  days: { date: string; present: boolean; status: 'present' | 'absent' | 'weekend' | 'excluded' }[];
 };
 
 export async function buildStaffMonthlyReport(
@@ -14,7 +15,8 @@ export async function buildStaffMonthlyReport(
   schoolId: string,
   rangeStartIso: string,
   rangeEndIso: string,
-  dayStrings: string[]
+  dayStrings: string[],
+  opts?: { staffUserIds?: string[] | null; nonSchoolDays?: Map<string, NonSchoolDay> }
 ): Promise<StaffMonthlyRow[]> {
   const { data: roles } = await supabase
     .from('user_school_roles')
@@ -25,13 +27,21 @@ export async function buildStaffMonthlyReport(
 
   if (!roles?.length) return [];
 
-  const userIds = roles.map((r: { user_id: string }) => r.user_id);
+  let filteredRoles = roles;
+  if (opts?.staffUserIds?.length) {
+    const allowed = new Set(opts.staffUserIds);
+    filteredRoles = roles.filter((r: { user_id: string }) => allowed.has(r.user_id));
+  }
+  if (!filteredRoles.length) return [];
+
+  const userIds = filteredRoles.map((r: { user_id: string }) => r.user_id);
   const { data: staffRecords } = await supabase
     .from('staff_attendance')
-    .select('user_id, type, timestamp')
+    .select('user_id, type, timestamp, record_source')
     .eq('school_id', schoolId)
     .in('user_id', userIds)
     .eq('type', 'clock_in')
+    .eq('record_source', 'admin')
     .gte('timestamp', rangeStartIso)
     .lte('timestamp', rangeEndIso);
 
@@ -42,11 +52,16 @@ export async function buildStaffMonthlyReport(
     presentByUserDay[r.user_id][day] = true;
   }
 
-  return roles.map((r: { user_id: string; role: string; user: unknown }) => {
+  const nonSchool = opts?.nonSchoolDays;
+
+  return filteredRoles.map((r: { user_id: string; role: string; user: unknown }) => {
     const user = Array.isArray(r.user) ? r.user[0] : r.user;
     const days = dayStrings.map((date) => {
       if (lagosWeekend(date)) {
         return { date, present: false, status: 'weekend' as const };
+      }
+      if (nonSchool?.has(date)) {
+        return { date, present: false, status: 'excluded' as const };
       }
       const present = !!presentByUserDay[r.user_id]?.[date];
       return { date, present, status: present ? ('present' as const) : ('absent' as const) };

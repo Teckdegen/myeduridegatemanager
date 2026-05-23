@@ -8,6 +8,7 @@ Run each file **once**, top to bottom. All scripts are idempotent where possible
 | 2 | `20260523_school_classes_list_fix.sql` | `school_classes` columns + teacher FK (admin class list) |
 | 3 | `20260524_pickup_notifications.sql` | Notifications type **`pickup_person`** (when parent/admin registers pickup person) |
 | 4 | `20260525_school_gate_hours.sql` | School **gate hour** columns (fixes settings not saving) |
+| 5 | `20260526_staff-limit.sql` | **Holidays/events** table + staff `record_source` (admin vs gate) |
 
 ## Already on production?
 

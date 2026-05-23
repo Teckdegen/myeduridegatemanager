@@ -18,6 +18,7 @@ import {
   Bell,
 } from 'lucide-react';
 import NotificationsInbox from '@/components/notifications/NotificationsInbox';
+import AttendanceSignLog from '@/components/attendance/AttendanceSignLog';
 import { toast } from 'sonner';
 import { formatTimeLagos } from '@/lib/timezone';
 import { photoSrc } from '@/lib/photo';
@@ -25,6 +26,53 @@ import { photoSrc } from '@/lib/photo';
 function splitName(fullName) {
   const parts = (fullName || '').trim().split(/\s+/).filter(Boolean);
   return { first: parts[0] || '', last: parts.slice(1).join(' ') || '' };
+}
+
+function PickupPersonCard({ name, phone, photoUrl, relationship, highlight }) {
+  const src = photoSrc(photoUrl);
+  return (
+    <div
+      className={`flex items-center gap-3 p-3 rounded-xl ${
+        highlight ? 'bg-white/15' : 'bg-white border border-slate-200'
+      }`}
+    >
+      {src ? (
+        <img
+          src={src}
+          alt={name}
+          className="w-16 h-16 rounded-xl object-cover border-2 border-white shrink-0"
+        />
+      ) : (
+        <div
+          className={`w-16 h-16 rounded-xl shrink-0 flex flex-col items-center justify-center text-[10px] font-bold ${
+            highlight ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+          }`}
+        >
+          No photo
+        </div>
+      )}
+      <div className="min-w-0 flex-1">
+        <p className={`font-bold truncate ${highlight ? 'text-white text-lg' : 'text-slate-900'}`}>
+          {name || 'Unknown'}
+        </p>
+        {phone && (
+          <p className={`text-sm font-mono ${highlight ? 'text-white/90' : 'text-slate-600'}`}>
+            {phone}
+          </p>
+        )}
+        {!phone && (
+          <p className={`text-xs ${highlight ? 'text-white/80' : 'text-amber-700'}`}>
+            No phone on file — verify identity carefully
+          </p>
+        )}
+        {relationship && (
+          <p className={`text-[10px] mt-0.5 ${highlight ? 'text-white/70' : 'text-slate-500'}`}>
+            {relationship}
+          </p>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function GateOfficerDashboard() {
@@ -348,37 +396,42 @@ export default function GateOfficerDashboard() {
           {scannedPerson.person.class_name && <p className="text-xs text-slate-400">{scannedPerson.person.class_name}</p>}
         </div>
       </div>
-      {scannedPerson.pickup_notice && (
-        <div className="mb-4 p-3 rounded-xl bg-blue-50 border border-blue-100 text-sm">
-          <p className="font-semibold text-blue-900">Parent pickup notice</p>
-          <p className="text-blue-800 mt-1">
-            <strong>{scannedPerson.pickup_notice.pickup_person_name}</strong>
-            {scannedPerson.pickup_notice.pickup_person_phone && ` · ${scannedPerson.pickup_notice.pickup_person_phone}`}
+      {gateMode === 'dismissal' && (
+        <div className="mb-4 p-4 rounded-2xl border-2 border-orange-200 bg-orange-50/80">
+          <p className="text-xs font-bold text-orange-900 uppercase tracking-wide mb-3">
+            Verify pickup person before release
           </p>
-          {scannedPerson.pickup_notice.notes && (
-            <p className="text-xs text-blue-700 mt-1">{scannedPerson.pickup_notice.notes}</p>
+          {scannedPerson.pickup_notice && (
+            <div className="mb-3 p-3 rounded-xl bg-blue-600 text-white">
+              <p className="text-[10px] font-semibold uppercase opacity-90">Parent said today</p>
+              <PickupPersonCard
+                name={scannedPerson.pickup_notice.pickup_person_name}
+                phone={scannedPerson.pickup_notice.pickup_person_phone}
+                photoUrl={scannedPerson.pickup_notice.pickup_person_photo}
+                relationship="Today's pickup"
+                highlight
+              />
+              {scannedPerson.pickup_notice.notes && (
+                <p className="text-xs mt-2 opacity-90">{scannedPerson.pickup_notice.notes}</p>
+              )}
+            </div>
           )}
-        </div>
-      )}
-      {gateMode === 'dismissal' && scannedPerson.pickup_persons?.length > 0 && (
-        <div className="mb-4">
-          <p className="text-xs font-semibold text-slate-600 mb-2">Authorised pickup persons — verify face matches</p>
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {scannedPerson.pickup_persons.map((pp) => {
-              const src = photoSrc(pp.photo_url);
-              return (
-                <div key={pp.id} className="shrink-0 w-24 text-center">
-                  {src ? (
-                    <img src={src} alt={pp.name} className="w-20 h-20 rounded-xl object-cover mx-auto border-2 border-slate-200" />
-                  ) : (
-                    <div className="w-20 h-20 rounded-xl bg-slate-100 mx-auto flex items-center justify-center text-xs text-slate-400">No photo</div>
-                  )}
-                  <p className="text-[10px] font-semibold mt-1 truncate">{pp.name}</p>
-                  <p className="text-[9px] text-slate-500">{pp.relationship}</p>
-                </div>
-              );
-            })}
-          </div>
+          {scannedPerson.pickup_persons?.length > 0 ? (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-slate-700">Authorised on file</p>
+              {scannedPerson.pickup_persons.map((pp) => (
+                <PickupPersonCard
+                  key={pp.id}
+                  name={pp.name}
+                  phone={pp.phone}
+                  photoUrl={pp.photo_url}
+                  relationship={pp.relationship}
+                />
+              ))}
+            </div>
+          ) : !scannedPerson.pickup_notice && (
+            <p className="text-sm text-orange-800">No pickup person on file — confirm with parent or office.</p>
+          )}
         </div>
       )}
       {scannedPerson.from_queue && (
@@ -457,6 +510,9 @@ export default function GateOfficerDashboard() {
           <button type="button" onClick={() => setGateTab('alerts')} className={gateTab === 'alerts' ? 'pill-tab-active' : 'pill-tab-inactive'}>
             <Bell size={14} className="inline mr-1" /> Alerts
           </button>
+          <button type="button" onClick={() => setGateTab('log')} className={gateTab === 'log' ? 'pill-tab-active' : 'pill-tab-inactive'}>
+            <LogIn size={14} className="inline mr-1" /> Log
+          </button>
         </div>
       </div>
 
@@ -506,6 +562,12 @@ export default function GateOfficerDashboard() {
                 );
               })
             )}
+          </div>
+        )}
+
+        {gateTab === 'log' && !scannedPerson && schoolId && (
+          <div className="pb-4">
+            <AttendanceSignLog schoolId={schoolId} title="Sign in / out" />
           </div>
         )}
 
