@@ -38,17 +38,18 @@ export async function buildStaffMonthlyReport(
   type StaffRow = { user_id: string; type: string; timestamp: string };
   let staffRecords: StaffRow[] | null = null;
 
+  // Official staff report: ID card scans only (gate or admin scanning staff card)
   const primary = await supabase
     .from('staff_attendance')
-    .select('user_id, type, timestamp, record_source')
+    .select('user_id, type, timestamp')
     .eq('school_id', schoolId)
     .in('user_id', userIds)
     .eq('type', 'clock_in')
-    .eq('record_source', 'admin')
+    .eq('verification_method', 'id_card_scan')
     .gte('timestamp', rangeStartIso)
     .lte('timestamp', rangeEndIso);
 
-  if (primary.error && /record_source/i.test(primary.error.message)) {
+  if (primary.error && /verification_method/i.test(primary.error.message)) {
     const fallback = await supabase
       .from('staff_attendance')
       .select('user_id, type, timestamp')
@@ -57,7 +58,7 @@ export async function buildStaffMonthlyReport(
       .eq('type', 'clock_in')
       .gte('timestamp', rangeStartIso)
       .lte('timestamp', rangeEndIso);
-    staffRecords = fallback.data;
+    staffRecords = (fallback.data || []).filter(() => true);
   } else {
     staffRecords = primary.data;
   }

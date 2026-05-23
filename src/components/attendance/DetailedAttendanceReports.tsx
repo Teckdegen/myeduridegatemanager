@@ -349,7 +349,7 @@ export default function DetailedAttendanceReports({
           <div className="card p-4">
             <p className="text-lg font-bold">Staff — {data.month}</p>
             <p className="text-xs text-slate-500">
-              Admin-marked official attendance · {data.summary?.total_staff} staff · gate scans are audit-only
+              Staff ID card scans only (gate or admin) · {data.summary?.total_staff} staff
             </p>
           </div>
           <div className="card-elevated overflow-x-auto">

@@ -5,9 +5,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle, LogOut as LogOutIcon, User } from 'lucide-react';
 import { todayInLagos } from '@/lib/timezone';
 
-export default function AttendanceSignLog({ schoolId, title = 'Sign in / out log' }) {
+export default function AttendanceSignLog({
+  schoolId,
+  title = 'Sign in / out log',
+  defaultEntity = 'all',
+}) {
   const [date, setDate] = useState(todayInLagos());
-  const [entity, setEntity] = useState('all');
+  const [entity, setEntity] = useState(defaultEntity);
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
 
