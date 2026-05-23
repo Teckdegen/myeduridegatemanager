@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
+import { ensureSuperAdminAccess } from '@/lib/auth/ensure-super-admin';
+import { isSuperAdminEmail } from '@/lib/auth/super-admin';
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,35 +32,44 @@ export async function POST(request: NextRequest) {
 
     await supabase.from('otp_codes').update({ used: true }).eq('id', otpRecord.id);
 
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('id, email, full_name')
-      .eq('email', email)
-      .single();
+    let profileRow = (
+      await supabase.from('user_profiles').select('id, email, full_name').eq('email', email).single()
+    ).data;
 
-    if (!profile) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    if (!profileRow && isSuperAdminEmail(email)) {
+      const boot = await ensureSuperAdminAccess(supabase, email);
+      if (!boot.ok) {
+        return NextResponse.json({ error: boot.error || 'Could not provision super admin' }, { status: 500 });
+      }
+      profileRow = (
+        await supabase.from('user_profiles').select('id, email, full_name').eq('email', email).single()
+      ).data;
+    } else if (profileRow && isSuperAdminEmail(email)) {
+      await ensureSuperAdminAccess(supabase, email);
     }
 
+    if (!profileRow) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
     const { data: roles, error: rolesErr } = await supabase
       .from('user_school_roles')
       .select('role, school_id')
-      .eq('user_id', profile.id)
+      .eq('user_id', profileRow.id)
       .eq('is_active', true);
 
-    console.log('[VERIFY] User:', profile.email, 'Roles found:', roles?.length, 'Roles:', JSON.stringify(roles));
+    console.log('[VERIFY] User:', profileRow.email, 'Roles found:', roles?.length, 'Roles:', JSON.stringify(roles));
     if (rolesErr) console.error('[VERIFY] Roles error:', rolesErr);
 
     const sessionData = JSON.stringify({
-      user_id: profile.id,
-      email: profile.email,
-      full_name: profile.full_name,
+      user_id: profileRow.id,
+      email: profileRow.email,
+      full_name: profileRow.full_name,
       roles: roles || [],
     });
 
     const response = NextResponse.json({
       success: true,
-      user: { id: profile.id, email: profile.email, full_name: profile.full_name },
+      user: { id: profileRow.id, email: profileRow.email, full_name: profileRow.full_name },
       roles: roles || [],
     });
 

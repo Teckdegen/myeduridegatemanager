@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
-
-const PLATFORM_SCHOOL_ID = '00000000-0000-0000-0000-000000000001';
+import { getPlatformSchoolId } from '@/lib/auth/super-admin';
 
 export async function GET(request: NextRequest) {
   try {
@@ -11,7 +10,7 @@ export async function GET(request: NextRequest) {
     const { data: schools, error } = await supabase
       .from('schools')
       .select('*')
-      .neq('id', PLATFORM_SCHOOL_ID)
+      .neq('id', getPlatformSchoolId())
       .order('name');
       
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

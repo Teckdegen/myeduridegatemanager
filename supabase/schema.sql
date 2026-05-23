@@ -578,6 +578,16 @@ COMMENT ON TABLE extra_lessons IS 'Students staying for extra lesson — not rea
 COMMENT ON TABLE pickup_persons IS 'Authorised persons who can collect a student — with photo for gate verification';
 COMMENT ON TABLE pickup_requests IS 'Parent sends a message to school about who will pick up their child today';
 
+-- ============ PLATFORM SCHOOL (super_admin roles only) ============
+INSERT INTO schools (id, name, setup_completed, setup_step)
+VALUES (
+  '00000000-0000-0000-0000-000000000001',
+  'MyEduRide Platform',
+  TRUE,
+  'complete'
+)
+ON CONFLICT (id) DO NOTHING;
+
 -- ============ STORAGE: PHOTOS BUCKET ============
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES (

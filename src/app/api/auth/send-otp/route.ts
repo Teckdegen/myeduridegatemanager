@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
+import { ensureSuperAdminAccess } from '@/lib/auth/ensure-super-admin';
+import { isSuperAdminEmail } from '@/lib/auth/super-admin';
 import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -14,6 +16,13 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getAdminClient();
+
+    if (isSuperAdminEmail(email)) {
+      const boot = await ensureSuperAdminAccess(supabase, email);
+      if (!boot.ok) {
+        console.error('[send-otp] super admin bootstrap:', boot.error);
+      }
+    }
 
     const { data: profile, error: profileErr } = await supabase
       .from('user_profiles')
