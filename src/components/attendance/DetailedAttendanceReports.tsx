@@ -75,6 +75,10 @@ export default function DetailedAttendanceReports({
     loadReport();
   }, [loadReport]);
 
+  useEffect(() => {
+    setMonthView('students');
+  }, [reportType]);
+
   const exportCsv = async () => {
     if (!schoolId) return;
     try {
@@ -165,6 +169,29 @@ export default function DetailedAttendanceReports({
         )}
       </div>
 
+      {reportType === 'daily' &&
+        data?.type === 'daily' &&
+        !data?.excluded &&
+        showStaffTab &&
+        data.staff_report != null && (
+        <div className="pill-tabs">
+          <button
+            type="button"
+            onClick={() => setMonthView('students')}
+            className={monthView === 'students' ? 'pill-tab-active' : 'pill-tab-inactive'}
+          >
+            Students
+          </button>
+          <button
+            type="button"
+            onClick={() => setMonthView('staff')}
+            className={monthView === 'staff' ? 'pill-tab-active' : 'pill-tab-inactive'}
+          >
+            {staffTabLabel}
+          </button>
+        </div>
+      )}
+
       {(reportType === 'monthly' || reportType === 'weekly') &&
         data &&
         (data.type === 'monthly' || data.type === 'weekly') &&
@@ -202,7 +229,65 @@ export default function DetailedAttendanceReports({
         <div className="card p-4 text-sm text-slate-600">{data.message}</div>
       )}
 
-      {!loading && data?.type === 'daily' && !data?.excluded && (
+      {!loading &&
+        data?.type === 'daily' &&
+        !data?.excluded &&
+        monthView === 'staff' &&
+        showStaffTab && (
+        <>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              ['Staff', data.staff_summary?.total],
+              ['Signed in', data.staff_summary?.present],
+              ['Absent', data.staff_summary?.absent],
+            ].map(([label, val]) => (
+              <div key={label} className="card text-center py-3">
+                <p className="text-xl font-bold">{val ?? 0}</p>
+                <p className="text-[10px] text-slate-500 uppercase">{label}</p>
+              </div>
+            ))}
+          </div>
+          <div className="card-elevated overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 border-b">
+                <tr>
+                  <th className="text-left px-3 py-2 text-xs text-slate-500">Staff</th>
+                  <th className="text-left px-3 py-2 text-xs text-slate-500">Role</th>
+                  <th className="text-left px-3 py-2 text-xs text-slate-500">Status</th>
+                  <th className="text-left px-3 py-2 text-xs text-slate-500">Sign in</th>
+                  <th className="text-left px-3 py-2 text-xs text-slate-500">Sign out</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {(data.staff_report || []).map((r) => (
+                  <tr key={r.user_id}>
+                    <td className="px-3 py-2 font-medium">{r.full_name}</td>
+                    <td className="px-3 py-2 text-slate-600 capitalize">{r.role}</td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={`text-xs font-bold uppercase px-2 py-0.5 rounded ${
+                          r.status === 'absent'
+                            ? 'bg-red-50 text-red-700'
+                            : 'bg-emerald-50 text-emerald-800'
+                        }`}
+                      >
+                        {r.status === 'present' ? 'Present' : 'Absent'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">{formatTimeLagos(r.clock_in_time)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{formatTimeLagos(r.clock_out_time)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[10px] text-slate-400">
+            Staff present = ID card sign-in at gate or admin scan. Sign-out time shown when recorded.
+          </p>
+        </>
+      )}
+
+      {!loading && data?.type === 'daily' && !data?.excluded && monthView === 'students' && (
         <>
           <div className="grid grid-cols-4 gap-2">
             {[

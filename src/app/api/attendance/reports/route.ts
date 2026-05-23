@@ -6,11 +6,12 @@ import { resolveReportCapabilities } from '@/lib/attendance/report-access';
 import { fetchNonSchoolDaysInRange } from '@/lib/attendance/non-school-days';
 import {
   lagosDateStringsInRange,
+  lagosDayBoundsFromDateStr,
   lagosWeekend,
   resolveLagosReportRange,
   timestampToLagosDateKey,
 } from '@/lib/attendance/lagos-dates';
-import { buildStaffMonthlyReport } from '@/lib/attendance/staff-report';
+import { buildStaffDailyReport, buildStaffMonthlyReport } from '@/lib/attendance/staff-report';
 import { normalizeArrivalStatus } from '@/lib/attendance/status';
 import { fetchReportStudents } from '@/lib/attendance/report-students';
 
@@ -153,13 +154,31 @@ export async function GET(request: NextRequest) {
 
     if (reportType === 'daily') {
       const dayKey = dateParam;
+      const { startIso: dayStartIso, endIso: dayEndIso } = lagosDayBoundsFromDateStr(dayKey);
       const dailyNonSchool = await fetchNonSchoolDaysInRange(
         supabase,
         resolvedSchoolId,
         dayKey,
         dayKey
       );
-      if (dailyNonSchool.has(dayKey)) {
+      const dayExcluded = dailyNonSchool.has(dayKey);
+
+      const staffReport =
+        includeStaff
+          ? await buildStaffDailyReport(
+              supabase,
+              resolvedSchoolId,
+              dayKey,
+              dayStartIso,
+              dayEndIso,
+              {
+                staffUserIds: caps.staffUserIds,
+                excluded: dayExcluded,
+              }
+            )
+          : [];
+
+      if (dayExcluded) {
         const info = dailyNonSchool.get(dayKey)!;
         return NextResponse.json({
           type: 'daily',
@@ -168,6 +187,10 @@ export async function GET(request: NextRequest) {
           excluded_title: info.title,
           summary: { total: (students || []).length, present: 0, late: 0, absent: 0 },
           report: [],
+          staff_report: includeStaff ? staffReport : undefined,
+          staff_summary: includeStaff
+            ? { total: staffReport.length, present: 0, absent: 0 }
+            : undefined,
         });
       }
       const report = students.map((s) => {
@@ -192,8 +215,31 @@ export async function GET(request: NextRequest) {
         };
       });
 
+      const staffPresent = staffReport.filter((s) => s.status === 'present').length;
+      const staffAbsent = staffReport.filter((s) => s.status === 'absent').length;
+
       if (format === 'csv') {
-        return buildCsvResponse(report, `daily_${dateParam}`);
+        const csvRows: Record<string, string | number | null>[] = report.map((r) => ({
+          entity: 'student',
+          name: `${r.first_name} ${r.last_name}`,
+          role_or_class: r.class_name,
+          status: r.status,
+          check_in_time: r.check_in_time || '',
+          check_out_time: r.check_out_time || '',
+          minutes_late: r.minutes_late ?? '',
+        }));
+        for (const s of staffReport) {
+          csvRows.push({
+            entity: 'staff',
+            name: s.full_name,
+            role_or_class: s.role,
+            status: s.status,
+            check_in_time: s.clock_in_time || '',
+            check_out_time: s.clock_out_time || '',
+            minutes_late: '',
+          });
+        }
+        return buildCsvResponse(csvRows, `daily_${dateParam}`);
       }
 
       const present = report.filter((r: { status: string }) => r.status !== 'absent').length;
@@ -205,6 +251,10 @@ export async function GET(request: NextRequest) {
         date: dateParam,
         summary: { total: report.length, present, late, absent },
         report,
+        staff_report: includeStaff ? staffReport : undefined,
+        staff_summary: includeStaff
+          ? { total: staffReport.length, present: staffPresent, absent: staffAbsent }
+          : undefined,
       });
     }
 

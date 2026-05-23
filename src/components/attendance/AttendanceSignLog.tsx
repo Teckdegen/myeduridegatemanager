@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle, LogOut as LogOutIcon, User } from 'lucide-react';
+import { toast } from 'sonner';
 import { todayInLagos } from '@/lib/timezone';
 
 export default function AttendanceSignLog({
@@ -24,7 +25,8 @@ export default function AttendanceSignLog({
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed');
       setEntries(json.entries || []);
-    } catch {
+    } catch (e) {
+      toast.error(e?.message || 'Could not load sign log');
       setEntries([]);
     }
     setLoading(false);

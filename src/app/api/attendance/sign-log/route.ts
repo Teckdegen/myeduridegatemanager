@@ -4,6 +4,7 @@ import { getSessionFromRequest, sessionHasRole } from '@/lib/session';
 import { todayInLagos } from '@/lib/timezone';
 import { lagosDayBoundsFromDateStr } from '@/lib/attendance/lagos-dates';
 import { formatTimeLagos } from '@/lib/timezone';
+import { fetchStaffSignLogRows } from '@/lib/attendance/staff-sign-log';
 
 export const dynamic = 'force-dynamic';
 
@@ -78,23 +79,21 @@ export async function GET(request: NextRequest) {
     }
 
     if (entity === 'all' || entity === 'staff') {
-      const { data: staffRows } = await supabase
-        .from('staff_attendance')
-        .select('id, type, timestamp, record_source, user:user_profiles(full_name)')
-        .eq('school_id', schoolId)
-        .gte('timestamp', startIso)
-        .lte('timestamp', endIso)
-        .order('timestamp', { ascending: false });
-
-      for (const r of staffRows || []) {
-        const user = Array.isArray(r.user) ? r.user[0] : r.user;
+      const staffRows = await fetchStaffSignLogRows(supabase, schoolId, startIso, endIso);
+      for (const r of staffRows) {
+        const sourceLabel =
+          r.record_source === 'admin'
+            ? 'Admin scan'
+            : r.record_source === 'gate'
+              ? 'Gate scan'
+              : 'ID scan';
         entries.push({
           id: r.id,
           entity: 'staff',
-          name: (user as { full_name?: string })?.full_name || 'Staff',
-          detail: r.record_source === 'admin' ? 'Admin record' : 'Gate scan',
+          name: r.full_name,
+          detail: sourceLabel,
           type: r.type,
-          type_label: r.type === 'clock_in' ? 'Staff in' : 'Staff out',
+          type_label: r.type === 'clock_in' ? 'Staff sign in' : 'Staff sign out',
           timestamp: r.timestamp,
           time_display: formatTimeLagos(r.timestamp),
         });
