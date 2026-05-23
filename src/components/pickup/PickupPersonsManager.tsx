@@ -38,15 +38,29 @@ export default function PickupPersonsManager({
         if (!res.ok) throw new Error(json.error);
         setPersons(json.pickup_persons || []);
       } else if (students[0]) {
-        const all = [];
+        const byId = new Map();
         for (const child of students) {
           const res = await fetch(`/api/pickup-persons?student_id=${child.id}`, { credentials: 'include' });
           const json = await res.json();
           (json.pickup_persons || []).forEach((p) => {
-            if (!all.find((x) => x.id === p.id)) all.push({ ...p, _childName: `${child.first_name} ${child.last_name}` });
+            const label = `${child.first_name} ${child.last_name}`;
+            const existing = byId.get(p.id);
+            if (existing) {
+              if (!existing._childNames.includes(label)) {
+                existing._childNames.push(label);
+                existing._linkedChildren = existing._childNames.join(', ');
+              }
+            } else {
+              byId.set(p.id, {
+                ...p,
+                _childName: label,
+                _childNames: [label],
+                _linkedChildren: label,
+              });
+            }
           });
         }
-        setPersons(all);
+        setPersons([...byId.values()]);
       }
     } catch (e) {
       toast.error(e.message || 'Could not load pickup list');
@@ -61,6 +75,13 @@ export default function PickupPersonsManager({
       setForm((f) => ({ ...f, student_ids: [students[0].id] }));
     }
   }, [mode, students, form.student_ids.length]);
+
+  const selectAllChildren = () => {
+    setForm((f) => ({ ...f, student_ids: students.map((s) => s.id) }));
+  };
+
+  const allChildrenSelected =
+    students.length > 0 && students.every((s) => form.student_ids.includes(s.id));
 
   const uploadPhoto = async (file) => {
     const fd = new FormData();
@@ -188,7 +209,9 @@ export default function PickupPersonsManager({
               <p className="font-semibold text-slate-900">{p.name}</p>
               <p className="text-xs text-slate-500">{p.relationship}{p.phone ? ` · ${p.phone}` : ''}</p>
               <p className="text-xs text-slate-600 mt-1">
-                {mode === 'admin' ? linkedStudents(p) || 'No students linked' : p._childName}
+                {mode === 'admin'
+                  ? linkedStudents(p) || 'No students linked'
+                  : p._linkedChildren || p._childName}
               </p>
             </div>
             <button type="button" onClick={() => remove(p)} className="btn-danger p-2 shrink-0" aria-label="Delete">
@@ -219,10 +242,24 @@ export default function PickupPersonsManager({
             <input className="input mb-2" placeholder="Full name *" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
             <input className="input mb-2" placeholder="Relationship * (e.g. Uncle, Driver)" value={form.relationship} onChange={(e) => setForm((f) => ({ ...f, relationship: e.target.value }))} />
             <input className="input mb-2" placeholder="Phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
-            <p className="text-xs font-medium text-slate-500 mb-1">Linked children *</p>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <p className="text-xs font-medium text-slate-500">Linked children *</p>
+              {students.length > 1 && (
+                <button
+                  type="button"
+                  onClick={selectAllChildren}
+                  className="text-xs font-semibold text-primary-600"
+                >
+                  {allChildrenSelected ? 'All selected' : 'Select all children'}
+                </button>
+              )}
+            </div>
+            <p className="text-[10px] text-slate-400 mb-2">
+              One photo — select every child this person may pick up. Gate will show their face for each child.
+            </p>
             <div className="space-y-1 mb-4 max-h-32 overflow-y-auto">
               {students.map((s) => (
-                <label key={s.id} className="flex items-center gap-2 text-sm">
+                <label key={s.id} className="flex items-center gap-2 text-sm py-1">
                   <input
                     type="checkbox"
                     checked={form.student_ids.includes(s.id)}

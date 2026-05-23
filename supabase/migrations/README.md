@@ -7,6 +7,7 @@ Run each file **once**, top to bottom. All scripts are idempotent where possible
 | 1 | `20260522_pilot_features.sql` | Attendance columns, dismissal_date, extra_lessons, **pickup_persons**, **pickup_requests**, notifications `pickup_request` |
 | 2 | `20260523_school_classes_list_fix.sql` | `school_classes` columns + teacher FK (admin class list) |
 | 3 | `20260524_pickup_notifications.sql` | Notifications type **`pickup_person`** (when parent/admin registers pickup person) |
+| 4 | `20260525_school_gate_hours.sql` | School **gate hour** columns (fixes settings not saving) |
 
 ## Already on production?
 
