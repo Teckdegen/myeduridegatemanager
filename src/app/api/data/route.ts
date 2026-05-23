@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { getUiPresentWindowStart, ATTENDANCE_UI_NOTE } from '@/lib/attendance/window';
+import { todayInLagos } from '@/lib/timezone';
 
 export async function POST(request: NextRequest) {
   try {
@@ -273,7 +274,7 @@ export async function POST(request: NextRequest) {
 
         const { data: students } = await studentsQuery;
         const presentSince = getUiPresentWindowStart().toISOString();
-        const today = new Date().toISOString().split('T')[0];
+        const today = todayInLagos();
         const studentIds = (students || []).map((s: { id: string }) => s.id);
 
         let arrivals: { student_id: string; status: string; timestamp: string; type: string }[] = [];

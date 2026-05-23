@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest } from '@/lib/session';
+import { todayInLagos } from '@/lib/timezone';
+
+export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/teacher/extra-lesson
@@ -22,7 +25,7 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getAdminClient();
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayInLagos();
 
     if (action === 'add') {
       const { data, error } = await supabase

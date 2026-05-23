@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { ATTENDANCE_UI_NOTE } from '@/lib/attendance/window';
 import { formatTimeLagos } from '@/lib/timezone';
 import { toast } from 'sonner';
+import TeacherScanModal from '@/components/teacher/TeacherScanModal';
 
 export default function TeacherDashboard() {
   const [students, setStudents] = useState([]);
@@ -23,8 +24,6 @@ export default function TeacherDashboard() {
   const [busyId, setBusyId] = useState(null);
   const [dismissAllBusy, setDismissAllBusy] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
-  const [scanCode, setScanCode] = useState('');
-  const [scanning, setScanning] = useState(false);
 
   useEffect(() => {
     loadClass();
@@ -61,6 +60,10 @@ export default function TeacherDashboard() {
   const markReady = async (studentId, studentName) => {
     setBusyId(studentId);
     try {
+      if (!schoolId) {
+        toast.error('School not loaded — refresh the page');
+        return;
+      }
       const res = await fetch('/api/teacher/ready-for-pickup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -141,34 +144,13 @@ export default function TeacherDashboard() {
     setDismissAllBusy(false);
   };
 
-  const handleScan = async () => {
-    if (!scanCode.trim()) {
-      toast.error('Enter QR code or student ID');
-      return;
-    }
-    setScanning(true);
-    try {
-      const res = await fetch('/api/teacher/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ school_id: schoolId, qr_code: scanCode.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Scan failed');
-      toast.success(data.is_late ? `Marked late (${data.minutes_late} min)` : 'Marked present');
-      setScanCode('');
-      setScanOpen(false);
-      await loadClass();
-    } catch (e) {
-      toast.error(e.message || 'Scan failed');
-    }
-    setScanning(false);
-  };
-
   const markPresentManual = async (studentId, studentName) => {
     setBusyId(studentId);
     try {
+      if (!schoolId) {
+        toast.error('School not loaded — refresh the page');
+        return;
+      }
       const res = await fetch('/api/teacher/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -342,25 +324,11 @@ export default function TeacherDashboard() {
       )}
 
       {scanOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-5 w-full max-w-md shadow-xl">
-            <h3 className="font-bold text-lg mb-2">Mark attendance</h3>
-            <p className="text-xs text-slate-500 mb-3">Scan QR or enter student ID number</p>
-            <input
-              className="input mb-3 font-mono"
-              value={scanCode}
-              onChange={(e) => setScanCode(e.target.value)}
-              placeholder="QR / Student ID"
-              autoFocus
-            />
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setScanOpen(false)} className="btn-secondary flex-1">Cancel</button>
-              <button type="button" onClick={handleScan} disabled={scanning} className="btn-primary flex-1">
-                {scanning ? 'Saving…' : 'Mark present'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <TeacherScanModal
+          schoolId={schoolId}
+          onClose={() => setScanOpen(false)}
+          onSuccess={loadClass}
+        />
       )}
     </div>
   );

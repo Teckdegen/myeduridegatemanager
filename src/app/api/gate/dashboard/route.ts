@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest } from '@/lib/session';
+import { lagosDayBounds } from '@/lib/timezone';
 
 /** Gate officer: pickup queue, all students, parent pickup notices for today. */
 export async function GET(request: NextRequest) {
@@ -27,26 +28,37 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = getAdminClient();
-    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' });
+    const { dateStr, startIso, endIso } = lagosDayBounds();
 
-    const { data: students } = await supabase
+    const { data: students, error: studListErr } = await supabase
       .from('students')
       .select('id, first_name, last_name, student_id_number, photo_url, qr_code_data, class:school_classes(name)')
       .eq('school_id', schoolId)
       .eq('is_active', true)
       .order('last_name');
 
-    const { data: pickupQueue } = await supabase
+    if (studListErr) {
+      console.error('[gate/dashboard] students:', studListErr.message);
+      return NextResponse.json({ error: studListErr.message }, { status: 500 });
+    }
+
+    // Ready queue: match Lagos calendar day via dismissal_date OR created_at (fixes UTC date mismatch)
+    const { data: pickupQueue, error: queueErr } = await supabase
       .from('dismissal_requests')
       .select(
-        `id, status, created_at, notes,
-         student:students(id, first_name, last_name, student_id_number, photo_url, class:school_classes(name)),
-         requested_by:user_profiles!requested_by_user_id(full_name)`
+        `id, status, created_at, notes, dismissal_date,
+         student:students(id, first_name, last_name, student_id_number, photo_url, class:school_classes(name))`
       )
       .eq('school_id', schoolId)
-      .eq('dismissal_date', today)
       .in('status', ['pending', 'approved'])
+      .gte('created_at', startIso)
+      .lte('created_at', endIso)
       .order('created_at', { ascending: true });
+
+    if (queueErr) {
+      console.error('[gate/dashboard] pickup_queue:', queueErr.message);
+      return NextResponse.json({ error: queueErr.message }, { status: 500 });
+    }
 
     const { data: pickupNotices } = await supabase
       .from('pickup_notices')
@@ -55,10 +67,9 @@ export async function GET(request: NextRequest) {
          parent:user_profiles!parent_user_id(full_name, phone)`
       )
       .eq('school_id', schoolId)
-      .eq('notice_date', today)
+      .eq('notice_date', dateStr)
       .order('created_at', { ascending: false });
 
-    // Pickup requests for today
     const { data: pickupRequests } = await supabase
       .from('pickup_requests')
       .select(`
@@ -67,15 +78,14 @@ export async function GET(request: NextRequest) {
         parent:user_profiles!parent_user_id(full_name, phone)
       `)
       .eq('school_id', schoolId)
-      .eq('request_date', today)
+      .eq('request_date', dateStr)
       .order('created_at', { ascending: false });
 
-    // Pickup persons for students in the ready queue
     const readyStudentIds = (pickupQueue || [])
-      .map((q: any) => q.student?.id)
+      .map((q: any) => (Array.isArray(q.student) ? q.student[0]?.id : q.student?.id))
       .filter(Boolean);
 
-    let pickupPersonsByStudent: Record<string, any[]> = {};
+    let pickupPersonsByStudent: Record<string, unknown[]> = {};
     if (readyStudentIds.length > 0) {
       const { data: ppLinks } = await supabase
         .from('pickup_person_students')
@@ -89,9 +99,8 @@ export async function GET(request: NextRequest) {
         if (!pickupPersonsByStudent[link.student_id]) {
           pickupPersonsByStudent[link.student_id] = [];
         }
-        if (link.pickup_person) {
-          pickupPersonsByStudent[link.student_id].push(link.pickup_person);
-        }
+        const person = link.pickup_person as unknown;
+        if (person) pickupPersonsByStudent[link.student_id].push(person);
       }
     }
 
@@ -101,9 +110,11 @@ export async function GET(request: NextRequest) {
       pickup_notices: pickupNotices || [],
       pickup_requests: pickupRequests || [],
       pickup_persons_by_student: pickupPersonsByStudent,
+      day: dateStr,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to load gate data';
     console.error('[gate/dashboard]', err);
-    return NextResponse.json({ error: err.message || 'Failed to load gate data' }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

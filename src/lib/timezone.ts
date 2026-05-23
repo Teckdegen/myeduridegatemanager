@@ -11,6 +11,18 @@ export function todayInLagos(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: APP_TIMEZONE }).format(new Date());
 }
 
+/** Start/end of calendar day in Lagos as UTC ISO strings (for DB range queries). */
+export function lagosDayBounds(date = new Date()): {
+  dateStr: string;
+  startIso: string;
+  endIso: string;
+} {
+  const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: APP_TIMEZONE }).format(date);
+  const startIso = new Date(`${dateStr}T00:00:00+01:00`).toISOString();
+  const endIso = new Date(`${dateStr}T23:59:59.999+01:00`).toISOString();
+  return { dateStr, startIso, endIso };
+}
+
 export function formatTimeLagos(iso: string | null | undefined): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleTimeString('en-NG', {

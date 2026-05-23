@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
-import { getSessionFromRequest } from '@/lib/session';
+import { getSessionFromRequest, sessionHasRole } from '@/lib/session';
+import { resolveStudentId } from '@/lib/attendance/resolve-student';
 import { isLateByThreshold, minutesAfterThreshold, nowUtcIso } from '@/lib/timezone';
+
+export const dynamic = 'force-dynamic';
 
 /**
  * POST /api/teacher/scan
  * Teacher marks a student present (arrival) from classroom.
- * Used when a student missed the gate check-in.
- * body: { student_id?, qr_code?, school_id }
  */
 export async function POST(request: NextRequest) {
   try {
@@ -21,41 +22,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'school_id required' }, { status: 400 });
     }
 
+    const isTeacher = session.roles.some(
+      (r) => r.school_id === school_id && ['teacher', 'school_admin'].includes(r.role)
+    );
+    if (!isTeacher && !sessionHasRole(session, 'super_admin')) {
+      return NextResponse.json({ error: 'Teacher access required' }, { status: 403 });
+    }
+
     const supabase = getAdminClient();
 
-    // Resolve student
-    let resolvedStudentId = student_id;
+    let resolvedStudentId = student_id as string | undefined;
     if (!resolvedStudentId && qr_code) {
-      const { data: s } = await supabase
-        .from('students')
-        .select('id')
-        .eq('qr_code_data', qr_code)
-        .eq('school_id', school_id)
-        .eq('is_active', true)
-        .maybeSingle();
-      if (!s) {
-        // Try by student_id_number
-        const { data: s2 } = await supabase
-          .from('students')
-          .select('id')
-          .eq('student_id_number', qr_code)
-          .eq('school_id', school_id)
-          .eq('is_active', true)
-          .maybeSingle();
-        resolvedStudentId = s2?.id;
-      } else {
-        resolvedStudentId = s.id;
-      }
+      resolvedStudentId = (await resolveStudentId(supabase, school_id, qr_code)) || undefined;
     }
 
     if (!resolvedStudentId) {
-      return NextResponse.json({ error: 'Student not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Student not found — check QR or ID' }, { status: 404 });
     }
 
-    // Get school late threshold
     const { data: school } = await supabase
       .from('schools')
-      .select('late_threshold, school_start_time')
+      .select('late_threshold')
       .eq('id', school_id)
       .single();
 
@@ -64,29 +51,57 @@ export async function POST(request: NextRequest) {
     const minutesLate = isLate ? minutesAfterThreshold(threshold) : null;
     const nowIso = nowUtcIso();
 
-    const { data: record, error } = await supabase
+    const basePayload = {
+      student_id: resolvedStudentId,
+      school_id,
+      type: 'arrival' as const,
+      verification_method: 'teacher_manual' as const,
+      verified_by_user_id: session.user_id,
+      status: (isLate ? 'late' : 'on_time') as 'late' | 'on_time',
+      source: 'teacher' as const,
+      minutes_late: minutesLate,
+      timestamp: nowIso,
+    };
+
+    let { data: record, error } = await supabase
       .from('attendance_records')
-      .insert({
-        student_id: resolvedStudentId,
-        school_id,
-        type: 'arrival',
-        verification_method: 'teacher_manual',
-        verified_by_user_id: session.user_id,
-        status: isLate ? 'late' : 'on_time',
-        source: 'teacher',
-        minutes_late: minutesLate,
-        timestamp: nowIso,
-      })
+      .insert(basePayload)
       .select()
       .single();
 
+    // Legacy DB without teacher_manual / source columns
+    if (error && /teacher_manual|source|minutes_late/i.test(error.message)) {
+      const legacy = await supabase
+        .from('attendance_records')
+        .insert({
+          student_id: resolvedStudentId,
+          school_id,
+          type: 'arrival',
+          verification_method: 'manual',
+          verified_by_user_id: session.user_id,
+          status: isLate ? 'late' : 'on_time',
+          timestamp: nowIso,
+        })
+        .select()
+        .single();
+      record = legacy.data;
+      error = legacy.error;
+    }
+
     if (error) {
+      console.error('[teacher/scan]', error.message);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, record, is_late: isLate, minutes_late: minutesLate });
-  } catch (err: any) {
+    return NextResponse.json({
+      success: true,
+      record,
+      is_late: isLate,
+      minutes_late: minutesLate,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed';
     console.error('[teacher/scan]', err);
-    return NextResponse.json({ error: err.message || 'Failed' }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

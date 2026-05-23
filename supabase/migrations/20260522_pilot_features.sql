@@ -251,5 +251,10 @@ COMMENT ON TABLE extra_lessons IS 'Students staying for extra lesson — not rea
 COMMENT ON TABLE pickup_persons IS 'Authorised persons who can collect a student — with photo for gate verification';
 COMMENT ON TABLE pickup_requests IS 'Parent message: who will pick up their child today';
 
+-- Backfill dismissal_date for rows created today (UTC/Lagos mismatch fix)
+UPDATE dismissal_requests
+SET dismissal_date = (created_at AT TIME ZONE 'Africa/Lagos')::date
+WHERE dismissal_date IS NULL OR dismissal_date <> (created_at AT TIME ZONE 'Africa/Lagos')::date;
+
 -- Done
 SELECT 'Migration 20260522_pilot_features applied successfully.' AS status;

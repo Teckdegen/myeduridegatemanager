@@ -3,6 +3,7 @@ import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest } from '@/lib/session';
 import { Resend } from 'resend';
 import { sendPushToUser } from '@/lib/push/send';
+import { todayInLagos, nowUtcIso } from '@/lib/timezone';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -74,6 +75,7 @@ export async function POST(request: NextRequest) {
       requested_by_user_id: session?.user_id || parentIds[0],
       status: 'pending',
       notes: `Dismissed by ${teacherDisplayName}`,
+      dismissal_date: todayInLagos(),
     });
 
     if (dismissErr) {

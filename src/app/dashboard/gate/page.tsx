@@ -60,17 +60,22 @@ export default function GateOfficerDashboard() {
   const loadGateData = useCallback(async () => {
     if (!schoolId) return;
     try {
-      const res = await fetch(`/api/gate/dashboard?school_id=${schoolId}`, {
+      const res = await fetch(`/api/gate/dashboard?school_id=${schoolId}&t=${Date.now()}`, {
         credentials: 'include',
         cache: 'no-store',
       });
       const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Could not load pickup queue');
+        return;
+      }
       if (data.students) setAllStudents(data.students);
-      if (data.pickup_queue) setPickupQueue(data.pickup_queue);
+      setPickupQueue(data.pickup_queue || []);
       if (data.pickup_notices) setPickupNotices(data.pickup_notices);
       if (data.pickup_persons_by_student) setPickupPersonsByStudent(data.pickup_persons_by_student);
-    } catch {
-      /* ignore */
+    } catch (e) {
+      console.error(e);
+      toast.error('Could not load gate data');
     }
   }, [schoolId]);
 

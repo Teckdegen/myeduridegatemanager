@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
-import { getSessionFromRequest } from '@/lib/session';
+import { getSessionFromRequest, sessionHasRole } from '@/lib/session';
 import { Resend } from 'resend';
 import { sendPushToUser } from '@/lib/push/send';
+import { todayInLagos } from '@/lib/timezone';
+
+export const dynamic = 'force-dynamic';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -25,8 +28,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'student_id and school_id required' }, { status: 400 });
     }
 
+    const isTeacher = session.roles.some(
+      (r) => r.school_id === school_id && ['teacher', 'school_admin'].includes(r.role)
+    );
+    if (!isTeacher && !sessionHasRole(session, 'super_admin')) {
+      return NextResponse.json({ error: 'Teacher access required' }, { status: 403 });
+    }
+
     const supabase = getAdminClient();
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayInLagos();
 
     // Check if already marked ready today (prevent double-tap)
     const { data: existing } = await supabase
