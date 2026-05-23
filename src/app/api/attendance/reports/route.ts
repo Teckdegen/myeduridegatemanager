@@ -55,6 +55,18 @@ export async function GET(request: NextRequest) {
       dateParam
     );
 
+    if (caps.studentIds != null && caps.studentIds.length === 0) {
+      return NextResponse.json({
+        type: reportType,
+        date: reportType === 'daily' ? dateParam : undefined,
+        month: monthLabel,
+        summary: { total: 0, present: 0, late: 0, absent: 0 },
+        report: [],
+        message: 'No students in your assigned class',
+        range: { start: rangeStartIso, end: rangeEndIso, start_date: startDateStr, end_date: endDateStr },
+      });
+    }
+
     const { students, error: studErr } = await fetchReportStudents(supabase, resolvedSchoolId, {
       studentIds: caps.studentIds,
       classId,
@@ -272,7 +284,8 @@ export async function GET(request: NextRequest) {
     const grandLate = dailySummaries.reduce((a, d) => a + d.late, 0);
     const grandAbsent = dailySummaries.reduce((a, d) => a + d.absent, 0);
     const grandTotal = totalStudents * totalDays;
-    const monthCalendarDays = reportType === 'monthly' ? dayStrings : schoolDayStrings;
+    const monthCalendarDays =
+      reportType === 'monthly' || reportType === 'weekly' ? dayStrings : schoolDayStrings;
 
     const studentMonthly = students.map((s) => {
       let present = 0;
@@ -311,7 +324,7 @@ export async function GET(request: NextRequest) {
     });
 
     const staffReport =
-      reportType === 'monthly' && includeStaff
+      (reportType === 'monthly' || reportType === 'weekly') && includeStaff
         ? await buildStaffMonthlyReport(
             supabase,
             resolvedSchoolId,
@@ -381,8 +394,12 @@ export async function GET(request: NextRequest) {
       },
       daily_summaries: dailySummaries,
       class_breakdown: classBreakdown,
-      student_monthly: reportType === 'monthly' ? studentMonthly : undefined,
-      staff_report: reportType === 'monthly' ? staffReport : undefined,
+      student_monthly:
+        reportType === 'monthly' || reportType === 'weekly' ? studentMonthly : undefined,
+      staff_report:
+        (reportType === 'monthly' || reportType === 'weekly') && includeStaff
+          ? staffReport
+          : undefined,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed';

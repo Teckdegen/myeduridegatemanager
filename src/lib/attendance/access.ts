@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AppSession } from '@/lib/session';
 import { sessionHasRole } from '@/lib/session';
+import { getTeacherStudentIds } from '@/lib/attendance/report-access';
 
 export type AttendanceAccess = {
   schoolId: string | null;
@@ -41,31 +42,7 @@ export async function resolveAttendanceAccess(
     return { error: 'Access denied for this school' };
   }
 
-  const { data: teacherProfile } = await supabase
-    .from('teacher_profiles')
-    .select('id')
-    .eq('user_id', session.user_id)
-    .eq('school_id', schoolId)
-    .maybeSingle();
-
-  let studentIds: string[] | null = null;
-  if (teacherProfile?.id) {
-    const { data: assignments } = await supabase
-      .from('teacher_class_assignments')
-      .select('class_id')
-      .eq('teacher_profile_id', teacherProfile.id);
-
-    const classIds = (assignments || []).map((a) => a.class_id);
-    if (classIds.length > 0) {
-      const { data: students } = await supabase
-        .from('students')
-        .select('id')
-        .eq('school_id', schoolId)
-        .in('class_id', classIds)
-        .eq('is_active', true);
-      studentIds = (students || []).map((s) => s.id);
-    }
-  }
+  const studentIds = await getTeacherStudentIds(supabase, session.user_id, schoolId);
 
   return { role: 'teacher', schoolId, studentIds };
 }

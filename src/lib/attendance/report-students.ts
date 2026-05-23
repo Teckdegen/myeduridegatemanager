@@ -22,7 +22,10 @@ export async function fetchReportStudents(
     .eq('is_active', true)
     .order('last_name');
 
-  if (opts?.studentIds?.length) {
+  if (opts?.studentIds != null) {
+    if (opts.studentIds.length === 0) {
+      return { students: [], error: null };
+    }
     q = q.in('id', opts.studentIds);
   }
   if (opts?.classId) {

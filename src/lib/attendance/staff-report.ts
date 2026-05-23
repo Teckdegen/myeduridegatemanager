@@ -38,30 +38,20 @@ export async function buildStaffMonthlyReport(
   type StaffRow = { user_id: string; type: string; timestamp: string };
   let staffRecords: StaffRow[] | null = null;
 
-  // Official staff report: ID card scans only (gate or admin scanning staff card)
   const primary = await supabase
     .from('staff_attendance')
-    .select('user_id, type, timestamp')
+    .select('user_id, type, timestamp, verification_method')
     .eq('school_id', schoolId)
     .in('user_id', userIds)
     .eq('type', 'clock_in')
-    .eq('verification_method', 'id_card_scan')
     .gte('timestamp', rangeStartIso)
     .lte('timestamp', rangeEndIso);
 
-  if (primary.error && /verification_method/i.test(primary.error.message)) {
-    const fallback = await supabase
-      .from('staff_attendance')
-      .select('user_id, type, timestamp')
-      .eq('school_id', schoolId)
-      .in('user_id', userIds)
-      .eq('type', 'clock_in')
-      .gte('timestamp', rangeStartIso)
-      .lte('timestamp', rangeEndIso);
-    staffRecords = (fallback.data || []).filter(() => true);
-  } else {
-    staffRecords = primary.data;
-  }
+  const allowedMethods = new Set(['id_card_scan', 'face_recognition']);
+  staffRecords = (primary.data || []).filter((r) => {
+    if (!r.verification_method) return true;
+    return allowedMethods.has(r.verification_method);
+  });
 
   const presentByUserDay: Record<string, Record<string, boolean>> = {};
   for (const r of staffRecords || []) {

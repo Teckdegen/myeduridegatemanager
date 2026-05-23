@@ -55,7 +55,12 @@ export default function DetailedAttendanceReports({
       const res = await fetch(`/api/attendance/reports?${params}`, { credentials: 'include' });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to load report');
-      if (json.message && !json.report?.length && !json.student_monthly?.length) {
+      if (
+        json.message &&
+        !json.report?.length &&
+        !json.student_monthly?.length &&
+        !json.daily_summaries?.some((d) => d.present > 0 || d.late > 0)
+      ) {
         toast.info(json.message);
       }
       setData(json);
@@ -160,7 +165,10 @@ export default function DetailedAttendanceReports({
         )}
       </div>
 
-      {reportType === 'monthly' && data?.type === 'monthly' && showStaffTab && (
+      {(reportType === 'monthly' || reportType === 'weekly') &&
+        data &&
+        (data.type === 'monthly' || data.type === 'weekly') &&
+        showStaffTab && (
         <div className="pill-tabs">
           <button
             type="button"
@@ -283,12 +291,17 @@ export default function DetailedAttendanceReports({
         </>
       )}
 
-      {!loading && data?.type === 'monthly' && monthView === 'students' && (
+      {!loading &&
+        (data?.type === 'monthly' || data?.type === 'weekly') &&
+        monthView === 'students' &&
+        data.student_monthly?.length > 0 && (
         <>
           <div className="card p-4">
-            <p className="text-lg font-bold">{data.month}</p>
+            <p className="text-lg font-bold">
+              {data.type === 'weekly' ? 'Weekly' : data.month}
+            </p>
             <p className="text-xs text-slate-500">
-              Full calendar month (Lagos) · {data.range?.start_date} → {data.range?.end_date} ·{' '}
+              {data.range?.start_date} → {data.range?.end_date} ·{' '}
               {data.summary?.school_days} school days · {data.summary?.total_students} students
             </p>
           </div>
@@ -344,10 +357,15 @@ export default function DetailedAttendanceReports({
         </>
       )}
 
-      {!loading && data?.type === 'monthly' && monthView === 'staff' && (
+      {!loading &&
+        (data?.type === 'monthly' || data?.type === 'weekly') &&
+        monthView === 'staff' &&
+        data.staff_report?.length > 0 && (
         <>
           <div className="card p-4">
-            <p className="text-lg font-bold">Staff — {data.month}</p>
+            <p className="text-lg font-bold">
+              Staff — {data.type === 'weekly' ? 'this week' : data.month}
+            </p>
             <p className="text-xs text-slate-500">
               Staff ID card scans only (gate or admin) · {data.summary?.total_staff} staff
             </p>

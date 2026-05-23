@@ -1,4 +1,4 @@
-import { APP_TIMEZONE } from '@/lib/timezone';
+import { APP_TIMEZONE, lagosDayBounds } from '@/lib/timezone';
 
 /** Calendar date YYYY-MM-DD in Lagos for a stored UTC timestamp. */
 export function timestampToLagosDateKey(iso: string): string {
@@ -6,8 +6,8 @@ export function timestampToLagosDateKey(iso: string): string {
 }
 
 export function lagosDayBoundsFromDateStr(dateStr: string): { startIso: string; endIso: string } {
-  const startIso = new Date(`${dateStr}T00:00:00+01:00`).toISOString();
-  const endIso = new Date(`${dateStr}T23:59:59.999+01:00`).toISOString();
+  const anchor = new Date(`${dateStr}T12:00:00+01:00`);
+  const { startIso, endIso } = lagosDayBounds(anchor);
   return { startIso, endIso };
 }
 

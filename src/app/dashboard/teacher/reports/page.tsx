@@ -36,7 +36,7 @@ export default function TeacherReportsPage() {
       </Link>
       <h1 className="text-2xl font-bold text-slate-900 mb-1">Class attendance reports</h1>
       <p className="text-sm text-slate-500 mb-6">
-        Your class students only. Use &quot;My attendance&quot; for your own staff days.
+        Your class only — daily, weekly, and monthly (includes today&apos;s gate scans). Staff tab shows your own ID scans.
       </p>
       <div className="card-elevated p-5">
         <DetailedAttendanceReports
