@@ -268,15 +268,21 @@ export default function DetailedAttendanceReports({
           <div className="card p-4">
             <p className="text-lg font-bold">{data.month}</p>
             <p className="text-xs text-slate-500">
-              Full month · {data.summary?.school_days} school days · {data.summary?.total_students} students
+              Full calendar month (Lagos) · {data.range?.start_date} → {data.range?.end_date} ·{' '}
+              {data.summary?.school_days} school days · {data.summary?.total_students} students
             </p>
           </div>
           <div className="card-elevated overflow-x-auto">
-            <table className="w-full text-sm min-w-[640px]">
+            <table className="w-full text-sm min-w-[720px]">
               <thead className="bg-slate-50 border-b">
                 <tr>
-                  <th className="text-left px-2 py-2 text-xs sticky left-0 bg-slate-50">Student</th>
+                  <th className="text-left px-2 py-2 text-xs sticky left-0 bg-slate-50 z-10">Student</th>
                   <th className="text-left px-2 py-2 text-xs">Class</th>
+                  {(data.student_monthly?.[0]?.days || []).map((d) => (
+                    <th key={d.date} className="px-0.5 py-1 text-[9px] text-slate-500 font-normal w-6">
+                      {d.date.slice(8)}
+                    </th>
+                  ))}
                   <th className="px-1 py-2 text-xs text-emerald-700">P</th>
                   <th className="px-1 py-2 text-xs text-amber-700">L</th>
                   <th className="px-1 py-2 text-xs text-red-600">A</th>
@@ -286,18 +292,33 @@ export default function DetailedAttendanceReports({
               <tbody className="divide-y">
                 {(data.student_monthly || []).map((r) => (
                   <tr key={r.student_id}>
-                    <td className="px-2 py-2 font-medium sticky left-0 bg-white">{r.first_name} {r.last_name}</td>
+                    <td className="px-2 py-2 font-medium sticky left-0 bg-white z-10 text-xs">{r.first_name} {r.last_name}</td>
                     <td className="px-2 py-2 text-slate-600 text-xs">{r.class_name}</td>
-                    <td className="px-2 py-2 text-center text-emerald-700">{r.present}</td>
-                    <td className="px-2 py-2 text-center text-amber-700">{r.late}</td>
-                    <td className="px-2 py-2 text-center text-red-600">{r.absent}</td>
-                    <td className="px-2 py-2 text-center font-semibold">{r.attendance_pct}%</td>
+                    {(r.days || []).map((d) => (
+                      <td key={d.date} className="px-0.5 py-1 text-center">
+                        <span
+                          title={`${d.date}: ${d.status}`}
+                          className={`inline-flex w-5 h-5 items-center justify-center rounded text-[8px] font-bold ${
+                            d.status === 'weekend' ? 'bg-slate-100 text-slate-400' :
+                            d.status === 'late' ? 'bg-amber-400 text-white' :
+                            d.status === 'on_time' ? 'bg-emerald-500 text-white' :
+                            'bg-red-400 text-white'
+                          }`}
+                        >
+                          {d.status === 'weekend' ? '·' : DAY_CELL[d.status] || 'A'}
+                        </span>
+                      </td>
+                    ))}
+                    <td className="px-2 py-2 text-center text-emerald-700 text-xs">{r.present}</td>
+                    <td className="px-2 py-2 text-center text-amber-700 text-xs">{r.late}</td>
+                    <td className="px-2 py-2 text-center text-red-600 text-xs">{r.absent}</td>
+                    <td className="px-2 py-2 text-center font-semibold text-xs">{r.attendance_pct}%</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <p className="text-[10px] text-slate-400">P = on time · L = late · A = absent (school days only)</p>
+          <p className="text-[10px] text-slate-400">P = on time · L = late · A = absent · grey = weekend · totals use school days only</p>
         </>
       )}
 
@@ -305,23 +326,43 @@ export default function DetailedAttendanceReports({
         <>
           <div className="card p-4">
             <p className="text-lg font-bold">Staff — {data.month}</p>
-            <p className="text-xs text-slate-500">{data.summary?.total_staff} staff · clock-in days per person</p>
+            <p className="text-xs text-slate-500">
+              Full month clock-ins · {data.summary?.total_staff} staff (teachers, gate, admins)
+            </p>
           </div>
           <div className="card-elevated overflow-x-auto">
-            <table className="w-full text-sm min-w-[480px]">
+            <table className="w-full text-sm min-w-[640px]">
               <thead className="bg-slate-50 border-b">
                 <tr>
-                  <th className="text-left px-2 py-2 text-xs">Name</th>
+                  <th className="text-left px-2 py-2 text-xs sticky left-0 bg-slate-50 z-10">Name</th>
                   <th className="text-left px-2 py-2 text-xs">Role</th>
+                  {(data.staff_report?.[0]?.days || []).map((d) => (
+                    <th key={d.date} className="px-0.5 py-1 text-[9px] text-slate-500 font-normal w-6">
+                      {d.date.slice(8)}
+                    </th>
+                  ))}
                   <th className="px-2 py-2 text-xs text-center">Days in</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {(data.staff_report || []).map((r) => (
                   <tr key={r.user_id}>
-                    <td className="px-2 py-2 font-medium">{r.full_name}</td>
+                    <td className="px-2 py-2 font-medium sticky left-0 bg-white z-10 text-xs">{r.full_name}</td>
                     <td className="px-2 py-2 text-slate-600 capitalize text-xs">{r.role}</td>
-                    <td className="px-2 py-2 text-center font-semibold">{r.days_present}</td>
+                    {(r.days || []).map((d) => (
+                      <td key={d.date} className="px-0.5 py-1 text-center">
+                        <span
+                          title={`${d.date}`}
+                          className={`inline-flex w-5 h-5 items-center justify-center rounded text-[8px] font-bold ${
+                            d.status === 'weekend' ? 'bg-slate-100 text-slate-400' :
+                            d.status === 'present' ? 'bg-emerald-500 text-white' : 'bg-red-400 text-white'
+                          }`}
+                        >
+                          {d.status === 'weekend' ? '·' : d.status === 'present' ? '✓' : '—'}
+                        </span>
+                      </td>
+                    ))}
+                    <td className="px-2 py-2 text-center font-semibold text-xs">{r.days_present}</td>
                   </tr>
                 ))}
               </tbody>

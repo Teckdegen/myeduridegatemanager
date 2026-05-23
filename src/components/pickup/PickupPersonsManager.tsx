@@ -56,6 +56,12 @@ export default function PickupPersonsManager({
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    if (mode === 'parent' && students.length === 1 && form.student_ids.length === 0) {
+      setForm((f) => ({ ...f, student_ids: [students[0].id] }));
+    }
+  }, [mode, students, form.student_ids.length]);
+
   const uploadPhoto = async (file) => {
     const fd = new FormData();
     fd.append('file', file);

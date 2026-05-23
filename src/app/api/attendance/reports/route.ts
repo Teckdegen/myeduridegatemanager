@@ -219,6 +219,7 @@ export async function GET(request: NextRequest) {
     const grandTotal = totalStudents * totalDays;
 
     const schoolDayStrings = dayStrings.filter((d) => !lagosWeekend(d));
+    const monthCalendarDays = reportType === 'monthly' ? dayStrings : schoolDayStrings;
 
     const studentMonthly = (students || []).map((s: {
       id: string;
@@ -231,7 +232,10 @@ export async function GET(request: NextRequest) {
       let present = 0;
       let late = 0;
       let absent = 0;
-      const days = schoolDayStrings.map((dayKey) => {
+      const days = monthCalendarDays.map((dayKey) => {
+        if (lagosWeekend(dayKey)) {
+          return { date: dayKey, status: 'weekend' as const };
+        }
         const arrival = arrivalMap[s.id]?.[dayKey];
         const normalized = normalizeArrivalStatus(arrival);
         const status = normalized || 'absent';
@@ -257,7 +261,7 @@ export async function GET(request: NextRequest) {
 
     const staffReport =
       reportType === 'monthly'
-        ? await buildStaffMonthlyReport(supabase, resolvedSchoolId, rangeStartIso, rangeEndIso, schoolDayStrings)
+        ? await buildStaffMonthlyReport(supabase, resolvedSchoolId, rangeStartIso, rangeEndIso, monthCalendarDays)
         : [];
 
     if (format === 'csv') {

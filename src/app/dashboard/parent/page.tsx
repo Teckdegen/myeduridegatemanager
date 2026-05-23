@@ -245,13 +245,19 @@ export default function ParentDashboard() {
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-                <PickupPersonsManager
-                  mode="parent"
-                  students={children}
-                  schoolId={children[0]?.school_id}
-                />
-              </div>
+              {children.map((child) => (
+                <div key={child.id} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                  <h2 className="font-semibold text-gray-900 mb-1">
+                    {child.first_name} {child.last_name}
+                  </h2>
+                  <p className="text-xs text-gray-500 mb-3">Authorised pickup list for this child</p>
+                  <PickupPersonsManager
+                    mode="parent"
+                    students={[child]}
+                    schoolId={child.school_id}
+                  />
+                </div>
+              ))}
               <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
                 <h2 className="font-semibold text-gray-900 mb-1">Different person today?</h2>
                 <p className="text-xs text-gray-500 mb-4 leading-relaxed">

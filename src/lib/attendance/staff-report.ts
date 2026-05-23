@@ -1,12 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { lagosDateStringsInRange, timestampToLagosDateKey } from '@/lib/attendance/lagos-dates';
+import { timestampToLagosDateKey, lagosWeekend } from '@/lib/attendance/lagos-dates';
 
 export type StaffMonthlyRow = {
   user_id: string;
   full_name: string;
   role: string;
   days_present: number;
-  days: { date: string; present: boolean }[];
+  days: { date: string; present: boolean; status: 'present' | 'absent' | 'weekend' }[];
 };
 
 export async function buildStaffMonthlyReport(
@@ -44,15 +44,18 @@ export async function buildStaffMonthlyReport(
 
   return roles.map((r: { user_id: string; role: string; user: unknown }) => {
     const user = Array.isArray(r.user) ? r.user[0] : r.user;
-    const days = dayStrings.map((date) => ({
-      date,
-      present: !!presentByUserDay[r.user_id]?.[date],
-    }));
+    const days = dayStrings.map((date) => {
+      if (lagosWeekend(date)) {
+        return { date, present: false, status: 'weekend' as const };
+      }
+      const present = !!presentByUserDay[r.user_id]?.[date];
+      return { date, present, status: present ? ('present' as const) : ('absent' as const) };
+    });
     return {
       user_id: r.user_id,
       full_name: (user as { full_name?: string })?.full_name || 'Staff',
       role: r.role.replace('_', ' '),
-      days_present: days.filter((d) => d.present).length,
+      days_present: days.filter((d) => d.status === 'present').length,
       days,
     };
   });
