@@ -83,12 +83,14 @@ export default function StudentStaffScanPage() {
         <StudentIdScanPanel
           schoolId={schoolId}
           mode={mode}
+          onModeChange={setMode}
           onSuccess={() => setLogKey((k) => k + 1)}
         />
       ) : (
         <StaffIdScanPanel
           schoolId={schoolId}
           mode={mode}
+          onModeChange={setMode}
           onSuccess={() => setLogKey((k) => k + 1)}
         />
       )}

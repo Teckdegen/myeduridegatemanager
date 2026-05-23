@@ -3,7 +3,12 @@ import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest } from '@/lib/session';
 import { notifyParentsOfAttendance } from '@/lib/notifications/parent-notify';
 import { isLateByThreshold, minutesAfterThreshold, nowUtcIso, todayInLagos } from '@/lib/timezone';
-import { getStudentTodayStatus, getStaffTodayStatus } from '@/lib/gate/daily-limits';
+import {
+  getStudentTodayStatus,
+  getStaffTodayStatus,
+  validateStudentGateAction,
+  validateStaffGateAction,
+} from '@/lib/gate/daily-limits';
 
 export async function POST(request: NextRequest) {
   try {
@@ -55,26 +60,22 @@ export async function POST(request: NextRequest) {
 
       const staffType = type === 'departure' ? 'clock_out' : 'clock_in';
       const staffToday = await getStaffTodayStatus(supabase, schoolId, user_id);
-
-      if (staffType === 'clock_in' && staffToday.has_clock_in) {
+      const gateAction = type === 'departure' ? 'departure' : 'arrival';
+      const validation = validateStaffGateAction(staffToday, gateAction);
+      if (!validation.allowed) {
         return NextResponse.json(
-          { error: 'Staff already signed in today — one sign-in per day' },
-          { status: 409 }
+          { error: validation.error, code: validation.code, already_recorded: true },
+          { status: validation.code === 'must_check_in_first' ? 403 : 409 }
         );
       }
-      if (staffType === 'clock_out') {
-        if (!staffToday.has_clock_in) {
-          return NextResponse.json(
-            { error: 'Staff must sign in before signing out' },
-            { status: 403 }
-          );
-        }
-        if (staffToday.has_clock_out) {
-          return NextResponse.json(
-            { error: 'Staff already signed out today — one sign-out per day' },
-            { status: 409 }
-          );
-        }
+
+      const staffRecheck = await getStaffTodayStatus(supabase, schoolId, user_id);
+      const revalidate = validateStaffGateAction(staffRecheck, gateAction);
+      if (!revalidate.allowed) {
+        return NextResponse.json(
+          { error: revalidate.error, code: revalidate.code, already_recorded: true },
+          { status: 409 }
+        );
       }
 
       const staffPayload = {
@@ -152,27 +153,21 @@ export async function POST(request: NextRequest) {
     }
 
     const studentToday = await getStudentTodayStatus(supabase, schoolId, student_id);
-
-    if (type === 'arrival' && studentToday.has_arrival) {
+    const validation = validateStudentGateAction(studentToday, type);
+    if (!validation.allowed) {
       return NextResponse.json(
-        { error: 'Student already checked in today — one sign-in per day' },
-        { status: 409 }
+        { error: validation.error, code: validation.code, already_recorded: true },
+        { status: validation.code === 'must_check_in_first' ? 403 : 409 }
       );
     }
 
-    if (type === 'departure') {
-      if (!studentToday.has_arrival) {
-        return NextResponse.json(
-          { error: 'Student must check in before check out' },
-          { status: 403 }
-        );
-      }
-      if (studentToday.has_departure) {
-        return NextResponse.json(
-          { error: 'Student already checked out today — one sign-out per day' },
-          { status: 409 }
-        );
-      }
+    const studentRecheck = await getStudentTodayStatus(supabase, schoolId, student_id);
+    const revalidate = validateStudentGateAction(studentRecheck, type);
+    if (!revalidate.allowed) {
+      return NextResponse.json(
+        { error: revalidate.error, code: revalidate.code, already_recorded: true },
+        { status: 409 }
+      );
     }
 
     if (type === 'departure' && !from_ready_queue) {

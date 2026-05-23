@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { resolveStudentId } from '@/lib/attendance/resolve-student';
 import { resolveStaffProfile, resolveStaffRoleLabel } from '@/lib/attendance/resolve-staff';
-import { getStudentTodayStatus, getStaffTodayStatus } from '@/lib/gate/daily-limits';
+import {
+  getStudentTodayStatus,
+  getStaffTodayStatus,
+  validateStudentGateAction,
+  validateStaffGateAction,
+} from '@/lib/gate/daily-limits';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +46,8 @@ export async function POST(request: NextRequest) {
       }
 
       const today = await getStudentTodayStatus(supabase, school_id, studentId);
+      const checkIn = validateStudentGateAction(today, 'arrival');
+      const checkOut = validateStudentGateAction(today, 'departure');
 
       return NextResponse.json({
         type: 'student',
@@ -52,6 +59,17 @@ export async function POST(request: NextRequest) {
           photo_url: student.photo_url,
         },
         today_status: today,
+        scan_hints: {
+          can_check_in: checkIn.allowed,
+          can_check_out: checkOut.allowed,
+          already_complete: today.has_arrival && today.has_departure,
+          suggested_mode: checkIn.allowed ? 'arrival' : checkOut.allowed ? 'departure' : null,
+          message: today.has_arrival && today.has_departure
+            ? 'Already checked in and out today'
+            : today.has_arrival
+              ? 'Already checked in — use Check out only'
+              : null,
+        },
       });
     }
 
@@ -59,6 +77,9 @@ export async function POST(request: NextRequest) {
     if (staff) {
       const roleLabel = await resolveStaffRoleLabel(supabase, school_id, staff.user_id);
       const today = await getStaffTodayStatus(supabase, school_id, staff.user_id);
+
+      const checkIn = validateStaffGateAction(today, 'arrival');
+      const checkOut = validateStaffGateAction(today, 'departure');
 
       return NextResponse.json({
         type: 'staff',
@@ -73,6 +94,17 @@ export async function POST(request: NextRequest) {
         today_status: {
           has_clock_in: today.has_clock_in,
           has_clock_out: today.has_clock_out,
+        },
+        scan_hints: {
+          can_check_in: checkIn.allowed,
+          can_check_out: checkOut.allowed,
+          already_complete: today.has_clock_in && today.has_clock_out,
+          suggested_mode: checkIn.allowed ? 'arrival' : checkOut.allowed ? 'departure' : null,
+          message: today.has_clock_in && today.has_clock_out
+            ? 'Already signed in and out today'
+            : today.has_clock_in
+              ? 'Already signed in — use Sign out only'
+              : null,
         },
       });
     }

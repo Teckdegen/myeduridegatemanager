@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Camera, ScanLine } from 'lucide-react';
 import { toast } from 'sonner';
 import StudentAvatar from '@/components/shared/StudentAvatar';
+import TodayScanStatusBanner from '@/components/gate/TodayScanStatusBanner';
+import { applyScanHints, isActionBlocked } from '@/lib/gate/scan-hints-client';
 
 function splitName(fullName) {
   const parts = (fullName || '').trim().split(/\s+/).filter(Boolean);
@@ -14,7 +16,7 @@ function splitName(fullName) {
 /**
  * Scan-only staff sign-in/out (gate manager or school admin with staff ID card).
  */
-export default function StaffIdScanPanel({ schoolId, mode = 'arrival', onSuccess }) {
+export default function StaffIdScanPanel({ schoolId, mode = 'arrival', onModeChange, onSuccess }) {
   const [manualCode, setManualCode] = useState('');
   const [scanned, setScanned] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -106,6 +108,7 @@ export default function StaffIdScanPanel({ schoolId, mode = 'arrival', onSuccess
         throw new Error(data.error || 'Staff ID not found');
       }
       stopCamera();
+      applyScanHints(data, { toast, setMode: onModeChange });
       setScanned(data);
     } catch (e) {
       toast.error(e.message || 'Scan failed');
@@ -114,23 +117,12 @@ export default function StaffIdScanPanel({ schoolId, mode = 'arrival', onSuccess
     setScanning(false);
   };
 
+  const gateAction = mode === 'arrival' ? 'arrival' : 'departure';
+  const block = isActionBlocked(scanned?.today_status, gateAction, true);
+  const fullyComplete = scanned?.scan_hints?.already_complete;
+
   const confirmScan = async () => {
-    if (!scanned?.person || saving) return;
-    const t = scanned.today_status || {};
-    if (mode === 'arrival' && t.has_clock_in) {
-      toast.error('Already signed in today');
-      return;
-    }
-    if (mode === 'departure') {
-      if (!t.has_clock_in) {
-        toast.error('Must sign in before sign out');
-        return;
-      }
-      if (t.has_clock_out) {
-        toast.error('Already signed out today');
-        return;
-      }
-    }
+    if (!scanned?.person || saving || block.blocked || fullyComplete) return;
 
     setSaving(true);
     try {
@@ -148,7 +140,22 @@ export default function StaffIdScanPanel({ schoolId, mode = 'arrival', onSuccess
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Could not save');
+      if (!res.ok) {
+        if (data.already_recorded) {
+          toast.error(data.error || 'Already signed in or out today');
+          setScanned((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  today_status: data.today_status ?? prev.today_status,
+                  scan_hints: data.scan_hints ?? prev.scan_hints,
+                }
+              : prev
+          );
+          return;
+        }
+        throw new Error(data.error || 'Could not save');
+      }
       toast.success(
         `${scanned.person.name} — ${mode === 'arrival' ? 'signed in' : 'signed out'} (ID scan)`
       );
@@ -180,6 +187,12 @@ export default function StaffIdScanPanel({ schoolId, mode = 'arrival', onSuccess
             <p className="text-xs text-violet-600 capitalize">{scanned.person.role_label || 'Staff'}</p>
           </div>
         </div>
+        <TodayScanStatusBanner todayStatus={scanned.today_status} isStaff />
+        {block.message && (
+          <p className="text-sm font-semibold text-red-700 bg-red-50 border border-red-100 rounded-xl px-3 py-2 text-center">
+            {block.message}
+          </p>
+        )}
         <p className="text-center text-sm font-bold py-2 rounded-xl bg-violet-50 text-violet-800">
           {mode === 'arrival' ? 'STAFF SIGN IN (ID card)' : 'STAFF SIGN OUT (ID card)'}
         </p>
@@ -195,8 +208,13 @@ export default function StaffIdScanPanel({ schoolId, mode = 'arrival', onSuccess
           >
             Cancel
           </button>
-          <button type="button" className="btn-primary flex-1" disabled={saving} onClick={confirmScan}>
-            {saving ? 'Saving…' : 'Confirm scan'}
+          <button
+            type="button"
+            className="btn-primary flex-1"
+            disabled={saving || block.blocked || fullyComplete}
+            onClick={confirmScan}
+          >
+            {saving ? 'Saving…' : fullyComplete ? 'Done for today' : 'Confirm scan'}
           </button>
         </div>
       </div>

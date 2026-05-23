@@ -3,7 +3,8 @@ import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest, sessionHasRole } from '@/lib/session';
 import { resolveStudentId } from '@/lib/attendance/resolve-student';
 import { getTeacherStudentIds } from '@/lib/attendance/report-access';
-import { isLateByThreshold, minutesAfterThreshold, nowUtcIso, lagosDayBounds } from '@/lib/timezone';
+import { isLateByThreshold, minutesAfterThreshold, nowUtcIso } from '@/lib/timezone';
+import { getStudentTodayStatus, validateStudentGateAction } from '@/lib/gate/daily-limits';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,20 +55,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const { startIso, endIso } = lagosDayBounds();
-    const { data: existing } = await supabase
-      .from('attendance_records')
-      .select('id')
-      .eq('student_id', resolvedStudentId)
-      .eq('school_id', school_id)
-      .eq('type', 'arrival')
-      .gte('timestamp', startIso)
-      .lte('timestamp', endIso)
-      .maybeSingle();
-
-    if (existing?.id) {
+    const today = await getStudentTodayStatus(supabase, school_id, resolvedStudentId);
+    const validation = validateStudentGateAction(today, 'arrival');
+    if (!validation.allowed) {
       return NextResponse.json(
-        { error: 'Student already marked present today' },
+        { error: validation.error, already_recorded: true, today_status: today },
         { status: 409 }
       );
     }

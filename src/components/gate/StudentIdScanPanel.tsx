@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Camera, ScanLine } from 'lucide-react';
 import { toast } from 'sonner';
 import StudentAvatar from '@/components/shared/StudentAvatar';
+import TodayScanStatusBanner from '@/components/gate/TodayScanStatusBanner';
+import { applyScanHints, isActionBlocked } from '@/lib/gate/scan-hints-client';
 
 function splitName(fullName) {
   const parts = (fullName || '').trim().split(/\s+/).filter(Boolean);
@@ -12,7 +14,7 @@ function splitName(fullName) {
 }
 
 /** Student check-in/out via ID card (admin or gate — same API as gate manager). */
-export default function StudentIdScanPanel({ schoolId, mode = 'arrival', onSuccess }) {
+export default function StudentIdScanPanel({ schoolId, mode = 'arrival', onModeChange, onSuccess }) {
   const [manualCode, setManualCode] = useState('');
   const [scanned, setScanned] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -104,6 +106,7 @@ export default function StudentIdScanPanel({ schoolId, mode = 'arrival', onSucce
         throw new Error(data.error || 'Student ID not found');
       }
       stopCamera();
+      applyScanHints(data, { toast, setMode: onModeChange });
       setScanned(data);
     } catch (e) {
       toast.error(e.message || 'Scan failed');
@@ -112,23 +115,12 @@ export default function StudentIdScanPanel({ schoolId, mode = 'arrival', onSucce
     setScanning(false);
   };
 
+  const gateAction = mode === 'arrival' ? 'arrival' : 'departure';
+  const block = isActionBlocked(scanned?.today_status, gateAction, false);
+  const fullyComplete = scanned?.scan_hints?.already_complete;
+
   const confirmScan = async () => {
-    if (!scanned?.person || saving) return;
-    const t = scanned.today_status || {};
-    if (mode === 'arrival' && t.has_arrival) {
-      toast.error('Already checked in today');
-      return;
-    }
-    if (mode === 'departure') {
-      if (!t.has_arrival) {
-        toast.error('Must check in before check out');
-        return;
-      }
-      if (t.has_departure) {
-        toast.error('Already checked out today');
-        return;
-      }
-    }
+    if (!scanned?.person || saving || block.blocked || fullyComplete) return;
 
     setSaving(true);
     try {
@@ -145,7 +137,22 @@ export default function StudentIdScanPanel({ schoolId, mode = 'arrival', onSucce
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Could not save');
+      if (!res.ok) {
+        if (data.already_recorded) {
+          toast.error(data.error || 'Already signed in or out today');
+          setScanned((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  today_status: data.today_status ?? prev.today_status,
+                  scan_hints: data.scan_hints ?? prev.scan_hints,
+                }
+              : prev
+          );
+          return;
+        }
+        throw new Error(data.error || 'Could not save');
+      }
       toast.success(
         `${scanned.person.name} — ${mode === 'arrival' ? 'checked in' : 'checked out'} (ID scan)`
       );
@@ -177,27 +184,52 @@ export default function StudentIdScanPanel({ schoolId, mode = 'arrival', onSucce
             {scanned.person.class_name && (
               <p className="text-xs text-slate-400">{scanned.person.class_name}</p>
             )}
-          </div>
         </div>
-        <p className="text-center text-sm font-bold py-2 rounded-xl bg-emerald-50 text-emerald-800">
-          {mode === 'arrival' ? 'STUDENT CHECK IN' : 'STUDENT CHECK OUT'}
+      </div>
+      <TodayScanStatusBanner todayStatus={scanned.today_status} />
+      {block.message && (
+        <p className="text-sm font-semibold text-red-700 bg-red-50 border border-red-100 rounded-xl px-3 py-2 text-center">
+          {block.message}
         </p>
-        <div className="flex gap-2">
+      )}
+      <p className="text-center text-sm font-bold py-2 rounded-xl bg-emerald-50 text-emerald-800">
+        {mode === 'arrival' ? 'STUDENT CHECK IN' : 'STUDENT CHECK OUT'}
+      </p>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          className="btn-secondary flex-1"
+          onClick={() => {
+            setScanned(null);
+            setManualCode('');
+            startCamera();
+          }}
+        >
+          Cancel
+        </button>
+        {!fullyComplete ? (
           <button
             type="button"
-            className="btn-secondary flex-1"
+            className="btn-primary flex-1"
+            disabled={saving || block.blocked}
+            onClick={confirmScan}
+          >
+            {saving ? 'Saving…' : 'Confirm scan'}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn-primary flex-1"
             onClick={() => {
               setScanned(null);
               setManualCode('');
               startCamera();
             }}
           >
-            Cancel
+            Done
           </button>
-          <button type="button" className="btn-primary flex-1" disabled={saving} onClick={confirmScan}>
-            {saving ? 'Saving…' : 'Confirm scan'}
-          </button>
-        </div>
+        )}
+      </div>
       </div>
     );
   }

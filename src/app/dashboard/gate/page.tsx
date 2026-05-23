@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import NotificationsInbox from '@/components/notifications/NotificationsInbox';
 import AttendanceSignLog from '@/components/attendance/AttendanceSignLog';
+import TodayScanStatusBanner from '@/components/gate/TodayScanStatusBanner';
+import { applyScanHints, isActionBlocked } from '@/lib/gate/scan-hints-client';
 import { toast } from 'sonner';
 import { formatTimeLagos } from '@/lib/timezone';
 import { photoSrc } from '@/lib/photo';
@@ -261,9 +263,7 @@ export default function GateOfficerDashboard() {
           enriched.pickup_notice = noticeForStudent(data.person.id) || null;
           enriched.pickup_persons = pickupPersonsByStudent[data.person.id] || [];
         }
-        if (data.type === 'staff' && data.today_status?.has_clock_in && gateMode === 'arrival') {
-          setGateMode('dismissal');
-        }
+        applyScanHints(data, { toast, setMode: setGateMode });
         setScannedPerson(enriched);
         setGateTab('scan');
       } else {
@@ -277,15 +277,36 @@ export default function GateOfficerDashboard() {
     setScanning(false);
   };
 
-  const openStudentForRelease = (student, fromQueue = false) => {
+  const openStudentForRelease = async (student, fromQueue = false) => {
     const notice = noticeForStudent(student.id);
     const pickupPersons = pickupPersonsByStudent[student.id] || [];
     setGateMode('dismissal');
+    let today_status = null;
+    let scan_hints = null;
+    try {
+      const scanValue = student.qr_code_data || student.student_id_number;
+      if (scanValue && schoolId) {
+        const res = await fetch('/api/gate/scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ scan_data: scanValue, school_id: schoolId }),
+        });
+        const data = await res.json();
+        today_status = data.today_status;
+        scan_hints = data.scan_hints;
+        applyScanHints(data, { toast, setMode: setGateMode });
+      }
+    } catch {
+      /* status optional */
+    }
     setScannedPerson({
       type: 'student',
       from_queue: fromQueue,
       pickup_notice: notice || null,
       pickup_persons: pickupPersons,
+      today_status,
+      scan_hints,
       person: {
         id: student.id,
         name: `${student.first_name} ${student.last_name}`,
@@ -339,7 +360,11 @@ export default function GateOfficerDashboard() {
         setTodayCount((p) => p + 1);
         resumeScanning();
       } else {
-        toast.error(data.error || 'Failed to log');
+        const msg = data.error || 'Failed to log';
+        toast.error(msg);
+        if (data.already_recorded) {
+          resumeScanning();
+        }
       }
     } catch {
       toast.error('Failed — try again');
@@ -395,24 +420,20 @@ export default function GateOfficerDashboard() {
     return `${s.first_name} ${s.last_name} ${s.student_id_number} ${s.class?.name || ''}`.toLowerCase().includes(q);
   });
 
-  const gateBlockReason = (() => {
-    if (!scannedPerson?.today_status) return null;
-    const t = scannedPerson.today_status;
-    const isStaff = scannedPerson.type === 'staff';
-    if (gateMode === 'arrival') {
-      if (isStaff && t.has_clock_in) return 'Staff already signed in today (one per day)';
-      if (!isStaff && t.has_arrival) return 'Student already checked in today (one per day)';
-    } else {
-      if (isStaff) {
-        if (!t.has_clock_in) return 'Staff must sign in before signing out';
-        if (t.has_clock_out) return 'Staff already signed out today';
-      } else {
-        if (!t.has_arrival) return 'Student must check in before check out';
-        if (t.has_departure) return 'Student already checked out today';
-      }
-    }
-    return null;
-  })();
+  const gateBlock = isActionBlocked(
+    scannedPerson?.today_status,
+    gateMode === 'arrival' ? 'arrival' : 'departure',
+    scannedPerson?.type === 'staff'
+  );
+  const gateBlockReason = gateBlock.blocked ? gateBlock.message : null;
+  const fullyComplete = scannedPerson?.scan_hints?.already_complete ||
+    (scannedPerson?.today_status &&
+      ((scannedPerson.type === 'staff' &&
+        scannedPerson.today_status.has_clock_in &&
+        scannedPerson.today_status.has_clock_out) ||
+        (scannedPerson.type === 'student' &&
+          scannedPerson.today_status.has_arrival &&
+          scannedPerson.today_status.has_departure)));
 
   const renderAcceptCard = () => (
     <div className="card-elevated p-5 mt-2">
@@ -432,8 +453,12 @@ export default function GateOfficerDashboard() {
           )}
         </div>
       </div>
+      <TodayScanStatusBanner
+        todayStatus={scannedPerson.today_status}
+        isStaff={scannedPerson.type === 'staff'}
+      />
       {gateBlockReason && (
-        <p className="text-sm font-semibold text-red-700 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-4">
+        <p className="text-sm font-semibold text-red-700 bg-red-50 border border-red-100 rounded-xl px-3 py-3 mb-4 text-center">
           {gateBlockReason}
         </p>
       )}
@@ -493,15 +518,21 @@ export default function GateOfficerDashboard() {
         <button type="button" onClick={resumeScanning} disabled={accepting} className="btn-danger flex-1 flex items-center justify-center gap-2 py-3">
           <XCircle size={18} /> Cancel
         </button>
-        <button
-          type="button"
-          onClick={handleAccept}
-          disabled={accepting || !!gateBlockReason}
-          className="btn-primary flex-1 flex items-center justify-center gap-2 py-3 disabled:opacity-50"
-        >
-          <CheckCircle size={18} />
-          {accepting ? 'Saving…' : scannedPerson.type === 'staff' ? 'Confirm staff' : 'Confirm'}
-        </button>
+        {!fullyComplete ? (
+          <button
+            type="button"
+            onClick={handleAccept}
+            disabled={accepting || !!gateBlockReason}
+            className="btn-primary flex-1 flex items-center justify-center gap-2 py-3 disabled:opacity-50"
+          >
+            <CheckCircle size={18} />
+            {accepting ? 'Saving…' : scannedPerson.type === 'staff' ? 'Confirm staff' : 'Confirm'}
+          </button>
+        ) : (
+          <button type="button" onClick={resumeScanning} className="btn-primary flex-1 py-3">
+            Done — scan next person
+          </button>
+        )}
       </div>
     </div>
   );
