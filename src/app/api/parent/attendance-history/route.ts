@@ -8,6 +8,7 @@ import {
   resolveLagosReportRange,
   timestampToLagosDateKey,
 } from '@/lib/attendance/lagos-dates';
+import { dayStatusColor, resolveCalendarDayStatus } from '@/lib/attendance/status';
 
 export const dynamic = 'force-dynamic';
 
@@ -84,14 +85,23 @@ export async function GET(request: NextRequest) {
       if (!departureByDay[day]) departureByDay[day] = d.timestamp;
     }
 
+    const today = todayInLagos();
+
     if (type === 'daily') {
       const dayKey = dateParam;
       const arrival = arrivalByDay[dayKey];
       const departure = departureByDay[dayKey];
+      const status =
+        dayKey > today
+          ? 'upcoming'
+          : resolveCalendarDayStatus(dayKey, arrival, {
+              isWeekend: lagosWeekend(dayKey),
+              todayLagos: today,
+            });
       return NextResponse.json({
         type: 'daily',
         date: dayKey,
-        status: arrival ? arrival.status : 'absent',
+        status,
         check_in_time: arrival?.timestamp || null,
         check_out_time: departure || null,
         minutes_late: arrival?.minutes_late ?? null,
@@ -103,24 +113,22 @@ export async function GET(request: NextRequest) {
       const arrival = arrivalByDay[dayKey];
       const departure = departureByDay[dayKey];
       const isWeekend = lagosWeekend(dayKey);
+      const status = resolveCalendarDayStatus(dayKey, arrival, {
+        isWeekend,
+        todayLagos: today,
+      });
       return {
         date: dayKey,
         is_weekend: isWeekend,
-        status: isWeekend ? 'weekend' : arrival ? arrival.status : 'absent',
+        status,
         check_in_time: arrival?.timestamp || null,
         check_out_time: departure || null,
         minutes_late: arrival?.minutes_late ?? null,
-        color: isWeekend
-          ? 'gray'
-          : !arrival
-          ? 'red'
-          : arrival.status === 'late'
-          ? 'yellow'
-          : 'green',
+        color: dayStatusColor(status),
       };
     });
 
-    const schoolDays = calendar.filter((d) => !d.is_weekend);
+    const schoolDays = calendar.filter((d) => !d.is_weekend && d.status !== 'upcoming');
     const present = schoolDays.filter((d) => d.status === 'on_time').length;
     const late = schoolDays.filter((d) => d.status === 'late').length;
     const absent = schoolDays.filter((d) => d.status === 'absent').length;

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatTimeLagos, formatDateTimeLagos, todayInLagos } from '@/lib/timezone';
+import { DAY_STATUS_LABELS } from '@/lib/attendance/status';
 
 export default function ParentDashboard() {
   const [children, setChildren] = useState([]);
@@ -387,11 +388,12 @@ export default function ParentDashboard() {
                     {children.find((c) => c.id === selectedChild)?.first_name}{' '}
                     {children.find((c) => c.id === selectedChild)?.last_name} · {historyData.date}
                   </p>
-                  <p className={`text-lg font-bold capitalize ${
+                  <p className={`text-lg font-bold ${
                     historyData.status === 'absent' ? 'text-red-600' :
-                    historyData.status === 'late' ? 'text-amber-600' : 'text-emerald-600'
+                    historyData.status === 'late' ? 'text-amber-600' :
+                    historyData.status === 'upcoming' ? 'text-gray-400' : 'text-emerald-600'
                   }`}>
-                    {historyData.status === 'on_time' ? 'Present' : historyData.status}
+                    {DAY_STATUS_LABELS[historyData.status] || historyData.status}
                   </p>
                   <p className="text-sm mt-2">Check-in: {formatTimeLagos(historyData.check_in_time)}</p>
                   <p className="text-sm">Check-out: {formatTimeLagos(historyData.check_out_time)}</p>
@@ -429,10 +431,12 @@ export default function ParentDashboard() {
                         <div key={d.date} className="flex justify-between text-sm bg-white rounded-lg px-3 py-2 border border-gray-100">
                           <span>{d.date}</span>
                           <span className={
+                            d.status === 'late' ? 'text-amber-600 font-medium' :
                             d.status === 'absent' ? 'text-red-600' :
-                            d.status === 'late' ? 'text-amber-600' : 'text-emerald-600'
+                            d.status === 'upcoming' ? 'text-gray-400' : 'text-emerald-600'
                           }>
-                            {d.status === 'on_time' ? 'On time' : d.status}
+                            {DAY_STATUS_LABELS[d.status] || d.status}
+                            {d.status === 'late' && d.minutes_late ? ` (${d.minutes_late}m)` : ''}
                           </span>
                         </div>
                       ))}
