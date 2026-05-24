@@ -7,7 +7,7 @@ import StudentAvatar from '@/components/shared/StudentAvatar';
 import { Search, Download, CheckSquare, Square, Users, GraduationCap } from 'lucide-react';
 import { toast } from 'sonner';
 
-const STAFF_ROLES = ['teacher', 'gate_officer', 'school_admin'];
+const STAFF_ACCESS_ROLES = ['staff', 'teacher', 'gate_officer', 'school_admin'];
 
 export default function SuperAdminIdCardsPage() {
   const [entityTab, setEntityTab] = useState('students');
@@ -46,7 +46,7 @@ export default function SuperAdminIdCardsPage() {
             cache: 'no-store',
             credentials: 'include',
           }),
-          fetch(`/api/schools/staff?school_id=${school.id}`, {
+          fetch(`/api/schools/staff?school_id=${school.id}&ensure_profiles=1`, {
             cache: 'no-store',
             credentials: 'include',
           }),
@@ -59,7 +59,7 @@ export default function SuperAdminIdCardsPage() {
 
         const staffData = await staffRes.json();
         (staffData.staff || [])
-          .filter((s) => STAFF_ROLES.includes(s.role) && s.staff?.staff_id_number)
+          .filter((s) => STAFF_ACCESS_ROLES.includes(s.role))
           .forEach((s) => allStaff.push({ ...s, school, school_id: school.id }));
       }
 
@@ -199,6 +199,7 @@ export default function SuperAdminIdCardsPage() {
         {entityTab === 'staff' && (
           <select value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)} className="input w-44">
             <option value="all">All Roles</option>
+            <option value="staff">Staff (all roles)</option>
             <option value="teacher">Teachers</option>
             <option value="gate_officer">Gate Officers</option>
             <option value="school_admin">School Admins</option>
@@ -272,9 +273,11 @@ export default function SuperAdminIdCardsPage() {
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{member.profile?.full_name}</p>
                 <p className="text-xs text-gray-400">
-                  {member.school?.name} · {member.role.replace('_', ' ')}
+                  {member.school?.name} · {member.job_title || member.role.replace('_', ' ')}
                 </p>
-                <p className="text-xs font-mono">{member.staff?.staff_id_number}</p>
+                <p className="text-xs font-mono">
+                  {member.staff?.staff_id_number || 'ID will be created on download'}
+                </p>
               </div>
             </div>
           ))}
@@ -282,7 +285,7 @@ export default function SuperAdminIdCardsPage() {
 
       {filtered.length === 0 && (
         <div className="card text-center py-8 text-gray-400">
-          {entityTab === 'staff' ? 'No staff with ID numbers found' : 'No students found'}
+          {entityTab === 'staff' ? 'No staff found for this school' : 'No students found'}
         </div>
       )}
     </div>

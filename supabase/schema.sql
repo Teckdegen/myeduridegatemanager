@@ -1,9 +1,8 @@
 -- ============================================
 -- MyEduRide Gate Manager - Complete Database Schema
 -- Single file: run entire script in Supabase SQL Editor (fresh project)
--- Last updated: includes all features (ready-for-pickup, extra lessons,
---   pickup persons, pickup requests, attendance reports, parent history,
---   teacher scan, class CRUD, timestamp fixes)
+-- All former supabase/migrations/*.sql changes are included here.
+-- App code uses these tables directly (no Postgres RPC functions required).
 -- ============================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -33,9 +32,9 @@ CREATE TABLE schools (
 CREATE TABLE school_classes (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,           -- e.g. "JSS 1A", "Year 3 Blue", "Grade 7"
-  grade TEXT NOT NULL,          -- e.g. "Grade 7", "Year 3"
-  section TEXT,                 -- e.g. "A", "Blue" (optional)
+  name TEXT NOT NULL,
+  grade TEXT NOT NULL,
+  section TEXT,
   assigned_teacher_id UUID,
   sort_order INT DEFAULT 0,
   is_active BOOLEAN DEFAULT TRUE,
@@ -83,6 +82,19 @@ CREATE TABLE user_school_roles (
   UNIQUE(user_id, school_id, role)
 );
 
+-- ============ SCHOOL CUSTOM ROLES (job titles for staff) ============
+CREATE TABLE school_custom_roles (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  can_assign_class BOOLEAN NOT NULL DEFAULT false,
+  sort_order INT NOT NULL DEFAULT 0,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(school_id, slug)
+);
+
 -- ============ TEACHER PROFILES ============
 CREATE TABLE teacher_profiles (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -93,13 +105,13 @@ CREATE TABLE teacher_profiles (
   photo_url TEXT,
   face_descriptor JSONB,
   custom_fields JSONB DEFAULT '{}',
+  custom_role_id UUID REFERENCES school_custom_roles(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, school_id)
 );
 
-ALTER TABLE school_classes
-  DROP CONSTRAINT IF EXISTS school_classes_assigned_teacher_id_fkey;
+-- Add FK from school_classes to teacher_profiles
 ALTER TABLE school_classes
   ADD CONSTRAINT school_classes_assigned_teacher_id_fkey
   FOREIGN KEY (assigned_teacher_id) REFERENCES teacher_profiles(id) ON DELETE SET NULL;
@@ -164,7 +176,6 @@ CREATE TABLE attendance_records (
   verified_by_user_id UUID REFERENCES user_profiles(id),
   status TEXT CHECK (status IN ('on_time', 'late', 'absent')) DEFAULT 'on_time',
   source TEXT NOT NULL DEFAULT 'gate' CHECK (source IN ('gate', 'teacher')),
-  -- minutes_late: positive integer when status='late', NULL otherwise
   minutes_late INT,
   timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   notes TEXT,
@@ -180,6 +191,7 @@ CREATE TABLE staff_attendance (
   type TEXT NOT NULL CHECK (type IN ('clock_in', 'clock_out')),
   verification_method TEXT NOT NULL CHECK (verification_method IN ('face_recognition', 'id_card_scan', 'manual')),
   verified_by_user_id UUID REFERENCES user_profiles(id),
+  record_source TEXT DEFAULT 'gate' CHECK (record_source IN ('gate', 'admin')),
   timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
@@ -188,6 +200,7 @@ CREATE TABLE staff_attendance (
 -- ============ DISMISSAL REQUESTS ============
 -- Teacher marks student "Ready for Pickup" → creates a dismissal_request
 -- Gate officer confirms release → status = 'completed'
+-- UNIQUE(student_id, dismissal_date) prevents double-tap per day
 CREATE TABLE dismissal_requests (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   student_id UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
@@ -198,10 +211,8 @@ CREATE TABLE dismissal_requests (
   extra_lesson_until TIME,
   approved_at TIMESTAMPTZ,
   completed_at TIMESTAMPTZ,
-  -- date of the dismissal (for dedup: one per student per day)
   dismissal_date DATE NOT NULL DEFAULT CURRENT_DATE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  -- prevent teacher from double-tapping: one active request per student per day
   UNIQUE(student_id, dismissal_date)
 );
 
@@ -241,7 +252,7 @@ CREATE TABLE pickup_persons (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
-  relationship TEXT NOT NULL,  -- father, mother, driver, nanny, etc.
+  relationship TEXT NOT NULL,
   phone TEXT,
   photo_url TEXT,
   created_by UUID REFERENCES user_profiles(id),
@@ -284,7 +295,7 @@ CREATE TABLE notifications (
   student_id UUID REFERENCES students(id),
   title TEXT NOT NULL,
   message TEXT NOT NULL,
-  type TEXT NOT NULL CHECK (type IN ('arrival', 'departure', 'late', 'dismissal', 'system', 'pickup_request')),
+  type TEXT NOT NULL CHECK (type IN ('arrival', 'departure', 'late', 'dismissal', 'system', 'pickup_request', 'pickup_person')),
   is_read BOOLEAN DEFAULT FALSE,
   email_sent BOOLEAN DEFAULT FALSE,
   push_sent BOOLEAN DEFAULT FALSE,
@@ -310,6 +321,21 @@ CREATE TABLE otp_codes (
   expires_at TIMESTAMPTZ NOT NULL,
   used BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============ SCHOOL NON-SCHOOL DAYS (holidays, closures) ============
+CREATE TABLE school_non_school_days (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  calendar_date DATE NOT NULL,
+  day_type TEXT NOT NULL CHECK (day_type IN ('public_holiday', 'school_event', 'closure')),
+  title TEXT NOT NULL,
+  description TEXT,
+  notify_parents BOOLEAN DEFAULT false,
+  batch_id UUID,
+  range_end_date DATE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(school_id, calendar_date)
 );
 
 -- ============ INDEXES ============
@@ -345,6 +371,9 @@ CREATE INDEX idx_pickup_person_students_person ON pickup_person_students(pickup_
 CREATE INDEX idx_pickup_requests_school_date ON pickup_requests(school_id, request_date);
 CREATE INDEX idx_pickup_requests_student ON pickup_requests(student_id);
 CREATE INDEX idx_otp_email ON otp_codes(email, used, expires_at);
+CREATE INDEX idx_school_custom_roles_school ON school_custom_roles(school_id, is_active);
+CREATE INDEX idx_school_non_school_days_school_date ON school_non_school_days(school_id, calendar_date);
+CREATE INDEX idx_school_non_school_days_batch ON school_non_school_days(school_id, batch_id);
 
 -- ============ ROW LEVEL SECURITY ============
 ALTER TABLE schools ENABLE ROW LEVEL SECURITY;
@@ -367,6 +396,8 @@ ALTER TABLE pickup_person_students ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pickup_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE school_custom_roles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE school_non_school_days ENABLE ROW LEVEL SECURITY;
 
 -- ============ RLS POLICIES ============
 
@@ -553,6 +584,32 @@ CREATE POLICY "Users see own notifications" ON notifications
 CREATE POLICY "Users manage own subscriptions" ON push_subscriptions
   FOR ALL USING (user_id = auth.uid());
 
+-- Custom roles
+CREATE POLICY "School staff see custom roles" ON school_custom_roles
+  FOR SELECT USING (
+    school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid() AND is_active = true)
+  );
+CREATE POLICY "Admins manage custom roles" ON school_custom_roles
+  FOR ALL USING (
+    school_id IN (
+      SELECT school_id FROM user_school_roles
+      WHERE user_id = auth.uid() AND role IN ('school_admin', 'super_admin') AND is_active = true
+    )
+  );
+
+-- Non-school days
+CREATE POLICY "Staff see non school days" ON school_non_school_days
+  FOR SELECT USING (
+    school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid())
+  );
+CREATE POLICY "Admins manage non school days" ON school_non_school_days
+  FOR ALL USING (
+    school_id IN (
+      SELECT school_id FROM user_school_roles
+      WHERE user_id = auth.uid() AND role IN ('school_admin', 'super_admin')
+    )
+  );
+
 -- ============ REALTIME ============
 ALTER PUBLICATION supabase_realtime ADD TABLE attendance_records;
 ALTER PUBLICATION supabase_realtime ADD TABLE dismissal_requests;
@@ -583,6 +640,8 @@ COMMENT ON COLUMN dismissal_requests.dismissal_date IS 'Calendar date of dismiss
 COMMENT ON TABLE extra_lessons IS 'Students staying for extra lesson — not ready for pickup until teacher releases them';
 COMMENT ON TABLE pickup_persons IS 'Authorised persons who can collect a student — with photo for gate verification';
 COMMENT ON TABLE pickup_requests IS 'Parent sends a message to school about who will pick up their child today';
+COMMENT ON TABLE school_custom_roles IS 'Display job titles for staff role users; can_assign_class allows homeroom class link';
+COMMENT ON TABLE school_non_school_days IS 'Holidays, closures, events — excluded from absent counts in reports';
 
 -- ============ PLATFORM SCHOOL (super_admin roles only) ============
 INSERT INTO schools (id, name, setup_completed, setup_step)
@@ -614,3 +673,8 @@ CREATE POLICY "Service role photos all"
   TO service_role
   USING (bucket_id = 'photos')
   WITH CHECK (bucket_id = 'photos');
+
+-- ============ END OF SCHEMA ============
+-- Run this entire file in Supabase SQL Editor on a fresh project.
+-- For existing projects: compare tables/columns with your DB and apply missing parts only.
+-- Do not use separate migration files — this file is the single source of truth.

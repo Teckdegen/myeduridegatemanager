@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
  * body: { student_id, school_id, lesson_end_time?, action: 'add' | 'release' }
  *
  * add     → mark student as staying for extra lesson (not ready for pickup)
- * release → mark extra lesson done → student is now ready for pickup
+ * release → end extra lesson and mark student ready for pickup
  */
 export async function POST(request: NextRequest) {
   try {
@@ -51,7 +51,6 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'release') {
-      // Mark extra lesson as released
       const { error } = await supabase
         .from('extra_lessons')
         .update({ is_released: true, released_at: new Date().toISOString() })
@@ -61,12 +60,35 @@ export async function POST(request: NextRequest) {
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
-      return NextResponse.json({ success: true });
+
+      const readyRes = await fetch(new URL('/api/teacher/ready-for-pickup', request.url).toString(), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          cookie: request.headers.get('cookie') || '',
+        },
+        body: JSON.stringify({ student_id, school_id }),
+      });
+
+      const readyJson = await readyRes.json();
+      if (!readyRes.ok && readyRes.status !== 409) {
+        return NextResponse.json(
+          { error: readyJson.error || 'Extra lesson ended but ready-for-pickup failed' },
+          { status: readyRes.status }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        ready: readyRes.ok,
+        dismissal: readyJson.dismissal || null,
+      });
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('[extra-lesson]', err);
-    return NextResponse.json({ error: err.message || 'Failed' }, { status: 500 });
+    const message = err instanceof Error ? err.message : 'Failed';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

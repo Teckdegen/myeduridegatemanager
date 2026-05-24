@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     const { data: staffCounts, error: staffErr } = await supabase
       .from('user_school_roles')
       .select('school_id')
-      .in('role', ['school_admin', 'teacher', 'gate_officer'])
+      .in('role', ['school_admin', 'teacher', 'gate_officer', 'staff'])
       .eq('is_active', true);
 
     if (staffErr) console.error('[schools/list] staff:', staffErr.message);

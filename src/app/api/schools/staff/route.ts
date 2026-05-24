@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest, sessionHasRole } from '@/lib/session';
+import { ensureStaffProfile } from '@/lib/staff/ensure-profile';
+
+const STAFF_ROLES = ['school_admin', 'teacher', 'gate_officer', 'staff'] as const;
+
+type StaffProfileRow = {
+  user_id: string;
+  staff_id_number: string | null;
+  qr_code_data: string | null;
+  photo_url: string | null;
+  custom_role_id?: string | null;
+};
+
+type CustomRoleRow = { id: string; name: string; can_assign_class: boolean };
 
 export async function GET(request: NextRequest) {
   try {
@@ -27,32 +40,23 @@ export async function GET(request: NextRequest) {
 
     const supabase = getAdminClient();
 
-    const selectWithCustom =
-      '*, profile:user_profiles(*), staff_profile:teacher_profiles(staff_id_number, qr_code_data, photo_url, custom_role:school_custom_roles(name, can_assign_class))';
-
-    let roles: Record<string, unknown>[] | null = null;
-    const primary = await supabase
+    const { data: roles, error: rolesErr } = await supabase
       .from('user_school_roles')
-      .select(selectWithCustom)
+      .select('*, profile:user_profiles(*)')
       .eq('school_id', schoolId)
       .eq('is_active', true)
-      .in('role', ['school_admin', 'teacher', 'gate_officer', 'staff']);
+      .in('role', [...STAFF_ROLES]);
 
-    if (primary.error && /custom_role|school_custom_roles/i.test(primary.error.message)) {
-      const fallback = await supabase
-        .from('user_school_roles')
-        .select('*, profile:user_profiles(*)')
-        .eq('school_id', schoolId)
-        .eq('is_active', true)
-        .in('role', ['school_admin', 'teacher', 'gate_officer', 'staff']);
-      if (fallback.error) {
-        return NextResponse.json({ error: fallback.error.message }, { status: 500 });
+    if (rolesErr) {
+      return NextResponse.json({ error: rolesErr.message }, { status: 500 });
+    }
+
+    const ensureProfiles = request.nextUrl.searchParams.get('ensure_profiles') === '1';
+    if (ensureProfiles) {
+      for (const r of roles || []) {
+        const uid = r.user_id as string;
+        if (uid) await ensureStaffProfile(supabase, schoolId, uid);
       }
-      roles = fallback.data;
-    } else if (primary.error) {
-      return NextResponse.json({ error: primary.error.message }, { status: 500 });
-    } else {
-      roles = primary.data;
     }
 
     const { data: staffProfiles } = await supabase
@@ -60,17 +64,27 @@ export async function GET(request: NextRequest) {
       .select('user_id, staff_id_number, qr_code_data, photo_url, custom_role_id')
       .eq('school_id', schoolId);
 
+    const staffProfilesList: StaffProfileRow[] = staffProfiles || [];
+
+    let customRoles: CustomRoleRow[] = [];
+    const { data: customRolesData, error: customErr } = await supabase
+      .from('school_custom_roles')
+      .select('id, name, can_assign_class')
+      .eq('school_id', schoolId)
+      .eq('is_active', true);
+
+    if (!customErr) {
+      customRoles = customRolesData || [];
+    }
+
+    const customById = new Map(customRoles.map((c) => [c.id, c]));
+
     const staff = (roles || []).map((r: Record<string, unknown>) => {
-      const embedded = r.staff_profile;
-      const prof = Array.isArray(embedded) ? embedded[0] : embedded;
-      const legacy =
-        staffProfiles?.find((p) => p.user_id === r.user_id) ||
-        (prof as { staff_id_number?: string } | undefined);
-      const custom = prof
-        ? (Array.isArray((prof as { custom_role?: unknown }).custom_role)
-            ? (prof as { custom_role: { name?: string }[] }).custom_role[0]
-            : (prof as { custom_role?: { name?: string } }).custom_role)
-        : null;
+      const profileRow = staffProfilesList.find((p) => p.user_id === r.user_id);
+      const custom =
+        profileRow?.custom_role_id != null
+          ? customById.get(profileRow.custom_role_id)
+          : null;
 
       const accessLabel =
         r.role === 'staff' && custom?.name
@@ -80,7 +94,7 @@ export async function GET(request: NextRequest) {
       return {
         ...r,
         job_title: accessLabel,
-        staff: prof || legacy || null,
+        staff: profileRow || null,
       };
     });
 

@@ -36,7 +36,7 @@ export default function StaffManagementPage() {
       setSchoolId(schoolData.school_id);
 
       const [staffRes, rolesRes] = await Promise.all([
-        fetch(`/api/schools/staff?school_id=${schoolData.school_id}`, {
+        fetch(`/api/schools/staff?school_id=${schoolData.school_id}&ensure_profiles=1`, {
           credentials: 'include',
           cache: 'no-store',
         }),
@@ -114,6 +114,9 @@ export default function StaffManagementPage() {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-slate-900 truncate">{s.profile?.full_name || 'Unknown'}</p>
               <p className="text-xs text-slate-500 truncate">{s.profile?.email}</p>
+              {s.staff?.staff_id_number && (
+                <p className="text-xs font-mono text-slate-600">{s.staff.staff_id_number}</p>
+              )}
             </div>
             <span className="text-xs px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 capitalize flex items-center gap-1 shrink-0 max-w-[140px] truncate">
               {getRoleIcon(s.role)} {s.job_title || s.role.replace('_', ' ')}

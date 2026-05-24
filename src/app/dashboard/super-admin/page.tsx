@@ -155,9 +155,17 @@ export default function SuperAdminDashboard() {
         <div className="space-y-3 max-h-[calc(100vh-22rem)] overflow-y-auto pr-1">
           {filteredSchools.map(school => (
             <div key={school.id} className="card flex items-center gap-4 py-4 cursor-pointer hover:shadow-md transition-all" onClick={() => window.location.href = `/dashboard/super-admin/school/${school.id}`}>
-              <div className="w-12 h-12 rounded-xl bg-primary-100 flex items-center justify-center text-primary-700 font-bold">
-                {school.name.split(' ').map(w => w[0]).join('').slice(0, 2)}
-              </div>
+              {school.logo_url ? (
+                <img
+                  src={`/api/photo?path=${encodeURIComponent(school.logo_url)}`}
+                  alt=""
+                  className="w-12 h-12 rounded-xl object-contain border border-gray-200 bg-white shrink-0"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-xl bg-primary-100 flex items-center justify-center text-primary-700 font-bold shrink-0">
+                  {school.name.split(' ').map(w => w[0]).join('').slice(0, 2)}
+                </div>
+              )}
               <div className="flex-1 min-w-0">
                 <h3 className="font-semibold truncate">{school.name}</h3>
                 <p className="text-sm text-gray-500 truncate">{school.address || 'No address'}</p>
@@ -226,11 +234,12 @@ function AddSchoolModal({
   const [formData, setFormData] = useState({
     name: '',
     address: '',
-    logo_url: '',
     admin_email: '',
     admin_name: '',
     admin_phone: '',
   });
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -247,6 +256,23 @@ function AddSchoolModal({
 
       const result = await response.json();
       if (result.success) {
+        const schoolId = result.school_id || result.school?.id;
+        if (logoFile && schoolId) {
+          const fd = new FormData();
+          fd.append('school_id', schoolId);
+          fd.append('file', logoFile);
+          const logoRes = await fetch('/api/schools/logo', {
+            method: 'POST',
+            credentials: 'include',
+            body: fd,
+          });
+          const logoJson = await logoRes.json();
+          if (!logoRes.ok) {
+            toast.error(logoJson.error || 'School created but logo upload failed');
+          } else if (logoJson.path && result.school) {
+            result.school.logo_url = logoJson.path;
+          }
+        }
         toast.success(`${formData.name} created with admin ${formData.admin_name}`);
         onSuccess(result.school);
       } else {
@@ -296,21 +322,19 @@ function AddSchoolModal({
             <input
               type="file"
               accept="image/*"
-              onChange={async (e) => {
+              onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
-                const fd = new FormData();
-                fd.append('file', file);
-                fd.append('folder', 'logos');
-                const res = await fetch('/api/upload', { method: 'POST', body: fd });
-                const data = await res.json();
-                if (data.url) setFormData(prev => ({ ...prev, logo_url: data.url }));
+                setLogoFile(file);
+                const reader = new FileReader();
+                reader.onload = (ev) => setLogoPreview(ev.target?.result as string || '');
+                reader.readAsDataURL(file);
               }}
               className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-primary-50 file:text-primary-700 file:font-medium"
             />
-            {formData.logo_url && (
+            {logoPreview && (
               <div className="mt-2 p-2 bg-gray-50 rounded-lg inline-block">
-                <img src={formData.logo_url} alt="Preview" className="h-10 object-contain" />
+                <img src={logoPreview} alt="Preview" className="h-10 object-contain" />
               </div>
             )}
           </div>

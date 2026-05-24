@@ -69,7 +69,7 @@ export async function updateSchoolSettings(
     if (Object.keys(nonTimeUpdates).length === 0) {
       return {
         data: null,
-        error: 'Gate hour columns missing. Run migration 20260525_school_gate_hours.sql in Supabase.',
+        error: 'Gate hour columns missing. Run supabase/schema.sql in Supabase SQL Editor.',
         migrationRequired: true,
       };
     }

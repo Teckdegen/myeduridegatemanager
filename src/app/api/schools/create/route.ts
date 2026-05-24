@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { ensureAuthUser, ensureUserProfile } from '@/lib/auth/ensure-user';
 import { getSessionFromRequest, sessionHasRole } from '@/lib/session';
+import { ensureStaffProfile } from '@/lib/staff/ensure-profile';
 import { Resend } from 'resend';
 
 export const dynamic = 'force-dynamic';
@@ -148,6 +149,18 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: `Failed to assign admin role: ${roleError.message}` }, { status: 500 });
       }
     }
+
+    await ensureStaffProfile(supabase, school.id, adminUserId);
+
+    const defaultJobRoles = [
+      { name: 'Accountant', slug: 'accountant', can_assign_class: false, sort_order: 0 },
+      { name: 'Cleaner', slug: 'cleaner', can_assign_class: false, sort_order: 1 },
+      { name: 'Driver', slug: 'driver', can_assign_class: false, sort_order: 2 },
+      { name: 'Subject Teacher', slug: 'subject_teacher', can_assign_class: true, sort_order: 3 },
+    ];
+    await supabase.from('school_custom_roles').insert(
+      defaultJobRoles.map((r) => ({ ...r, school_id: school.id, is_active: true }))
+    );
 
     // Send welcome email
     try {

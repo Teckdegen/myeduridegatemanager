@@ -15,6 +15,14 @@ function extractStoragePath(input: string): string | null {
   return null;
 }
 
+function contentTypeForPath(path: string): string {
+  const lower = path.toLowerCase();
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  return 'image/jpeg';
+}
+
 export async function GET(request: NextRequest) {
   try {
     const pathParam = request.nextUrl.searchParams.get('path');
@@ -33,10 +41,11 @@ export async function GET(request: NextRequest) {
     }
 
     const buffer = Buffer.from(await data.arrayBuffer());
+    const contentType = contentTypeForPath(storagePath);
 
     return new NextResponse(buffer, {
       headers: {
-        'Content-Type': 'image/jpeg',
+        'Content-Type': contentType,
         'Cache-Control': 'public, max-age=86400',
       },
     });

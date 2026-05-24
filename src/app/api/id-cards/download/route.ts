@@ -4,6 +4,8 @@ import { getSessionFromRequest, sessionHasRole } from '@/lib/session';
 import { buildIdCardsPdfBuffer } from '@/lib/id-card/generate-pdf';
 import type { IdCardPerson, SchoolBranding } from '@/lib/id-card/generate-pdf';
 import { loadPhotoDataUrl } from '@/lib/id-card/load-photo';
+import { ensureStaffProfile } from '@/lib/staff/ensure-profile';
+import { resolveStaffRoleLabel } from '@/lib/attendance/resolve-staff';
 
 export async function POST(request: NextRequest) {
   try {
@@ -37,10 +39,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'School not found' }, { status: 404 });
     }
 
+    const logoDataUrl = await loadPhotoDataUrl(supabase, school.logo_url);
+
     const branding: SchoolBranding = {
       name: school.name,
       address: school.address,
-      logoUrl: school.logo_url,
+      logoUrl: logoDataUrl || school.logo_url,
       primaryColor: school.primary_color,
     };
 
@@ -78,17 +82,12 @@ export async function POST(request: NextRequest) {
         .eq('school_id', school_id);
 
       for (const r of roles || []) {
-        const { data: profile } = await supabase
-          .from('teacher_profiles')
-          .select('staff_id_number, qr_code_data, photo_url')
-          .eq('user_id', r.user_id)
-          .eq('school_id', school_id)
-          .maybeSingle();
-
+        const profile = await ensureStaffProfile(supabase, school_id, r.user_id);
         if (!profile?.staff_id_number) continue;
 
         const photoDataUrl = await loadPhotoDataUrl(supabase, profile.photo_url);
-        const name = (r.profile as any)?.full_name || 'Staff';
+        const name = (r.profile as { full_name?: string })?.full_name || 'Staff';
+        const roleLabel = await resolveStaffRoleLabel(supabase, school_id, r.user_id);
         persons.push({
           kind: 'staff',
           fullName: name,
@@ -97,7 +96,7 @@ export async function POST(request: NextRequest) {
           photoDataUrl,
           birth: '—',
           address: school.address || '—',
-          roleLabel: r.role.replace('_', ' '),
+          roleLabel,
         });
       }
     }

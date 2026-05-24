@@ -37,7 +37,7 @@ export default function SchoolCalendarPage() {
     const res = await fetch(`/api/schools/calendar?school_id=${sid}`, { credentials: 'include' });
     const json = await res.json();
     if (json.migration_required) {
-      toast.error('Run migrations 20260526 and 20260527 in Supabase');
+      toast.error('Run supabase/schema.sql in Supabase SQL Editor');
       setEvents([]);
       return;
     }

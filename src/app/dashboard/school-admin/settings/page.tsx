@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { fetchData } from '@/lib/api';
-import { Save, Clock } from 'lucide-react';
+import { Save, Clock, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { schoolToSettingsForm, TIME_FIELDS } from '@/lib/time-input';
 
@@ -12,6 +12,8 @@ export default function SchoolSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [schoolId, setSchoolId] = useState('');
   const [formData, setFormData] = useState(schoolToSettingsForm(null));
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoPreview, setLogoPreview] = useState('');
 
   const loadSettings = useCallback(async (id) => {
     const sid = id || schoolId;
@@ -24,9 +26,12 @@ export default function SchoolSettingsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load settings');
       if (data.time_columns_available === false) {
-        toast.error('Run migration 20260525_school_gate_hours.sql in Supabase to save gate times');
+        toast.error('Run supabase/schema.sql in Supabase to save gate times');
       }
       setFormData(schoolToSettingsForm(data.school));
+      if (data.school?.logo_url) {
+        setLogoPreview(`/api/photo?path=${encodeURIComponent(data.school.logo_url)}`);
+      }
     } catch (err) {
       console.error(err);
       toast.error(err.message || 'Could not load settings');
@@ -48,6 +53,7 @@ export default function SchoolSettingsPage() {
       }
       setLoading(false);
     })();
+
   }, [loadSettings]);
 
   const handleSave = async (e) => {
@@ -76,7 +82,7 @@ export default function SchoolSettingsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');
       if (data.migration_required) {
-        toast.error('Gate times need DB migration 20260525_school_gate_hours.sql');
+        toast.error('Gate times need supabase/schema.sql applied in Supabase');
       }
       if (data.school) {
         setFormData(schoolToSettingsForm(data.school));
@@ -115,8 +121,46 @@ export default function SchoolSettingsPage() {
               <input type="text" value={formData.address} onChange={(e) => setFormData((p) => ({ ...p, address: e.target.value }))} className="input" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Logo URL</label>
-              <input type="url" value={formData.logo_url} onChange={(e) => setFormData((p) => ({ ...p, logo_url: e.target.value }))} className="input" />
+              <label className="block text-sm font-medium text-gray-700 mb-1">School Logo</label>
+              <div className="flex items-center gap-3">
+                {logoPreview && (
+                  <img src={logoPreview} alt="Logo" className="h-12 w-12 object-contain rounded-lg border border-gray-200 bg-gray-50" />
+                )}
+                <label className="cursor-pointer flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700">
+                  <Upload size={16} />
+                  {logoUploading ? 'Uploading…' : 'Upload logo'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={logoUploading || !schoolId}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file || !schoolId) return;
+                      setLogoUploading(true);
+                      try {
+                        const fd = new FormData();
+                        fd.append('school_id', schoolId);
+                        fd.append('file', file);
+                        const res = await fetch('/api/schools/logo', {
+                          method: 'POST',
+                          credentials: 'include',
+                          body: fd,
+                        });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.error || 'Upload failed');
+                        setFormData((p) => ({ ...p, logo_url: data.path }));
+                        setLogoPreview(data.preview_url || `/api/photo?path=${encodeURIComponent(data.path)}`);
+                        toast.success('Logo uploaded');
+                      } catch (err) {
+                        toast.error(err.message || 'Logo upload failed');
+                      }
+                      setLogoUploading(false);
+                    }}
+                  />
+                </label>
+              </div>
+              <p className="text-xs text-gray-400 mt-1">JPG, PNG or WebP · max 5 MB</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>

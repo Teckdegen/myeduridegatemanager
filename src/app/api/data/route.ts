@@ -195,7 +195,7 @@ export async function POST(request: NextRequest) {
         const canAccess = session.roles.some(
           (r: { role: string; school_id?: string }) =>
             r.role === 'super_admin' ||
-            ((r.role === 'school_admin' || r.role === 'teacher') && r.school_id === schoolId)
+            ((r.role === 'school_admin' || r.role === 'teacher' || r.role === 'gate_officer') && r.school_id === schoolId)
         );
 
         if (!canAccess) {

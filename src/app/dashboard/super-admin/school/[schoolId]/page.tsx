@@ -50,12 +50,13 @@ export default function SchoolDetailPage() {
         setStudents(studentsData.students || []);
       }
 
-      const staffRes = await fetch(`/api/schools/staff?school_id=${schoolId}`, {
+      const staffRes = await fetch(`/api/schools/staff?school_id=${schoolId}&ensure_profiles=1`, {
         cache: 'no-store',
         credentials: 'include',
       });
       const staffData = await staffRes.json();
       if (staffRes.ok) setStaff(staffData.staff || []);
+      else toast.error(staffData.error || 'Could not load staff');
 
       const classRes = await fetch('/api/data', {
         method: 'POST',
