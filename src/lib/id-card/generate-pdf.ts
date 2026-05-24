@@ -71,31 +71,43 @@ async function drawFront(
   doc.setFillColor(...navy);
   doc.triangle(0, 0, 24, 0, 0, 8, 'F');
 
+  let nameY = 7;
+  if (school.logoUrl && String(school.logoUrl).startsWith('data:')) {
+    try {
+      const fmt = school.logoUrl.includes('image/png') ? 'PNG' : 'JPEG';
+      doc.addImage(school.logoUrl, fmt, CARD_W / 2 - 7, 1.5, 14, 9);
+      nameY = 12;
+    } catch {
+      /* logo optional */
+    }
+  }
+
   doc.setTextColor(...navy);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-  doc.text((school.name || 'SCHOOL NAME').toUpperCase(), CARD_W / 2, 6.5, {
+  doc.setFontSize(9);
+  doc.text((school.name || 'SCHOOL NAME').toUpperCase(), CARD_W / 2, nameY, {
     align: 'center',
-    maxWidth: CARD_W - 8,
+    maxWidth: CARD_W - 6,
   });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(4.5);
   doc.setTextColor(70, 70, 70);
-  doc.text(school.address || 'Address of School', CARD_W / 2, 10, {
+  doc.text(school.address || 'Address of School', CARD_W / 2, nameY + 3.5, {
     align: 'center',
     maxWidth: CARD_W - 6,
   });
 
+  const bannerTop = nameY + 6;
   const bannerLabel = person.kind === 'staff' ? 'STAFF CARD' : 'STUDENT CARD';
   doc.setFillColor(...navy);
-  doc.roundedRect(2.5, 11.5, CARD_W - 5, 6.5, 1.2, 1.2, 'F');
+  doc.roundedRect(2.5, bannerTop, CARD_W - 5, 6.5, 1.2, 1.2, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6.5);
-  doc.text(bannerLabel, CARD_W / 2, 15.2, { align: 'center' });
+  doc.text(bannerLabel, CARD_W / 2, bannerTop + 3.7, { align: 'center' });
 
   const photoX = 4;
-  const photoY = 19;
+  const photoY = bannerTop + 7.5;
   const photoW = 23;
   const photoH = 27;
   doc.setDrawColor(...navy);

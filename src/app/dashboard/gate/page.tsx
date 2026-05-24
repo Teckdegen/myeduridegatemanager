@@ -42,11 +42,11 @@ function PickupPersonCard({ name, phone, photoUrl, relationship, highlight }) {
         <img
           src={src}
           alt={name}
-          className="w-16 h-16 rounded-xl object-cover border-2 border-white shrink-0"
+          className="w-20 h-20 rounded-xl object-cover border-2 border-white shrink-0 shadow-sm"
         />
       ) : (
         <div
-          className={`w-16 h-16 rounded-xl shrink-0 flex flex-col items-center justify-center text-[10px] font-bold ${
+          className={`w-20 h-20 rounded-xl shrink-0 flex flex-col items-center justify-center text-[10px] font-bold ${
             highlight ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
           }`}
         >
@@ -95,6 +95,8 @@ export default function GateOfficerDashboard() {
   const [pickupNotices, setPickupNotices] = useState([]);
   const [pickupPersonsByStudent, setPickupPersonsByStudent] = useState({});
   const [pickupRequests, setPickupRequests] = useState([]);
+  const [pickupRequestsByStudent, setPickupRequestsByStudent] = useState({});
+  const [schoolInfo, setSchoolInfo] = useState({ name: '', logo_url: '', primary_color: '#1B4D3E' });
   const [studentSearch, setStudentSearch] = useState('');
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -108,6 +110,25 @@ export default function GateOfficerDashboard() {
   const noticeForStudent = useCallback(
     (studentId) => pickupNotices.find((n) => n.student_id === studentId),
     [pickupNotices]
+  );
+
+  const pickupRequestForStudent = useCallback(
+    (studentId) => pickupRequestsByStudent[studentId] || null,
+    [pickupRequestsByStudent]
+  );
+
+  const attachPickupContext = useCallback(
+    (studentId) => {
+      const notice = noticeForStudent(studentId);
+      const request = pickupRequestForStudent(studentId);
+      const persons = pickupPersonsByStudent[studentId] || [];
+      return {
+        pickup_notice: notice || null,
+        pickup_request: request || null,
+        pickup_persons: persons,
+      };
+    },
+    [noticeForStudent, pickupRequestForStudent, pickupPersonsByStudent]
   );
 
   const loadGateData = useCallback(async () => {
@@ -127,6 +148,14 @@ export default function GateOfficerDashboard() {
       if (data.pickup_notices) setPickupNotices(data.pickup_notices);
       if (data.pickup_persons_by_student) setPickupPersonsByStudent(data.pickup_persons_by_student);
       if (data.pickup_requests) setPickupRequests(data.pickup_requests);
+      if (data.pickup_requests_by_student) setPickupRequestsByStudent(data.pickup_requests_by_student);
+      if (data.school) {
+        setSchoolInfo({
+          name: data.school.name || '',
+          logo_url: data.school.logo_url || '',
+          primary_color: data.school.primary_color || '#1B4D3E',
+        });
+      }
     } catch (e) {
       console.error(e);
       toast.error('Could not load gate data');
@@ -166,6 +195,13 @@ export default function GateOfficerDashboard() {
         setSchoolReady(true);
       } else {
         toast.error('No school linked to your gate officer account');
+      }
+      if (data.school) {
+        setSchoolInfo({
+          name: data.school.name || '',
+          logo_url: data.school.logo_url || '',
+          primary_color: data.school.primary_color || '#1B4D3E',
+        });
       }
     } catch {
       toast.error('Could not load school');
@@ -260,8 +296,7 @@ export default function GateOfficerDashboard() {
         stopCamera();
         const enriched = { ...data };
         if (data.type === 'student') {
-          enriched.pickup_notice = noticeForStudent(data.person.id) || null;
-          enriched.pickup_persons = pickupPersonsByStudent[data.person.id] || [];
+          Object.assign(enriched, attachPickupContext(data.person.id));
         }
         applyScanHints(data, { toast, setMode: setGateMode });
         setScannedPerson(enriched);
@@ -278,8 +313,7 @@ export default function GateOfficerDashboard() {
   };
 
   const openStudentForRelease = async (student, fromQueue = false) => {
-    const notice = noticeForStudent(student.id);
-    const pickupPersons = pickupPersonsByStudent[student.id] || [];
+    const pickupCtx = attachPickupContext(student.id);
     setGateMode('dismissal');
     let today_status = null;
     let scan_hints = null;
@@ -303,8 +337,7 @@ export default function GateOfficerDashboard() {
     setScannedPerson({
       type: 'student',
       from_queue: fromQueue,
-      pickup_notice: notice || null,
-      pickup_persons: pickupPersons,
+      ...pickupCtx,
       today_status,
       scan_hints,
       person: {
@@ -435,24 +468,81 @@ export default function GateOfficerDashboard() {
           scannedPerson.today_status.has_arrival &&
           scannedPerson.today_status.has_departure)));
 
+  const schoolLogoSrc = photoSrc(schoolInfo.logo_url);
+
   const renderAcceptCard = () => (
     <div className="card-elevated p-5 mt-2">
-      <div className="flex items-center gap-4 mb-4">
-        <StudentAvatar
-          photoUrl={scannedPerson.person.photo_url}
-          firstName={scannedNames.first}
-          lastName={scannedNames.last}
-          size="lg"
-        />
-        <div className="min-w-0 flex-1">
-          <p className="text-xl font-bold text-slate-900 truncate">{scannedPerson.person.name}</p>
-          <p className="text-sm text-slate-500 font-mono">{scannedPerson.person.student_id || scannedPerson.person.staff_id}</p>
-          {scannedPerson.person.class_name && <p className="text-xs text-slate-400">{scannedPerson.person.class_name}</p>}
-          {scannedPerson.person.role_label && (
-            <p className="text-xs text-violet-600 capitalize">{scannedPerson.person.role_label}</p>
+      {schoolInfo.name && (
+        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-100">
+          {schoolLogoSrc ? (
+            <img
+              src={schoolLogoSrc}
+              alt=""
+              className="h-12 w-12 object-contain rounded-lg border border-slate-200 bg-white shrink-0"
+            />
+          ) : (
+            <div className="h-12 w-12 rounded-lg bg-primary-100 flex items-center justify-center shrink-0">
+              <span className="text-primary-800 font-black text-sm">
+                {schoolInfo.name.split(' ').map((w) => w[0]).join('').slice(0, 2)}
+              </span>
+            </div>
           )}
+          <p className="text-lg font-black text-slate-900 uppercase tracking-tight leading-tight flex-1">
+            {schoolInfo.name}
+          </p>
         </div>
-      </div>
+      )}
+
+      {scannedPerson.type === 'student' && (
+        <div className="mb-4 p-4 rounded-2xl border-2 border-slate-200 bg-gradient-to-br from-slate-50 to-white">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 text-center">
+            Student ID
+          </p>
+          <div className="flex flex-col items-center gap-2">
+            {photoSrc(scannedPerson.person.photo_url) ? (
+              <img
+                src={photoSrc(scannedPerson.person.photo_url)}
+                alt=""
+                className="w-28 h-28 rounded-2xl object-cover border-4 border-white shadow-lg ring-2 ring-primary-200"
+              />
+            ) : (
+              <StudentAvatar
+                photoUrl={scannedPerson.person.photo_url}
+                firstName={scannedNames.first}
+                lastName={scannedNames.last}
+                size="lg"
+              />
+            )}
+            <p className="text-xl font-black text-slate-900 text-center leading-tight">
+              {scannedPerson.person.name}
+            </p>
+            <p className="text-base font-mono font-bold text-primary-700 bg-primary-50 px-4 py-1.5 rounded-lg">
+              {scannedPerson.person.student_id}
+            </p>
+            {scannedPerson.person.class_name && (
+              <p className="text-sm font-semibold text-slate-600">{scannedPerson.person.class_name}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {scannedPerson.type === 'staff' && (
+        <div className="flex items-center gap-4 mb-4">
+          <StudentAvatar
+            photoUrl={scannedPerson.person.photo_url}
+            firstName={scannedNames.first}
+            lastName={scannedNames.last}
+            size="lg"
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-xl font-bold text-slate-900 truncate">{scannedPerson.person.name}</p>
+            <p className="text-sm text-slate-500 font-mono">{scannedPerson.person.staff_id}</p>
+            {scannedPerson.person.role_label && (
+              <p className="text-xs text-violet-600 capitalize">{scannedPerson.person.role_label}</p>
+            )}
+          </div>
+        </div>
+      )}
       <TodayScanStatusBanner
         todayStatus={scannedPerson.today_status}
         isStaff={scannedPerson.type === 'staff'}
@@ -467,7 +557,24 @@ export default function GateOfficerDashboard() {
           <p className="text-xs font-bold text-orange-900 uppercase tracking-wide mb-3">
             Verify pickup person before release
           </p>
-          {scannedPerson.pickup_notice && (
+          {scannedPerson.pickup_request && (
+            <div className="mb-3 p-3 rounded-xl bg-blue-700 text-white border-2 border-blue-400">
+              <p className="text-[10px] font-bold uppercase tracking-wide opacity-95">Parent pickup message today</p>
+              <PickupPersonCard
+                name={scannedPerson.pickup_request.pickup_person_name}
+                phone={scannedPerson.pickup_request.pickup_person_phone}
+                photoUrl={scannedPerson.pickup_request.pickup_person_photo}
+                relationship="Notify school request"
+                highlight
+              />
+              {scannedPerson.pickup_request.message && (
+                <p className="text-sm mt-2 font-medium bg-white/10 rounded-lg px-2 py-1.5">
+                  {scannedPerson.pickup_request.message}
+                </p>
+              )}
+            </div>
+          )}
+          {scannedPerson.pickup_notice && !scannedPerson.pickup_request && (
             <div className="mb-3 p-3 rounded-xl bg-blue-600 text-white">
               <p className="text-[10px] font-semibold uppercase opacity-90">Parent said today</p>
               <PickupPersonCard
@@ -495,7 +602,7 @@ export default function GateOfficerDashboard() {
                 />
               ))}
             </div>
-          ) : !scannedPerson.pickup_notice && (
+          ) : !scannedPerson.pickup_notice && !scannedPerson.pickup_request && (
             <p className="text-sm text-orange-800">No pickup person on file — confirm with parent or office.</p>
           )}
         </div>
@@ -569,8 +676,22 @@ export default function GateOfficerDashboard() {
   return (
     <div className="min-h-screen flex flex-col pt-12 pb-6">
       <header className="px-4 py-2 max-w-lg mx-auto w-full flex items-center justify-between gap-2">
-        <p className="text-lg font-mono font-bold">{currentTime ? currentTime.toLocaleTimeString() : '--:--'}</p>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          {schoolLogoSrc && (
+            <img src={schoolLogoSrc} alt="" className="h-9 w-9 object-contain rounded-lg border border-slate-200 bg-white shrink-0" />
+          )}
+          <div className="min-w-0">
+            {schoolInfo.name && (
+              <p className="text-xs font-black text-slate-900 uppercase tracking-tight truncate leading-tight">
+                {schoolInfo.name}
+              </p>
+            )}
+            <p className="text-sm font-mono font-bold text-slate-600">
+              {currentTime ? currentTime.toLocaleTimeString() : '--:--'}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
           <span className="text-sm font-bold">{todayCount} scans</span>
           <button type="button" onClick={handleEndSession} className="btn-danger text-xs px-3 py-2">End</button>
         </div>
@@ -664,14 +785,22 @@ export default function GateOfficerDashboard() {
                 pickupRequests.map((r) => {
                   const st = r.student;
                   const s = Array.isArray(st) ? st[0] : st;
+                  const pickupSrc = photoSrc(r.pickup_person_photo);
                   return (
-                    <div key={r.id} className="card p-3 mb-2 text-sm">
-                      <p className="font-semibold">{s?.first_name} {s?.last_name}</p>
-                      <p className="text-blue-800 mt-1">
-                        <strong>{r.pickup_person_name}</strong>
-                        {r.pickup_person_phone ? ` · ${r.pickup_person_phone}` : ''}
-                      </p>
-                      {r.message && <p className="text-xs text-slate-600 mt-1">{r.message}</p>}
+                    <div key={r.id} className="card p-3 mb-2 text-sm flex gap-3">
+                      {pickupSrc ? (
+                        <img src={pickupSrc} alt="" className="w-14 h-14 rounded-lg object-cover shrink-0 border border-slate-200" />
+                      ) : (
+                        <div className="w-14 h-14 rounded-lg bg-slate-100 shrink-0 flex items-center justify-center text-[10px] text-slate-400">No photo</div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold">{s?.first_name} {s?.last_name}</p>
+                        <p className="text-blue-800 mt-1">
+                          <strong>{r.pickup_person_name}</strong>
+                          {r.pickup_person_phone ? ` · ${r.pickup_person_phone}` : ''}
+                        </p>
+                        {r.message && <p className="text-xs text-slate-600 mt-1">{r.message}</p>}
+                      </div>
                     </div>
                   );
                 })

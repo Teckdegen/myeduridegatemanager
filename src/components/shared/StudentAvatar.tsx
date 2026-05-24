@@ -9,6 +9,7 @@ type StudentAvatarProps = {
   lastName?: string;
   size?: 'sm' | 'md' | 'lg';
   accentColor?: string;
+  className?: string;
 };
 
 const sizes = {

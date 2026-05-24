@@ -5,6 +5,37 @@ import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest } from '@/lib/session';
 import { lagosDayBounds } from '@/lib/timezone';
 
+type PickupPersonRow = {
+  id: string;
+  name: string;
+  relationship: string;
+  phone: string | null;
+  photo_url: string | null;
+};
+
+function normalizePerson(raw: unknown): PickupPersonRow | null {
+  if (!raw) return null;
+  const p = Array.isArray(raw) ? raw[0] : raw;
+  if (!p || typeof p !== 'object') return null;
+  const row = p as PickupPersonRow;
+  return row.id ? row : null;
+}
+
+function matchPickupPhoto(
+  name: string | null | undefined,
+  phone: string | null | undefined,
+  persons: PickupPersonRow[]
+): string | null {
+  if (!name && !phone) return null;
+  const n = (name || '').trim().toLowerCase();
+  const ph = (phone || '').replace(/\s/g, '');
+  for (const p of persons) {
+    if (n && p.name?.trim().toLowerCase() === n) return p.photo_url;
+    if (ph && p.phone && p.phone.replace(/\s/g, '') === ph) return p.photo_url;
+  }
+  return null;
+}
+
 /** Gate officer: pickup queue, all students, parent pickup notices for today. */
 export async function GET(request: NextRequest) {
   try {
@@ -30,6 +61,12 @@ export async function GET(request: NextRequest) {
     const supabase = getAdminClient();
     const { dateStr, startIso, endIso } = lagosDayBounds();
 
+    const { data: school } = await supabase
+      .from('schools')
+      .select('id, name, logo_url, primary_color')
+      .eq('id', schoolId)
+      .single();
+
     const { data: students, error: studListErr } = await supabase
       .from('students')
       .select('id, first_name, last_name, student_id_number, photo_url, qr_code_data, class:school_classes(name)')
@@ -42,7 +79,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: studListErr.message }, { status: 500 });
     }
 
-    // Ready queue: match Lagos calendar day via dismissal_date OR created_at (fixes UTC date mismatch)
+    const studentIds = (students || []).map((s: { id: string }) => s.id);
+
     const { data: pickupQueue, error: queueErr } = await supabase
       .from('dismissal_requests')
       .select(
@@ -60,7 +98,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: queueErr.message }, { status: 500 });
     }
 
-    const { data: pickupNotices } = await supabase
+    const { data: pickupNoticesRaw } = await supabase
       .from('pickup_notices')
       .select(
         `*, student:students(id, first_name, last_name, student_id_number),
@@ -70,7 +108,7 @@ export async function GET(request: NextRequest) {
       .eq('notice_date', dateStr)
       .order('created_at', { ascending: false });
 
-    const { data: pickupRequests } = await supabase
+    const { data: pickupRequestsRaw } = await supabase
       .from('pickup_requests')
       .select(`
         *,
@@ -81,34 +119,76 @@ export async function GET(request: NextRequest) {
       .eq('request_date', dateStr)
       .order('created_at', { ascending: false });
 
-    const readyStudentIds = (pickupQueue || [])
-      .map((q: any) => (Array.isArray(q.student) ? q.student[0]?.id : q.student?.id))
-      .filter(Boolean);
+    const pickupPersonsByStudent: Record<string, PickupPersonRow[]> = {};
 
-    let pickupPersonsByStudent: Record<string, unknown[]> = {};
-    if (readyStudentIds.length > 0) {
+    if (studentIds.length > 0) {
       const { data: ppLinks } = await supabase
         .from('pickup_person_students')
         .select(`
           student_id,
           pickup_person:pickup_persons(id, name, relationship, phone, photo_url)
         `)
-        .in('student_id', readyStudentIds);
+        .eq('school_id', schoolId)
+        .in('student_id', studentIds);
 
       for (const link of ppLinks || []) {
+        const person = normalizePerson(link.pickup_person);
+        if (!person) continue;
         if (!pickupPersonsByStudent[link.student_id]) {
           pickupPersonsByStudent[link.student_id] = [];
         }
-        const person = link.pickup_person as unknown;
-        if (person) pickupPersonsByStudent[link.student_id].push(person);
+        pickupPersonsByStudent[link.student_id].push(person);
       }
     }
 
+    const enrichNotice = (notice: Record<string, unknown>) => {
+      const sid = notice.student_id as string;
+      const persons = pickupPersonsByStudent[sid] || [];
+      const photo =
+        matchPickupPhoto(
+          notice.pickup_person_name as string,
+          notice.pickup_person_phone as string,
+          persons
+        ) || null;
+      return {
+        ...notice,
+        pickup_person_photo: photo,
+        authorised_pickup_persons: persons,
+      };
+    };
+
+    const enrichRequest = (req: Record<string, unknown>) => {
+      const sid = req.student_id as string;
+      const persons = pickupPersonsByStudent[sid] || [];
+      const photo =
+        matchPickupPhoto(
+          req.pickup_person_name as string,
+          req.pickup_person_phone as string,
+          persons
+        ) || null;
+      return {
+        ...req,
+        pickup_person_photo: photo,
+        authorised_pickup_persons: persons,
+      };
+    };
+
+    const pickupNotices = (pickupNoticesRaw || []).map((n) => enrichNotice(n as Record<string, unknown>));
+    const pickupRequests = (pickupRequestsRaw || []).map((r) => enrichRequest(r as Record<string, unknown>));
+
+    const pickupRequestsByStudent: Record<string, (typeof pickupRequests)[0]> = {};
+    for (const r of pickupRequests) {
+      const sid = r.student_id as string;
+      if (sid && !pickupRequestsByStudent[sid]) pickupRequestsByStudent[sid] = r;
+    }
+
     return NextResponse.json({
+      school: school || null,
       students: students || [],
       pickup_queue: pickupQueue || [],
-      pickup_notices: pickupNotices || [],
-      pickup_requests: pickupRequests || [],
+      pickup_notices: pickupNotices,
+      pickup_requests: pickupRequests,
+      pickup_requests_by_student: pickupRequestsByStudent,
       pickup_persons_by_student: pickupPersonsByStudent,
       day: dateStr,
     });

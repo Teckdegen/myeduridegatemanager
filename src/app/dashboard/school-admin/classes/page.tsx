@@ -36,12 +36,17 @@ export default function ClassesPage() {
       setClasses(classesData.classes || []);
 
       try {
-        const staffRes = await fetchData('query', {
-          table: 'teacher_profiles',
-          select: 'id, user:user_profiles(full_name)',
-          filters: { school_id: schoolData.school_id },
-        });
-        setTeachers(staffRes.data || []);
+        const teachersRes = await fetch(
+          `/api/schools/class-teachers?school_id=${schoolData.school_id}`,
+          { credentials: 'include', cache: 'no-store' }
+        );
+        const teachersData = await teachersRes.json();
+        setTeachers(
+          (teachersData.teachers || []).map((t) => ({
+            id: t.id,
+            user: { full_name: t.full_name },
+          }))
+        );
       } catch {
         setTeachers([]);
       }
@@ -186,13 +191,14 @@ export default function ClassesPage() {
             <input className="input mb-3" placeholder="e.g. Primary 5" value={form.grade} onChange={(e) => setForm((f) => ({ ...f, grade: e.target.value }))} />
             <label className="text-xs font-medium text-gray-500 block mb-1">Section (optional)</label>
             <input className="input mb-3" value={form.section} onChange={(e) => setForm((f) => ({ ...f, section: e.target.value }))} />
-            <label className="text-xs font-medium text-gray-500 block mb-1">Assigned teacher</label>
+            <label className="text-xs font-medium text-gray-500 block mb-1">Class teacher (homeroom)</label>
             <select className="input mb-4" value={form.assigned_teacher_id} onChange={(e) => setForm((f) => ({ ...f, assigned_teacher_id: e.target.value }))}>
               <option value="">— None —</option>
               {teachers.map((t) => (
                 <option key={t.id} value={t.id}>{t.user?.full_name || 'Teacher'}</option>
               ))}
             </select>
+            <p className="text-[11px] text-gray-400 -mt-3 mb-4">Only users with the Class teacher role appear here (not gate staff).</p>
             <button type="button" onClick={saveClass} disabled={saving} className="btn-primary w-full py-3">
               {saving ? 'Saving…' : editing ? 'Update class' : 'Create class'}
             </button>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest } from '@/lib/session';
+import { isEligibleClassTeacherProfile } from '@/lib/school/eligible-class-teachers';
 
 export const dynamic = 'force-dynamic';
 
@@ -95,6 +96,20 @@ export async function POST(request: NextRequest) {
     if (!isAdmin) return NextResponse.json({ error: 'Access denied' }, { status: 403 });
 
     const supabase = getAdminClient();
+
+    if (assigned_teacher_id) {
+      const ok = await isEligibleClassTeacherProfile(supabase, school_id, assigned_teacher_id);
+      if (!ok) {
+        return NextResponse.json(
+          {
+            error:
+              'Only class teachers can be assigned to a class. Gate officers, staff, and admins cannot be homeroom teachers.',
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     const { data, error } = await supabase
       .from('school_classes')
       .insert({
@@ -148,7 +163,21 @@ export async function PUT(request: NextRequest) {
     if (!isAdmin) return NextResponse.json({ error: 'Access denied' }, { status: 403 });
 
     const supabase = getAdminClient();
-    const updates: any = {};
+
+    if (assigned_teacher_id) {
+      const ok = await isEligibleClassTeacherProfile(supabase, school_id, assigned_teacher_id);
+      if (!ok) {
+        return NextResponse.json(
+          {
+            error:
+              'Only class teachers can be assigned to a class. Gate officers, staff, and admins cannot be homeroom teachers.',
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    const updates: Record<string, unknown> = {};
     if (name !== undefined) updates.name = name.trim();
     if (grade !== undefined) updates.grade = grade.trim();
     if (section !== undefined) updates.section = section?.trim() || null;
