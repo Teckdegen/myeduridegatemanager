@@ -13,6 +13,18 @@ type PickupPersonRow = {
   photo_url: string | null;
 };
 
+type EnrichedPickupNotice = Record<string, unknown> & {
+  student_id: string;
+  pickup_person_photo: string | null;
+  authorised_pickup_persons: PickupPersonRow[];
+};
+
+type EnrichedPickupRequest = Record<string, unknown> & {
+  student_id: string;
+  pickup_person_photo: string | null;
+  authorised_pickup_persons: PickupPersonRow[];
+};
+
 function normalizePerson(raw: unknown): PickupPersonRow | null {
   if (!raw) return null;
   const p = Array.isArray(raw) ? raw[0] : raw;
@@ -141,8 +153,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const enrichNotice = (notice: Record<string, unknown>) => {
-      const sid = notice.student_id as string;
+    const enrichNotice = (notice: Record<string, unknown>): EnrichedPickupNotice => {
+      const sid = String(notice.student_id ?? '');
       const persons = pickupPersonsByStudent[sid] || [];
       const photo =
         matchPickupPhoto(
@@ -152,13 +164,14 @@ export async function GET(request: NextRequest) {
         ) || null;
       return {
         ...notice,
+        student_id: sid,
         pickup_person_photo: photo,
         authorised_pickup_persons: persons,
       };
     };
 
-    const enrichRequest = (req: Record<string, unknown>) => {
-      const sid = req.student_id as string;
+    const enrichRequest = (req: Record<string, unknown>): EnrichedPickupRequest => {
+      const sid = String(req.student_id ?? '');
       const persons = pickupPersonsByStudent[sid] || [];
       const photo =
         matchPickupPhoto(
@@ -168,17 +181,22 @@ export async function GET(request: NextRequest) {
         ) || null;
       return {
         ...req,
+        student_id: sid,
         pickup_person_photo: photo,
         authorised_pickup_persons: persons,
       };
     };
 
-    const pickupNotices = (pickupNoticesRaw || []).map((n) => enrichNotice(n as Record<string, unknown>));
-    const pickupRequests = (pickupRequestsRaw || []).map((r) => enrichRequest(r as Record<string, unknown>));
+    const pickupNotices: EnrichedPickupNotice[] = (pickupNoticesRaw || []).map((n) =>
+      enrichNotice(n as Record<string, unknown>)
+    );
+    const pickupRequests: EnrichedPickupRequest[] = (pickupRequestsRaw || []).map((r) =>
+      enrichRequest(r as Record<string, unknown>)
+    );
 
-    const pickupRequestsByStudent: Record<string, (typeof pickupRequests)[0]> = {};
+    const pickupRequestsByStudent: Record<string, EnrichedPickupRequest> = {};
     for (const r of pickupRequests) {
-      const sid = r.student_id as string;
+      const sid = r.student_id;
       if (sid && !pickupRequestsByStudent[sid]) pickupRequestsByStudent[sid] = r;
     }
 
