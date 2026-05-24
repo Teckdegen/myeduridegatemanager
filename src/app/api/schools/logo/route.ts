@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest, sessionHasRole } from '@/lib/session';
-import { isAllowedLogoMime, uploadSchoolLogoBuffer } from '@/lib/storage/upload-school-logo';
+import { resolveLogoMime, uploadSchoolLogoBuffer } from '@/lib/storage/upload-school-logo';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,10 +32,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
-    const mime = file.type || 'image/jpeg';
-    if (!isAllowedLogoMime(mime)) {
+    const mime = resolveLogoMime(file.type || '', file.name);
+    if (!mime) {
       return NextResponse.json(
-        { error: 'Logo must be JPG, PNG, or WebP (max 5 MB)' },
+        { error: 'Logo must be JPG, PNG, or WebP (max 5 MB). HEIC and other formats are not supported.' },
         { status: 400 }
       );
     }
@@ -46,7 +46,8 @@ export async function POST(request: NextRequest) {
       supabase,
       schoolId,
       buffer,
-      file.type
+      mime,
+      file.name
     );
 
     if (!path) {

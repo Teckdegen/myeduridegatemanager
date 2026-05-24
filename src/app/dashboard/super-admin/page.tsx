@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { School } from '@/lib/types';
 import { Building2, Users, Plus, Search, Settings, BarChart3, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -13,19 +13,32 @@ interface SchoolWithStats extends School {
 export default function SuperAdminDashboard() {
   const [schools, setSchools] = useState<SchoolWithStats[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [totalStats, setTotalStats] = useState({ schools: 0, students: 0, staff: 0 });
+  const modalOpenRef = useRef(false);
+
+  useEffect(() => {
+    modalOpenRef.current = showAddModal;
+  }, [showAddModal]);
 
   useEffect(() => {
     fetchSchools();
-    const onFocus = () => fetchSchools();
+    const onFocus = () => {
+      // File picker closes → window focus → was refetching and unmounting the add-school modal
+      if (modalOpenRef.current) return;
+      fetchSchools({ silent: true });
+    };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
   }, []);
 
-  const fetchSchools = async () => {
-    setLoading(true);
+  const fetchSchools = async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (silent) setRefreshing(true);
+    else setLoading(true);
+
     try {
       const res = await fetch(`/api/schools/list?t=${Date.now()}`, {
         cache: 'no-store',
@@ -37,7 +50,6 @@ export default function SuperAdminDashboard() {
         toast.error(data.error || 'Could not load schools');
         setSchools([]);
         setTotalStats({ schools: 0, students: 0, staff: 0 });
-        setLoading(false);
         return;
       }
 
@@ -51,8 +63,10 @@ export default function SuperAdminDashboard() {
     } catch (err) {
       console.error('Failed to fetch schools:', err);
       toast.error('Could not load schools');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-    setLoading(false);
   };
 
   const handleDeleteSchool = async (schoolId: string, schoolName: string) => {
@@ -68,7 +82,7 @@ export default function SuperAdminDashboard() {
 
     if (res.ok) {
       // Refetch fresh from Supabase
-      fetchSchools();
+      fetchSchools({ silent: true });
       toast.success(`${schoolName} deleted`);
     } else {
       const data = await res.json().catch(() => ({}));
@@ -142,10 +156,10 @@ export default function SuperAdminDashboard() {
               className="input pl-10"
             />
           </div>
-          <button type="button" onClick={() => fetchSchools()} className="btn-secondary flex items-center gap-1">
-            Refresh
+          <button type="button" onClick={() => fetchSchools({ silent: true })} className="btn-secondary flex items-center gap-1" disabled={refreshing}>
+            {refreshing ? 'Refreshing…' : 'Refresh'}
           </button>
-          <button onClick={() => setShowAddModal(true)} className="btn-primary flex items-center gap-1">
+          <button type="button" onClick={() => setShowAddModal(true)} className="btn-primary flex items-center gap-1">
             <Plus size={16} />
             Add School
           </button>
@@ -215,7 +229,7 @@ export default function SuperAdminDashboard() {
                 return next;
               });
             }
-            fetchSchools();
+            fetchSchools({ silent: true });
           }}
         />
       )}
@@ -241,6 +255,39 @@ function AddSchoolModal({
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState('');
   const [loading, setLoading] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  const handleLogoPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const name = file.name.toLowerCase();
+    const okType =
+      ['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ||
+      name.endsWith('.jpg') ||
+      name.endsWith('.jpeg') ||
+      name.endsWith('.png') ||
+      name.endsWith('.webp');
+
+    if (!okType) {
+      toast.error('Use JPG, PNG, or WebP for the school logo');
+      if (logoInputRef.current) logoInputRef.current.value = '';
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Logo must be 5 MB or smaller');
+      if (logoInputRef.current) logoInputRef.current.value = '';
+      return;
+    }
+
+    setLogoFile(file);
+    const reader = new FileReader();
+    reader.onload = (ev) => setLogoPreview((ev.target?.result as string) || '');
+    reader.readAsDataURL(file);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -318,20 +365,15 @@ function AddSchoolModal({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">School Logo</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">School Logo (optional)</label>
             <input
+              ref={logoInputRef}
               type="file"
-              accept="image/*"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                setLogoFile(file);
-                const reader = new FileReader();
-                reader.onload = (ev) => setLogoPreview(ev.target?.result as string || '');
-                reader.readAsDataURL(file);
-              }}
+              accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+              onChange={handleLogoPick}
               className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-primary-50 file:text-primary-700 file:font-medium"
             />
+            <p className="text-xs text-gray-400 mt-1">JPG, PNG or WebP · max 5 MB · uploaded when you create the school</p>
             {logoPreview && (
               <div className="mt-2 p-2 bg-gray-50 rounded-lg inline-block">
                 <img src={logoPreview} alt="Preview" className="h-10 object-contain" />
