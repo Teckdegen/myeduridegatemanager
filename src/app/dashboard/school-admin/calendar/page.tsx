@@ -132,7 +132,7 @@ export default function SchoolCalendarPage() {
         <div>
           <h1 className="text-2xl font-bold">School calendar</h1>
           <p className="text-sm text-slate-500">
-            Add a date range (e.g. 12 Apr – 20 Apr). All days in the range are excluded from absent counts in reports.
+            Add a date range (e.g. 12 Apr – 20 Apr). Weekdays in the range are excluded from absent counts; Saturdays and Sundays are never counted as school days.
           </p>
         </div>
       </div>
@@ -170,7 +170,7 @@ export default function SchoolCalendarPage() {
           </div>
         </div>
         <p className="text-[11px] text-slate-400">
-          Same start and end = single day. Use a range for breaks, exams week, etc.
+          Same start and end = single weekday. Weekends in a range are skipped automatically.
         </p>
         <div>
           <label className="text-xs text-slate-500 block mb-1">Type</label>

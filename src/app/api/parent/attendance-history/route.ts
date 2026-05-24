@@ -8,6 +8,8 @@ import {
   resolveLagosReportRange,
   timestampToLagosDateKey,
 } from '@/lib/attendance/lagos-dates';
+import { fetchNonSchoolDaysInRange } from '@/lib/attendance/non-school-days';
+import { isCountableSchoolDay } from '@/lib/attendance/school-days';
 import { dayStatusColor, resolveCalendarDayStatus } from '@/lib/attendance/status';
 
 export const dynamic = 'force-dynamic';
@@ -39,12 +41,15 @@ export async function GET(request: NextRequest) {
 
     const { data: link } = await supabase
       .from('student_parents')
-      .select('student_id')
+      .select('student_id, student:students(school_id)')
       .eq('student_id', studentId)
       .eq('parent_user_id', session.user_id)
       .maybeSingle();
 
     if (!link) return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+
+    const studentRow = Array.isArray(link.student) ? link.student[0] : link.student;
+    const studentSchoolId = (studentRow as { school_id?: string } | null)?.school_id;
 
     const { startDateStr, endDateStr, rangeStartIso, rangeEndIso } = resolveLagosReportRange(
       type,
@@ -87,6 +92,13 @@ export async function GET(request: NextRequest) {
 
     const today = todayInLagos();
 
+    const nonSchoolDays =
+      studentSchoolId && type !== 'daily'
+        ? await fetchNonSchoolDaysInRange(supabase, studentSchoolId, startDateStr, endDateStr)
+        : studentSchoolId
+          ? await fetchNonSchoolDaysInRange(supabase, studentSchoolId, dateParam, dateParam)
+          : new Map();
+
     if (type === 'daily') {
       const dayKey = dateParam;
       const arrival = arrivalByDay[dayKey];
@@ -97,6 +109,7 @@ export async function GET(request: NextRequest) {
           : resolveCalendarDayStatus(dayKey, arrival, {
               isWeekend: lagosWeekend(dayKey),
               todayLagos: today,
+              isExcluded: nonSchoolDays.has(dayKey),
             });
       return NextResponse.json({
         type: 'daily',
@@ -113,13 +126,16 @@ export async function GET(request: NextRequest) {
       const arrival = arrivalByDay[dayKey];
       const departure = departureByDay[dayKey];
       const isWeekend = lagosWeekend(dayKey);
+      const isExcluded = nonSchoolDays.has(dayKey);
       const status = resolveCalendarDayStatus(dayKey, arrival, {
         isWeekend,
         todayLagos: today,
+        isExcluded,
       });
       return {
         date: dayKey,
         is_weekend: isWeekend,
+        is_school_day: isCountableSchoolDay(dayKey, nonSchoolDays),
         status,
         check_in_time: arrival?.timestamp || null,
         check_out_time: departure || null,
@@ -128,7 +144,9 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    const schoolDays = calendar.filter((d) => !d.is_weekend && d.status !== 'upcoming');
+    const schoolDays = calendar.filter(
+      (d) => d.is_school_day && d.status !== 'upcoming' && d.status !== 'excluded'
+    );
     const present = schoolDays.filter((d) => d.status === 'on_time').length;
     const late = schoolDays.filter((d) => d.status === 'late').length;
     const absent = schoolDays.filter((d) => d.status === 'absent').length;

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { timestampToLagosDateKey, lagosWeekend } from '@/lib/attendance/lagos-dates';
+import { timestampToLagosDateKey } from '@/lib/attendance/lagos-dates';
+import { isCountableSchoolDay } from '@/lib/attendance/school-days';
 import type { NonSchoolDay } from '@/lib/attendance/non-school-days';
 
 const STAFF_REPORT_ROLES = ['staff', 'teacher', 'gate_officer', 'school_admin'] as const;
@@ -213,20 +214,20 @@ export async function buildStaffMonthlyReport(
 
   return roles.map((r) => {
     const days = dayStrings.map((date) => {
-      if (lagosWeekend(date)) {
-        return { date, present: false, status: 'weekend' as const };
-      }
-      if (nonSchool?.has(date)) {
-        return { date, present: false, status: 'excluded' as const };
+      if (!isCountableSchoolDay(date, nonSchool)) {
+        const status = nonSchool?.has(date) ? ('excluded' as const) : ('weekend' as const);
+        return { date, present: false, status };
       }
       const present = !!presentByUserDay[r.user_id]?.[date];
       return { date, present, status: present ? ('present' as const) : ('absent' as const) };
     });
+    const schoolDaysInRange = dayStrings.filter((d) => isCountableSchoolDay(d, nonSchool)).length;
     return {
       user_id: r.user_id,
       full_name: r.full_name,
       role: r.job_title,
       days_present: days.filter((d) => d.status === 'present').length,
+      school_days: schoolDaysInRange,
       days,
     };
   });

@@ -212,12 +212,18 @@ export async function POST(request: NextRequest) {
     }
 
     if (type === 'departure') {
-      await supabase
+      const today = todayInLagos();
+      const { error: dismissCompleteErr } = await supabase
         .from('dismissal_requests')
         .update({ status: 'completed', completed_at: nowIso })
         .eq('student_id', student_id)
         .eq('school_id', schoolId)
+        .eq('dismissal_date', today)
         .in('status', ['pending', 'approved']);
+
+      if (dismissCompleteErr) {
+        console.error('[gate/accept] dismissal complete:', dismissCompleteErr.message);
+      }
     }
 
     const notifyType = type === 'departure' ? 'departure' : 'arrival';

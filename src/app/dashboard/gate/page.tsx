@@ -294,14 +294,26 @@ export default function GateOfficerDashboard() {
     }
   };
 
-  const resumeScanning = () => {
+  const removeFromPickupQueue = useCallback((studentId) => {
+    if (!studentId) return;
+    setPickupQueue((q) =>
+      q.filter((item) => {
+        const sid = item.student?.id || item.student_id;
+        return sid !== studentId;
+      })
+    );
+  }, []);
+
+  const resumeScanning = useCallback(async () => {
+    const releasedStudentId = scannedPerson?.type === 'student' ? scannedPerson.person?.id : null;
     setScannedPerson(null);
     setScanning(false);
-    loadGateData();
+    if (releasedStudentId) removeFromPickupQueue(releasedStudentId);
+    await loadGateData();
     if (gateTab === 'scan') {
       requestAnimationFrame(() => setTimeout(() => startCamera(), 150));
     }
-  };
+  }, [scannedPerson, removeFromPickupQueue, loadGateData, gateTab]);
 
   const switchCamera = () => {
     const newMode = facingMode === 'environment' ? 'user' : 'environment';
@@ -361,6 +373,14 @@ export default function GateOfficerDashboard() {
     } catch {
       /* status optional */
     }
+
+    if (today_status?.has_departure) {
+      toast.info(`${student.first_name} was already checked out today`);
+      removeFromPickupQueue(student.id);
+      await loadGateData();
+      return;
+    }
+
     setScannedPerson({
       type: 'student',
       from_queue: fromQueue,
@@ -418,12 +438,15 @@ export default function GateOfficerDashboard() {
               : 'checked out';
         toast.success(`${scannedPerson.person.name} — ${action}`);
         setTodayCount((p) => p + 1);
-        resumeScanning();
+        await resumeScanning();
       } else {
         const msg = data.error || 'Failed to log';
         toast.error(msg);
         if (data.already_recorded) {
-          resumeScanning();
+          if (scannedPerson.type === 'student' && scanActionMode === 'departure') {
+            removeFromPickupQueue(scannedPerson.person.id);
+          }
+          await resumeScanning();
         }
       }
     } catch {
@@ -627,9 +650,14 @@ export default function GateOfficerDashboard() {
           )}
         </div>
       )}
-      {scannedPerson.from_queue && (
+      {scannedPerson.from_queue && !fullyComplete && (
         <p className="text-xs font-semibold text-orange-700 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2 mb-4">
           Ready for pickup — teacher dismissed this student
+        </p>
+      )}
+      {fullyComplete && scannedPerson.type === 'student' && (
+        <p className="text-xs font-semibold text-slate-700 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 mb-4">
+          Already signed in and out today — tap Done to return to the list.
         </p>
       )}
       <div

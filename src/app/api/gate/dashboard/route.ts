@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest } from '@/lib/session';
-import { lagosDayBounds } from '@/lib/timezone';
+import { lagosDayBounds, todayInLagos } from '@/lib/timezone';
 
 type PickupPersonRow = {
   id: string;
@@ -93,22 +93,50 @@ export async function GET(request: NextRequest) {
 
     const studentIds = (students || []).map((s: { id: string }) => s.id);
 
-    const { data: pickupQueue, error: queueErr } = await supabase
+    const today = dateStr || todayInLagos();
+
+    const { data: pickupQueueRaw, error: queueErr } = await supabase
       .from('dismissal_requests')
       .select(
-        `id, status, created_at, notes, dismissal_date,
+        `id, status, created_at, notes, dismissal_date, student_id,
          student:students(id, first_name, last_name, student_id_number, photo_url, class:school_classes(name))`
       )
       .eq('school_id', schoolId)
+      .eq('dismissal_date', today)
       .in('status', ['pending', 'approved'])
-      .gte('created_at', startIso)
-      .lte('created_at', endIso)
       .order('created_at', { ascending: true });
 
     if (queueErr) {
       console.error('[gate/dashboard] pickup_queue:', queueErr.message);
       return NextResponse.json({ error: queueErr.message }, { status: 500 });
     }
+
+    const { data: todayDepartures } = await supabase
+      .from('attendance_records')
+      .select('student_id')
+      .eq('school_id', schoolId)
+      .eq('type', 'departure')
+      .gte('timestamp', startIso)
+      .lte('timestamp', endIso);
+
+    const departedStudentIds = new Set(
+      (todayDepartures || []).map((r: { student_id: string }) => r.student_id)
+    );
+
+    const stuckIds = (pickupQueueRaw || [])
+      .filter((row: { student_id: string }) => departedStudentIds.has(row.student_id))
+      .map((row: { id: string }) => row.id);
+
+    if (stuckIds.length > 0) {
+      await supabase
+        .from('dismissal_requests')
+        .update({ status: 'completed', completed_at: new Date().toISOString() })
+        .in('id', stuckIds);
+    }
+
+    const pickupQueue = (pickupQueueRaw || []).filter(
+      (row: { student_id: string }) => !departedStudentIds.has(row.student_id)
+    );
 
     const { data: pickupNoticesRaw } = await supabase
       .from('pickup_notices')

@@ -422,14 +422,15 @@ export default function ParentDashboard() {
                       {(historyData.calendar || []).map((d) => (
                         <div
                           key={d.date}
-                          title={`${d.date}: ${d.status}`}
+                          title={`${d.date}: ${DAY_STATUS_LABELS[d.status] || d.status}`}
                           className={`aspect-square rounded text-[8px] flex items-center justify-center font-medium ${
+                            d.status === 'weekend' || d.status === 'excluded' ? 'bg-gray-100 text-gray-400' :
                             d.color === 'green' ? 'bg-emerald-400 text-white' :
                             d.color === 'yellow' ? 'bg-amber-400 text-white' :
                             d.color === 'red' ? 'bg-red-400 text-white' : 'bg-gray-100 text-gray-400'
                           }`}
                         >
-                          {d.date.split('-')[2]}
+                          {d.status === 'weekend' ? '·' : d.date.split('-')[2]}
                         </div>
                       ))}
                     </div>

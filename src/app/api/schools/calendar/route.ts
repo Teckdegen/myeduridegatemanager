@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest, sessionHasRole } from '@/lib/session';
-import { lagosDateStringsInRange } from '@/lib/attendance/lagos-dates';
+import { lagosDateStringsInRange, lagosWeekend } from '@/lib/attendance/lagos-dates';
 
 export const dynamic = 'force-dynamic';
 
@@ -160,10 +160,18 @@ export async function POST(request: NextRequest) {
   }
 
   const endDate = end && end >= start ? end : start;
-  const dateStrings = lagosDateStringsInRange(start, endDate);
+  const allDatesInRange = lagosDateStringsInRange(start, endDate);
+  const dateStrings = allDatesInRange.filter((d) => !lagosWeekend(d));
 
-  if (dateStrings.length > MAX_RANGE_DAYS) {
+  if (allDatesInRange.length > MAX_RANGE_DAYS) {
     return NextResponse.json({ error: `Range cannot exceed ${MAX_RANGE_DAYS} days` }, { status: 400 });
+  }
+
+  if (dateStrings.length === 0) {
+    return NextResponse.json(
+      { error: 'No weekdays in that range — weekends are never counted as school days' },
+      { status: 400 }
+    );
   }
 
   const batchId = dateStrings.length > 1 ? randomUUID() : null;

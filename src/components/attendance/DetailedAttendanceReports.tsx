@@ -350,7 +350,7 @@ export default function DetailedAttendanceReports({
               <p className="text-2xl font-bold">{data.summary?.attendance_pct ?? 0}%</p>
               <p className="text-xs text-slate-500">
                 {data.summary?.grand_present} present · {data.summary?.grand_late} late · {data.summary?.grand_absent} absent
-                {' '}over {data.summary?.total_days} days
+                {' '}over {data.summary?.school_days ?? data.summary?.total_days} school days
               </p>
             </div>
           </div>
@@ -501,7 +501,9 @@ export default function DetailedAttendanceReports({
         </>
       )}
 
-      <p className="text-xs text-slate-400">Times in West Africa Time (Lagos). Monthly reports use the full calendar month.</p>
+      <p className="text-xs text-slate-400">
+        Times in West Africa Time (Lagos). Weekly and monthly totals count weekdays only — weekends are never school days.
+      </p>
     </div>
   );
 }

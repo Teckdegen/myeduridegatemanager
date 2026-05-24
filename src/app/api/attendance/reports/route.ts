@@ -11,6 +11,7 @@ import {
   resolveLagosReportRange,
   timestampToLagosDateKey,
 } from '@/lib/attendance/lagos-dates';
+import { isCountableSchoolDay } from '@/lib/attendance/school-days';
 import { buildStaffDailyReport, buildStaffMonthlyReport } from '@/lib/attendance/staff-report';
 import { normalizeArrivalStatus } from '@/lib/attendance/status';
 import { fetchReportStudents } from '@/lib/attendance/report-students';
@@ -362,8 +363,7 @@ export async function GET(request: NextRequest) {
       startDateStr,
       endDateStr
     );
-    const isCountableDay = (dayKey: string) =>
-      !lagosWeekend(dayKey) && !nonSchoolDays.has(dayKey);
+    const isCountableDay = (dayKey: string) => isCountableSchoolDay(dayKey, nonSchoolDays);
 
     const classMap: Record<string, { class_id: string; class_name: string; students: typeof students }> = {};
     for (const s of students) {
