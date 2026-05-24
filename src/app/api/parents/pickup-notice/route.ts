@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest } from '@/lib/session';
+import { todayInLagos } from '@/lib/timezone';
 
 export async function POST(request: NextRequest) {
   try {
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Student not found' }, { status: 404 });
     }
 
-    const noticeDate = new Date().toISOString().split('T')[0];
+    const noticeDate = todayInLagos();
 
     const { data: notice, error } = await supabase
       .from('pickup_notices')

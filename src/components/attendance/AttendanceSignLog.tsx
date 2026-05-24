@@ -84,6 +84,22 @@ export default function AttendanceSignLog({
                   {e.type_label}
                   {e.detail ? ` · ${e.detail}` : ''}
                 </p>
+                {e.pickup_notice?.pickup_person_name && (
+                  <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-2">
+                    <p className="text-[10px] font-bold text-blue-900 uppercase tracking-wide">
+                      Parent pickup notice
+                    </p>
+                    <p className="text-xs font-bold text-blue-800">
+                      {e.pickup_notice.pickup_person_name}
+                      {e.pickup_notice.pickup_person_phone
+                        ? ` · ${e.pickup_notice.pickup_person_phone}`
+                        : ''}
+                    </p>
+                    {e.pickup_notice.notes?.trim() && (
+                      <p className="text-xs text-blue-700 mt-0.5">{e.pickup_notice.notes.trim()}</p>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="text-right shrink-0">
                 <p className="text-sm font-mono font-medium">{e.time_display}</p>

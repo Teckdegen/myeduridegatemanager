@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
 
     if (!student) return NextResponse.json({ error: 'Student not found' }, { status: 404 });
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = (await import('@/lib/timezone')).todayInLagos();
     const school = Array.isArray(student.school) ? student.school[0] : student.school;
 
     const { data: req, error: reqErr } = await supabase

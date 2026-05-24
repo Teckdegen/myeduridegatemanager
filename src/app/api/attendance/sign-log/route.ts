@@ -48,12 +48,40 @@ export async function GET(request: NextRequest) {
       timestamp: string;
       time_display: string;
       status?: string;
+      pickup_notice?: {
+        pickup_person_name: string;
+        pickup_person_phone?: string | null;
+        notes?: string | null;
+      } | null;
     }[] = [];
 
+    const noticeByStudent = new Map<
+      string,
+      { pickup_person_name: string; pickup_person_phone?: string | null; notes?: string | null }
+    >();
+
     if (entity === 'all' || entity === 'student') {
+      const { data: notices } = await supabase
+        .from('pickup_notices')
+        .select('student_id, pickup_person_name, pickup_person_phone, notes')
+        .eq('school_id', schoolId)
+        .eq('notice_date', dateParam);
+
+      for (const n of notices || []) {
+        if (n.student_id) {
+          noticeByStudent.set(n.student_id, {
+            pickup_person_name: n.pickup_person_name,
+            pickup_person_phone: n.pickup_person_phone,
+            notes: n.notes,
+          });
+        }
+      }
+
       const { data: records } = await supabase
         .from('attendance_records')
-        .select('id, type, status, timestamp, student:students(first_name, last_name, student_id_number)')
+        .select(
+          'id, type, status, timestamp, student_id, student:students(first_name, last_name, student_id_number)'
+        )
         .eq('school_id', schoolId)
         .gte('timestamp', startIso)
         .lte('timestamp', endIso)
@@ -64,16 +92,20 @@ export async function GET(request: NextRequest) {
         const name = st
           ? `${(st as { first_name: string }).first_name} ${(st as { last_name: string }).last_name}`
           : 'Student';
+        const studentIdNumber = (st as { student_id_number?: string })?.student_id_number || '';
+        const pickupNotice =
+          r.type === 'departure' && r.student_id ? noticeByStudent.get(r.student_id) ?? null : null;
         entries.push({
           id: r.id,
           entity: 'student',
           name,
-          detail: (st as { student_id_number?: string })?.student_id_number || '',
+          detail: studentIdNumber,
           type: r.type,
           type_label: r.type === 'arrival' ? 'Check in' : 'Check out',
           timestamp: r.timestamp,
           time_display: formatTimeLagos(r.timestamp),
           status: r.status || undefined,
+          pickup_notice: pickupNotice,
         });
       }
     }

@@ -30,6 +30,33 @@ function splitName(fullName) {
   return { first: parts[0] || '', last: parts.slice(1).join(' ') || '' };
 }
 
+/** Parent daily pickup notice — matches parent app card (name, phone, notes). */
+function ParentPickupNoticeBox({ notice, photoUrl }) {
+  if (!notice?.pickup_person_name) return null;
+  const src = photoUrl ? photoSrc(photoUrl) : null;
+  const noteText = notice.notes?.trim() || notice.message?.trim() || '';
+
+  return (
+    <div className="mb-3 rounded-xl border-2 border-blue-200 bg-blue-50 p-3">
+      <p className="text-sm font-bold text-blue-900 mb-2">Parent pickup notice</p>
+      <div className="flex gap-3 items-start">
+        {src ? (
+          <img src={src} alt="" className="w-14 h-14 rounded-lg object-cover shrink-0 border border-blue-100" />
+        ) : null}
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold text-blue-800">
+            {notice.pickup_person_name}
+            {notice.pickup_person_phone ? (
+              <span className="font-bold"> · {notice.pickup_person_phone}</span>
+            ) : null}
+          </p>
+          {noteText && <p className="text-sm text-blue-700 mt-1">{noteText}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PickupPersonCard({ name, phone, photoUrl, relationship, highlight }) {
   const src = photoSrc(photoUrl);
   return (
@@ -360,7 +387,7 @@ export default function GateOfficerDashboard() {
       const body = {
         school_id: schoolId,
         gate_session_id: gateSessionId,
-        type: gateMode === 'arrival' ? 'arrival' : 'departure',
+        type: scanActionMode,
         verification_method: 'id_card_scan',
         person_type: scannedPerson.type,
       };
@@ -369,7 +396,7 @@ export default function GateOfficerDashboard() {
         body.user_id = scannedPerson.person.user_id;
       } else {
         body.student_id = scannedPerson.person.id;
-        if (gateMode === 'dismissal') {
+        if (scanActionMode === 'departure') {
           body.from_ready_queue = !!scannedPerson.from_queue;
         }
       }
@@ -453,9 +480,11 @@ export default function GateOfficerDashboard() {
     return `${s.first_name} ${s.last_name} ${s.student_id_number} ${s.class?.name || ''}`.toLowerCase().includes(q);
   });
 
+  const scanActionMode = gateMode === 'arrival' ? 'arrival' : 'departure';
+
   const gateBlock = isActionBlocked(
     scannedPerson?.today_status,
-    gateMode === 'arrival' ? 'arrival' : 'departure',
+    scanActionMode,
     scannedPerson?.type === 'staff'
   );
   const gateBlockReason = gateBlock.blocked ? gateBlock.message : null;
@@ -467,6 +496,11 @@ export default function GateOfficerDashboard() {
         (scannedPerson.type === 'student' &&
           scannedPerson.today_status.has_arrival &&
           scannedPerson.today_status.has_departure)));
+
+  /** Checkout: dismissal session OR scan switched mode to departure after check-in */
+  const isStudentCheckout =
+    scannedPerson?.type === 'student' &&
+    (gateMode === 'dismissal' || gateMode === 'departure');
 
   const schoolLogoSrc = photoSrc(schoolInfo.logo_url);
 
@@ -552,41 +586,27 @@ export default function GateOfficerDashboard() {
           {gateBlockReason}
         </p>
       )}
-      {gateMode === 'dismissal' && scannedPerson.type === 'student' && (
+      {isStudentCheckout && (
         <div className="mb-4 p-4 rounded-2xl border-2 border-orange-200 bg-orange-50/80">
           <p className="text-xs font-bold text-orange-900 uppercase tracking-wide mb-3">
             Verify pickup person before release
           </p>
-          {scannedPerson.pickup_request && (
-            <div className="mb-3 p-3 rounded-xl bg-blue-700 text-white border-2 border-blue-400">
-              <p className="text-[10px] font-bold uppercase tracking-wide opacity-95">Parent pickup message today</p>
-              <PickupPersonCard
-                name={scannedPerson.pickup_request.pickup_person_name}
-                phone={scannedPerson.pickup_request.pickup_person_phone}
-                photoUrl={scannedPerson.pickup_request.pickup_person_photo}
-                relationship="Notify school request"
-                highlight
-              />
-              {scannedPerson.pickup_request.message && (
-                <p className="text-sm mt-2 font-medium bg-white/10 rounded-lg px-2 py-1.5">
-                  {scannedPerson.pickup_request.message}
-                </p>
-              )}
-            </div>
+          {scannedPerson.pickup_notice && (
+            <ParentPickupNoticeBox
+              notice={scannedPerson.pickup_notice}
+              photoUrl={scannedPerson.pickup_notice.pickup_person_photo}
+            />
           )}
-          {scannedPerson.pickup_notice && !scannedPerson.pickup_request && (
-            <div className="mb-3 p-3 rounded-xl bg-blue-600 text-white">
-              <p className="text-[10px] font-semibold uppercase opacity-90">Parent said today</p>
-              <PickupPersonCard
-                name={scannedPerson.pickup_notice.pickup_person_name}
-                phone={scannedPerson.pickup_notice.pickup_person_phone}
-                photoUrl={scannedPerson.pickup_notice.pickup_person_photo}
-                relationship="Today's pickup"
-                highlight
+          {scannedPerson.pickup_request && !scannedPerson.pickup_notice && (
+            <div className="mb-3">
+              <ParentPickupNoticeBox
+                notice={{
+                  pickup_person_name: scannedPerson.pickup_request.pickup_person_name,
+                  pickup_person_phone: scannedPerson.pickup_request.pickup_person_phone,
+                  notes: scannedPerson.pickup_request.message,
+                }}
+                photoUrl={scannedPerson.pickup_request.pickup_person_photo}
               />
-              {scannedPerson.pickup_notice.notes && (
-                <p className="text-xs mt-2 opacity-90">{scannedPerson.pickup_notice.notes}</p>
-              )}
             </div>
           )}
           {scannedPerson.pickup_persons?.length > 0 ? (
@@ -603,7 +623,7 @@ export default function GateOfficerDashboard() {
               ))}
             </div>
           ) : !scannedPerson.pickup_notice && !scannedPerson.pickup_request && (
-            <p className="text-sm text-orange-800">No pickup person on file — confirm with parent or office.</p>
+            <p className="text-sm text-orange-800">No parent pickup notice today — confirm with parent or office.</p>
           )}
         </div>
       )}

@@ -8,6 +8,7 @@ import {
   validateStudentGateAction,
   validateStaffGateAction,
 } from '@/lib/gate/daily-limits';
+import { fetchStudentPickupContext } from '@/lib/gate/student-pickup-context';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +49,7 @@ export async function POST(request: NextRequest) {
       const today = await getStudentTodayStatus(supabase, school_id, studentId);
       const checkIn = validateStudentGateAction(today, 'arrival');
       const checkOut = validateStudentGateAction(today, 'departure');
+      const pickup_context = await fetchStudentPickupContext(supabase, school_id, studentId);
 
       return NextResponse.json({
         type: 'student',
@@ -59,6 +61,7 @@ export async function POST(request: NextRequest) {
           photo_url: student.photo_url,
         },
         today_status: today,
+        pickup_context,
         scan_hints: {
           can_check_in: checkIn.allowed,
           can_check_out: checkOut.allowed,
