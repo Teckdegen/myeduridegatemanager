@@ -131,12 +131,24 @@ export async function POST(request: NextRequest) {
         ? customRole!.name
         : accessRole.replace(/_/g, ' ');
 
-    if (STAFF_PROFILE_ACCESS_ROLES.has(accessRole)) {
-      const staffIdNumber = `STF-${school_id.slice(0, 4).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
-      const qrCodeData = `MYEDURIDE:STAFF:${staffIdNumber}`;
+    let savedStaffProfile: { staff_id_number?: string; photo_url?: string | null } | null = null;
 
-      let photoUrl: string | null = null;
+    if (STAFF_PROFILE_ACCESS_ROLES.has(accessRole)) {
+      const { data: existingProfile } = await supabase
+        .from('teacher_profiles')
+        .select('id, staff_id_number, qr_code_data, photo_url, face_descriptor, custom_fields')
+        .eq('user_id', userId)
+        .eq('school_id', school_id)
+        .maybeSingle();
+
+      const staffIdNumber =
+        existingProfile?.staff_id_number ||
+        `STF-${school_id.slice(0, 4).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+      const qrCodeData =
+        existingProfile?.qr_code_data || `MYEDURIDE:STAFF:${staffIdNumber}`;
+
       const photoSource = photo_base64 || (Array.isArray(face_photos) && face_photos[0]) || null;
+      let photoUrl: string | null = existingProfile?.photo_url ?? null;
       if (photoSource) {
         const storagePath = `staff/${school_id}/${staffIdNumber}.jpg`;
         const { path, error: uploadErr } = await uploadBase64Photo(supabase, storagePath, photoSource);
@@ -155,32 +167,71 @@ export async function POST(request: NextRequest) {
         staff_id_number: staffIdNumber,
         qr_code_data: qrCodeData,
         photo_url: photoUrl,
-        face_descriptor: face_descriptor || null,
-        custom_fields: custom_fields || {},
+        face_descriptor:
+          face_descriptor != null
+            ? face_descriptor
+            : existingProfile?.face_descriptor ?? null,
+        custom_fields:
+          custom_fields && Object.keys(custom_fields).length
+            ? custom_fields
+            : existingProfile?.custom_fields ?? {},
         custom_role_id: accessRole === 'staff' ? custom_role_id : null,
       };
 
-      let { data: staffProfile, error: staffProfileErr } = await supabase
-        .from('teacher_profiles')
-        .upsert(profilePayload, { onConflict: 'user_id,school_id' })
-        .select()
-        .single();
+      let staffProfile;
+      let staffProfileErr;
+
+      if (existingProfile?.id) {
+        const updatePayload: Record<string, unknown> = {};
+        if (photoSource) updatePayload.photo_url = photoUrl;
+        if (face_descriptor != null) updatePayload.face_descriptor = face_descriptor;
+        if (accessRole === 'staff' && custom_role_id) {
+          updatePayload.custom_role_id = custom_role_id;
+        }
+        if (custom_fields && Object.keys(custom_fields).length) {
+          updatePayload.custom_fields = custom_fields;
+        }
+        const upd = await supabase
+          .from('teacher_profiles')
+          .update(updatePayload)
+          .eq('id', existingProfile.id)
+          .select()
+          .single();
+        staffProfile = upd.data ?? existingProfile;
+        staffProfileErr = Object.keys(updatePayload).length ? upd.error : null;
+      } else {
+        const ins = await supabase.from('teacher_profiles').insert(profilePayload).select().single();
+        staffProfile = ins.data;
+        staffProfileErr = ins.error;
+      }
 
       if (staffProfileErr && /custom_role_id/i.test(staffProfileErr.message)) {
         const legacy = { ...profilePayload };
         delete legacy.custom_role_id;
-        const retry = await supabase
-          .from('teacher_profiles')
-          .upsert(legacy, { onConflict: 'user_id,school_id' })
-          .select()
-          .single();
-        staffProfile = retry.data;
-        staffProfileErr = retry.error;
+        if (existingProfile?.id) {
+          const legacyUpd = { ...legacy };
+          delete legacyUpd.user_id;
+          delete legacyUpd.school_id;
+          const retry = await supabase
+            .from('teacher_profiles')
+            .update(legacyUpd)
+            .eq('id', existingProfile.id)
+            .select()
+            .single();
+          staffProfile = retry.data;
+          staffProfileErr = retry.error;
+        } else {
+          const retry = await supabase.from('teacher_profiles').insert(legacy).select().single();
+          staffProfile = retry.data;
+          staffProfileErr = retry.error;
+        }
       }
 
       if (staffProfileErr) {
         return NextResponse.json({ error: `Failed to save staff profile: ${staffProfileErr.message}` }, { status: 500 });
       }
+
+      savedStaffProfile = staffProfile;
 
       if (mayAssignClass && class_id && staffProfile) {
         await supabase.from('teacher_class_assignments').upsert(
@@ -229,7 +280,18 @@ export async function POST(request: NextRequest) {
       console.error('Email send failed:', emailErr);
     }
 
-    return NextResponse.json({ success: true, userId, role: accessRole, job_title: roleLabel });
+    return NextResponse.json({
+      success: true,
+      userId,
+      role: accessRole,
+      job_title: roleLabel,
+      staff_profile: savedStaffProfile
+        ? {
+            staff_id_number: savedStaffProfile.staff_id_number,
+            photo_url: savedStaffProfile.photo_url,
+          }
+        : null,
+    });
   } catch (error) {
     console.error('Staff creation error:', error);
     return NextResponse.json({ error: 'Failed to create staff member' }, { status: 500 });

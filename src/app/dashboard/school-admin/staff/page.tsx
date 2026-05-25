@@ -6,6 +6,7 @@ import { fetchData } from '@/lib/api';
 import { Plus, Trash2, GraduationCap, DoorOpen, Shield, User, Briefcase } from 'lucide-react';
 import { toast } from 'sonner';
 import FaceCapture from '@/components/shared/FaceCapture';
+import StaffIdPhoto from '@/components/shared/StaffIdPhoto';
 import StudentAvatar from '@/components/shared/StudentAvatar';
 
 const ACCESS_OPTIONS = [
@@ -56,14 +57,30 @@ export default function StaffManagementPage() {
     setLoading(false);
   };
 
-  const handleDelete = async (roleId, name) => {
-    if (!confirm(`Remove ${name}?`)) return;
-    await fetch('/api/staff/delete', {
+  const handleDelete = async (member, name) => {
+    const ids = member.role_ids || [member.id];
+    if (!confirm(`Remove ${name} from this school?`)) return;
+    for (const roleId of ids) {
+      await fetch('/api/staff/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role_id: roleId }),
+      });
+    }
+    toast.success('Removed');
+    loadStaff();
+  };
+
+  const handleAddPhoto = async (userId, photoBase64) => {
+    const res = await fetch('/api/staff/photo', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role_id: roleId }),
+      credentials: 'include',
+      body: JSON.stringify({ school_id: schoolId, user_id: userId, photo_base64: photoBase64 }),
     });
-    toast.success('Removed');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    toast.success('Photo saved — you can generate ID card now');
     loadStaff();
   };
 
@@ -104,7 +121,7 @@ export default function StaffManagementPage() {
 
       <div className="card-elevated divide-y divide-slate-100 mt-6">
         {staff.map((s) => (
-          <div key={s.id} className="list-row gap-4">
+          <div key={s.user_id || s.id} className="list-row gap-4 flex-wrap sm:flex-nowrap">
             <StudentAvatar
               photoUrl={s.staff?.photo_url}
               firstName={s.profile?.full_name?.split(' ')[0]}
@@ -117,13 +134,40 @@ export default function StaffManagementPage() {
               {s.staff?.staff_id_number && (
                 <p className="text-xs font-mono text-slate-600">{s.staff.staff_id_number}</p>
               )}
+              {!s.staff?.photo_url && (
+                <p className="text-[10px] text-amber-700 mt-0.5">No ID photo — add below for ID card</p>
+              )}
             </div>
-            <span className="text-xs px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 capitalize flex items-center gap-1 shrink-0 max-w-[140px] truncate">
-              {getRoleIcon(s.role)} {s.job_title || s.role.replace('_', ' ')}
+            <span className="text-xs px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 capitalize flex items-center gap-1 shrink-0 max-w-[180px] truncate">
+              {getRoleIcon(s.roles?.[0] || s.role)} {s.job_title || s.role?.replace('_', ' ')}
             </span>
+            {!s.staff?.photo_url && s.user_id && (
+              <label className="text-[10px] text-primary-700 font-semibold cursor-pointer shrink-0">
+                Add photo
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = async () => {
+                      try {
+                        await handleAddPhoto(s.user_id, reader.result);
+                      } catch (err) {
+                        toast.error(err?.message || 'Photo failed');
+                      }
+                    };
+                    reader.readAsDataURL(file);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            )}
             <button
               type="button"
-              onClick={() => handleDelete(s.id, s.profile?.full_name)}
+              onClick={() => handleDelete(s, s.profile?.full_name)}
               className="p-2 rounded-xl hover:bg-red-50 text-slate-400 hover:text-red-600 shrink-0"
               aria-label="Remove staff"
             >
@@ -282,6 +326,7 @@ function AddStaffModal({ schoolId, customRoles, onClose, onSuccess }) {
     class_id: '',
   });
   const [faceData, setFaceData] = useState({ photos: [], face_descriptor: null });
+  const [idPhoto, setIdPhoto] = useState(null);
   const [loading, setLoading] = useState(false);
   const [classes, setClasses] = useState([]);
 
@@ -327,17 +372,21 @@ function AddStaffModal({ schoolId, customRoles, onClose, onSuccess }) {
         school_id: schoolId,
         custom_role_id: form.access_role === 'staff' ? form.custom_role_id : null,
         class_id: mayAssignClass ? form.class_id || null : null,
-        photo_base64: faceData.photos[0] || null,
+        photo_base64: idPhoto || faceData.photos[0] || null,
         face_photos: faceData.photos,
         face_descriptor: faceData.face_descriptor,
         skip_face: form.access_role !== 'gate_officer',
       }),
     });
+    const d = await res.json();
     if (res.ok) {
-      toast.success('Staff added');
+      if (d.staff_profile?.photo_url) {
+        toast.success('Staff added with ID photo');
+      } else {
+        toast.success('Staff added — add ID photo anytime for ID card PDF');
+      }
       onSuccess();
     } else {
-      const d = await res.json();
       toast.error(d.error || 'Failed');
     }
     setLoading(false);
@@ -433,16 +482,28 @@ function AddStaffModal({ schoolId, customRoles, onClose, onSuccess }) {
             </div>
           )}
 
+          {form.access_role !== 'gate_officer' && (
+            <StaffIdPhoto
+              label="ID card photo"
+              optional
+              onChange={setIdPhoto}
+            />
+          )}
+
           {form.access_role === 'gate_officer' && (
-            <div className="border-t pt-3">
-              <FaceCapture label="Gate face enrollment" minPhotos={3} maxPhotos={3} onChange={setFaceData} />
+            <div className="border-t pt-3 space-y-3">
+              <StaffIdPhoto
+                label="ID card photo"
+                optional
+                onChange={setIdPhoto}
+              />
+              <FaceCapture label="Gate face enrollment (3 photos)" minPhotos={3} maxPhotos={3} onChange={setFaceData} />
             </div>
           )}
 
           {form.access_role === 'staff' && (
             <p className="text-xs text-slate-500 bg-slate-50 rounded-lg p-2">
-              Staff sign in with their ID card at the gate. They only see their own attendance in the app — not other
-              people&apos;s.
+              Staff sign in with their ID card at the gate. Photo is optional now — add it anytime for ID card PDFs.
             </p>
           )}
         </div>

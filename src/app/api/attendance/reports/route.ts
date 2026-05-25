@@ -12,7 +12,11 @@ import {
   timestampToLagosDateKey,
 } from '@/lib/attendance/lagos-dates';
 import { isCountableSchoolDay } from '@/lib/attendance/school-days';
-import { buildStaffDailyReport, buildStaffMonthlyReport } from '@/lib/attendance/staff-report';
+import {
+  buildStaffDailyReport,
+  buildStaffMonthlyReport,
+  fetchSchoolLateThreshold,
+} from '@/lib/attendance/staff-report';
 import { normalizeArrivalStatus } from '@/lib/attendance/status';
 import { fetchReportStudents } from '@/lib/attendance/report-students';
 
@@ -51,6 +55,7 @@ export async function GET(request: NextRequest) {
 
     const resolvedSchoolId = caps.schoolId;
     const includeStaff = caps.canStaffReports;
+    const lateThreshold = await fetchSchoolLateThreshold(supabase, resolvedSchoolId);
 
     const { startDateStr, endDateStr, rangeStartIso, rangeEndIso } = resolveLagosReportRange(
       reportType,
@@ -98,7 +103,7 @@ export async function GET(request: NextRequest) {
           dateParam,
           dayStartIso,
           dayEndIso,
-          { staffUserIds: caps.staffUserIds }
+          { staffUserIds: caps.staffUserIds, lateThreshold }
         );
         emptyPayload.staff_report = staffOnly;
         emptyPayload.staff_summary = {
@@ -143,7 +148,7 @@ export async function GET(request: NextRequest) {
           dateParam,
           dayStartIso,
           dayEndIso,
-          { staffUserIds: caps.staffUserIds, excluded: nonSchoolDays.has(dateParam) }
+          { staffUserIds: caps.staffUserIds, excluded: nonSchoolDays.has(dateParam), lateThreshold }
         );
         return NextResponse.json({
           type: 'daily',
@@ -165,7 +170,7 @@ export async function GET(request: NextRequest) {
         rangeStartIso,
         rangeEndIso,
         monthCalendarDays,
-        { staffUserIds: caps.staffUserIds, nonSchoolDays }
+        { staffUserIds: caps.staffUserIds, nonSchoolDays, lateThreshold }
       );
 
       return NextResponse.json({
@@ -272,6 +277,7 @@ export async function GET(request: NextRequest) {
               {
                 staffUserIds: caps.staffUserIds,
                 excluded: dayExcluded,
+                lateThreshold,
               }
             )
           : [];
@@ -287,7 +293,7 @@ export async function GET(request: NextRequest) {
           report: [],
           staff_report: includeStaff ? staffReport : undefined,
           staff_summary: includeStaff
-            ? { total: staffReport.length, present: 0, absent: 0 }
+            ? { total: staffReport.length, present: 0, late: 0, absent: 0 }
             : undefined,
         });
       }
@@ -314,6 +320,7 @@ export async function GET(request: NextRequest) {
       });
 
       const staffPresent = staffReport.filter((s) => s.status === 'present').length;
+      const staffLate = staffReport.filter((s) => s.status === 'late').length;
       const staffAbsent = staffReport.filter((s) => s.status === 'absent').length;
 
       if (format === 'csv') {
@@ -334,7 +341,7 @@ export async function GET(request: NextRequest) {
             status: s.status,
             check_in_time: s.clock_in_time || '',
             check_out_time: s.clock_out_time || '',
-            minutes_late: '',
+            minutes_late: s.minutes_late ?? '',
           });
         }
         return buildCsvResponse(csvRows, `daily_${dateParam}`);
@@ -351,7 +358,12 @@ export async function GET(request: NextRequest) {
         report,
         staff_report: includeStaff ? staffReport : undefined,
         staff_summary: includeStaff
-          ? { total: staffReport.length, present: staffPresent, absent: staffAbsent }
+          ? {
+              total: staffReport.length,
+              present: staffPresent,
+              late: staffLate,
+              absent: staffAbsent,
+            }
           : undefined,
       });
     }
@@ -478,7 +490,7 @@ export async function GET(request: NextRequest) {
             rangeStartIso,
             rangeEndIso,
             monthCalendarDays,
-            { staffUserIds: caps.staffUserIds, nonSchoolDays }
+            { staffUserIds: caps.staffUserIds, nonSchoolDays, lateThreshold }
           )
         : [];
 

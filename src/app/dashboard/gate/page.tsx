@@ -436,7 +436,13 @@ export default function GateOfficerDashboard() {
             : gateMode === 'arrival'
               ? 'checked in'
               : 'checked out';
-        toast.success(`${scannedPerson.person.name} — ${action}`);
+        const lateNote =
+          data.is_late && data.minutes_late != null
+            ? ` (${data.minutes_late} min late)`
+            : data.is_late
+              ? ' (late)'
+              : '';
+        toast.success(`${scannedPerson.person.name} — ${action}${lateNote}`);
         setTodayCount((p) => p + 1);
         await resumeScanning();
       } else {

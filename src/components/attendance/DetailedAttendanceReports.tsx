@@ -16,6 +16,7 @@ const STATUS_LABELS = {
 
 const DAY_CELL = {
   on_time: 'P',
+  present: 'P',
   late: 'L',
   absent: 'A',
   excluded: '—',
@@ -242,7 +243,8 @@ export default function DetailedAttendanceReports({
           <div className="grid grid-cols-3 gap-2">
             {[
               ['Staff', data.staff_summary?.total],
-              ['Signed in', data.staff_summary?.present],
+              ['On time', data.staff_summary?.present],
+              ...(data.type === 'daily' ? [['Late', data.staff_summary?.late]] : []),
               ['Absent', data.staff_summary?.absent],
             ].map(([label, val]) => (
               <div key={label} className="card text-center py-3">
@@ -260,6 +262,9 @@ export default function DetailedAttendanceReports({
                   <th className="text-left px-3 py-2 text-xs text-slate-500">Status</th>
                   <th className="text-left px-3 py-2 text-xs text-slate-500">Sign in</th>
                   <th className="text-left px-3 py-2 text-xs text-slate-500">Sign out</th>
+                  {data.type === 'daily' && (
+                    <th className="text-left px-3 py-2 text-xs text-slate-500">Late (min)</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -272,14 +277,19 @@ export default function DetailedAttendanceReports({
                         className={`text-xs font-bold uppercase px-2 py-0.5 rounded ${
                           r.status === 'absent'
                             ? 'bg-red-50 text-red-700'
-                            : 'bg-emerald-50 text-emerald-800'
+                            : r.status === 'late'
+                              ? 'bg-amber-50 text-amber-800'
+                              : 'bg-emerald-50 text-emerald-800'
                         }`}
                       >
-                        {r.status === 'present' ? 'Present' : 'Absent'}
+                        {STATUS_LABELS[r.status] || r.status}
                       </span>
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">{formatTimeLagos(r.clock_in_time)}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{formatTimeLagos(r.clock_out_time)}</td>
+                    {data.type === 'daily' && (
+                      <td className="px-3 py-2">{r.minutes_late ?? '—'}</td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -485,10 +495,11 @@ export default function DetailedAttendanceReports({
                           title={`${d.date}`}
                           className={`inline-flex w-5 h-5 items-center justify-center rounded text-[8px] font-bold ${
                             d.status === 'weekend' || d.status === 'excluded' ? 'bg-slate-100 text-slate-400' :
+                            d.status === 'late' ? 'bg-amber-500 text-white' :
                             d.status === 'present' ? 'bg-emerald-500 text-white' : 'bg-red-400 text-white'
                           }`}
                         >
-                          {d.status === 'weekend' || d.status === 'excluded' ? '·' : d.status === 'present' ? '✓' : '—'}
+                          {DAY_CELL[d.status] || (d.status === 'weekend' || d.status === 'excluded' ? '·' : '—')}
                         </span>
                       </td>
                     ))}

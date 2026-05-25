@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest } from '@/lib/session';
 import { notifyParentsOfAttendance } from '@/lib/notifications/parent-notify';
-import { isLateByThreshold, minutesAfterThreshold, nowUtcIso, todayInLagos } from '@/lib/timezone';
+import {
+  isLateAtTimestamp,
+  isLateByThreshold,
+  minutesAfterThreshold,
+  minutesLateAtTimestamp,
+  nowUtcIso,
+  todayInLagos,
+} from '@/lib/timezone';
 import {
   getStudentTodayStatus,
   getStaffTodayStatus,
@@ -78,7 +85,12 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const staffPayload = {
+      const staffIsLate =
+        staffType === 'clock_in' && isLateAtTimestamp(nowIso, lateThreshold);
+      const staffMinutesLate =
+        staffType === 'clock_in' ? minutesLateAtTimestamp(nowIso, lateThreshold) : null;
+
+      const staffPayload: Record<string, unknown> = {
         user_id,
         school_id: schoolId,
         gate_session_id: gate_session_id || null,
@@ -118,7 +130,13 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
 
-      return NextResponse.json({ success: true, record: data, is_late: false, person_type: 'staff' });
+      return NextResponse.json({
+        success: true,
+        record: data,
+        is_late: staffIsLate,
+        minutes_late: staffMinutesLate,
+        person_type: 'staff',
+      });
     }
 
     if (!student_id) {

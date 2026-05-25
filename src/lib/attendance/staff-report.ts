@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { timestampToLagosDateKey } from '@/lib/attendance/lagos-dates';
 import { isCountableSchoolDay } from '@/lib/attendance/school-days';
 import type { NonSchoolDay } from '@/lib/attendance/non-school-days';
+import { staffStatusFromClockIn, type StaffDayStatus } from '@/lib/attendance/staff-late';
 
 const STAFF_REPORT_ROLES = ['staff', 'teacher', 'gate_officer', 'school_admin'] as const;
 const ALLOWED_SCAN_METHODS = new Set(['id_card_scan', 'face_recognition']);
@@ -125,17 +126,31 @@ export type StaffMonthlyRow = {
   full_name: string;
   role: string;
   days_present: number;
-  days: { date: string; present: boolean; status: 'present' | 'absent' | 'weekend' | 'excluded' }[];
+  days: {
+    date: string;
+    present: boolean;
+    status: StaffDayStatus | 'weekend' | 'excluded';
+    minutes_late?: number | null;
+  }[];
 };
 
 export type StaffDailyRow = {
   user_id: string;
   full_name: string;
   role: string;
-  status: 'present' | 'absent' | 'excluded';
+  status: StaffDayStatus | 'excluded';
   clock_in_time: string | null;
   clock_out_time: string | null;
+  minutes_late: number | null;
 };
+
+export async function fetchSchoolLateThreshold(
+  supabase: SupabaseClient,
+  schoolId: string
+): Promise<string> {
+  const { data } = await supabase.from('schools').select('late_threshold').eq('id', schoolId).single();
+  return data?.late_threshold || '08:15';
+}
 
 export async function buildStaffDailyReport(
   supabase: SupabaseClient,
@@ -143,10 +158,12 @@ export async function buildStaffDailyReport(
   dayKey: string,
   rangeStartIso: string,
   rangeEndIso: string,
-  opts?: { staffUserIds?: string[] | null; excluded?: boolean }
+  opts?: { staffUserIds?: string[] | null; excluded?: boolean; lateThreshold?: string }
 ): Promise<StaffDailyRow[]> {
   const roles = await fetchSchoolStaffRoles(supabase, schoolId, opts?.staffUserIds);
   if (!roles.length) return [];
+
+  const lateThreshold = opts?.lateThreshold ?? (await fetchSchoolLateThreshold(supabase, schoolId));
 
   if (opts?.excluded) {
     return roles.map((r) => ({
@@ -156,6 +173,7 @@ export async function buildStaffDailyReport(
       status: 'excluded' as const,
       clock_in_time: null,
       clock_out_time: null,
+      minutes_late: null,
     }));
   }
 
@@ -177,13 +195,15 @@ export async function buildStaffDailyReport(
 
   return roles.map((r) => {
     const clockIn = clockInByUser[r.user_id] || null;
+    const { status, minutes_late } = staffStatusFromClockIn(clockIn, lateThreshold);
     return {
       user_id: r.user_id,
       full_name: r.full_name,
       role: r.job_title,
-      status: clockIn ? ('present' as const) : ('absent' as const),
+      status,
       clock_in_time: clockIn,
       clock_out_time: clockOutByUser[r.user_id] || null,
+      minutes_late,
     };
   });
 }
@@ -194,20 +214,26 @@ export async function buildStaffMonthlyReport(
   rangeStartIso: string,
   rangeEndIso: string,
   dayStrings: string[],
-  opts?: { staffUserIds?: string[] | null; nonSchoolDays?: Map<string, NonSchoolDay> }
+  opts?: {
+    staffUserIds?: string[] | null;
+    nonSchoolDays?: Map<string, NonSchoolDay>;
+    lateThreshold?: string;
+  }
 ): Promise<StaffMonthlyRow[]> {
   const roles = await fetchSchoolStaffRoles(supabase, schoolId, opts?.staffUserIds);
   if (!roles.length) return [];
 
+  const lateThreshold = opts?.lateThreshold ?? (await fetchSchoolLateThreshold(supabase, schoolId));
+
   const userIds = roles.map((r) => r.user_id);
   const scans = await fetchStaffAttendanceScans(supabase, schoolId, userIds, rangeStartIso, rangeEndIso);
 
-  const presentByUserDay: Record<string, Record<string, boolean>> = {};
+  const clockInByUserDay: Record<string, Record<string, string>> = {};
   for (const r of scans) {
     if (r.type !== 'clock_in') continue;
     const day = timestampToLagosDateKey(r.timestamp);
-    if (!presentByUserDay[r.user_id]) presentByUserDay[r.user_id] = {};
-    presentByUserDay[r.user_id][day] = true;
+    if (!clockInByUserDay[r.user_id]) clockInByUserDay[r.user_id] = {};
+    if (!clockInByUserDay[r.user_id][day]) clockInByUserDay[r.user_id][day] = r.timestamp;
   }
 
   const nonSchool = opts?.nonSchoolDays;
@@ -218,15 +244,17 @@ export async function buildStaffMonthlyReport(
         const status = nonSchool?.has(date) ? ('excluded' as const) : ('weekend' as const);
         return { date, present: false, status };
       }
-      const present = !!presentByUserDay[r.user_id]?.[date];
-      return { date, present, status: present ? ('present' as const) : ('absent' as const) };
+      const clockIn = clockInByUserDay[r.user_id]?.[date];
+      const { status, minutes_late } = staffStatusFromClockIn(clockIn, lateThreshold);
+      const present = status === 'present' || status === 'late';
+      return { date, present, status, minutes_late };
     });
     const schoolDaysInRange = dayStrings.filter((d) => isCountableSchoolDay(d, nonSchool)).length;
     return {
       user_id: r.user_id,
       full_name: r.full_name,
       role: r.job_title,
-      days_present: days.filter((d) => d.status === 'present').length,
+      days_present: days.filter((d) => d.status === 'present' || d.status === 'late').length,
       school_days: schoolDaysInRange,
       days,
     };

@@ -79,3 +79,29 @@ export function minutesAfterThreshold(threshold: string): number | null {
 export function isLateByThreshold(threshold: string): boolean {
   return minutesAfterThreshold(threshold) !== null;
 }
+
+/** Minutes late for a stored clock-in / arrival timestamp (Lagos local time). */
+export function minutesLateAtTimestamp(iso: string, threshold: string): number | null {
+  const [th, tm] = threshold.split(':').map(Number);
+  if (Number.isNaN(th) || Number.isNaN(tm)) return null;
+
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: APP_TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date(iso));
+
+  const get = (type: string) =>
+    parseInt(parts.find((p) => p.type === type)?.value || '0', 10);
+  const hours = get('hour');
+  const minutes = get('minute');
+
+  if (hours < th || (hours === th && minutes <= tm)) return null;
+  return (hours - th) * 60 + (minutes - tm);
+}
+
+export function isLateAtTimestamp(iso: string, threshold: string): boolean {
+  const m = minutesLateAtTimestamp(iso, threshold);
+  return m != null && m > 0;
+}

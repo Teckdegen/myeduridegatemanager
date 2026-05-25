@@ -79,26 +79,52 @@ export async function GET(request: NextRequest) {
 
     const customById = new Map(customRoles.map((c) => [c.id, c]));
 
-    const staff = (roles || []).map((r: Record<string, unknown>) => {
-      const profileRow = staffProfilesList.find((p) => p.user_id === r.user_id);
+    const byUser = new Map<
+      string,
+      Record<string, unknown> & {
+        roles: string[];
+        role_ids: string[];
+        job_titles: string[];
+      }
+    >();
+
+    for (const r of roles || []) {
+      const row = r as Record<string, unknown> & { user_id: string; id: string; role: string };
+      const profileRow = staffProfilesList.find((p) => p.user_id === row.user_id);
       const custom =
         profileRow?.custom_role_id != null
           ? customById.get(profileRow.custom_role_id)
           : null;
 
       const accessLabel =
-        r.role === 'staff' && custom?.name
+        row.role === 'staff' && custom?.name
           ? custom.name
-          : String(r.role).replace(/_/g, ' ');
+          : String(row.role).replace(/_/g, ' ');
 
-      return {
-        ...r,
-        job_title: accessLabel,
-        staff: profileRow || null,
-      };
-    });
+      const existing = byUser.get(row.user_id);
+      if (!existing) {
+        byUser.set(row.user_id, {
+          ...row,
+          job_title: accessLabel,
+          staff: profileRow || null,
+          roles: [row.role],
+          role_ids: [row.id],
+          job_titles: [accessLabel],
+        });
+      } else {
+        existing.roles.push(row.role);
+        existing.role_ids.push(row.id);
+        if (!existing.job_titles.includes(accessLabel)) {
+          existing.job_titles.push(accessLabel);
+        }
+        existing.job_title = existing.job_titles.join(' · ');
+        if (profileRow && !existing.staff) {
+          existing.staff = profileRow;
+        }
+      }
+    }
 
-    return NextResponse.json({ staff });
+    return NextResponse.json({ staff: Array.from(byUser.values()) });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Server error';
     return NextResponse.json({ error: message }, { status: 500 });
