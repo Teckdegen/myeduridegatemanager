@@ -49,6 +49,7 @@ export async function POST(request: NextRequest) {
     const minutesLate = isLate ? minutesAfterThreshold(lateThreshold) : null;
 
     const verifiedBy = session?.user_id || null;
+    const isAdminScan = session?.roles.some((r) => r.role === 'school_admin') ?? false;
 
     // Staff clock-in/out
     if (person_type === 'staff' && staff_profile_id && user_id) {
@@ -98,7 +99,7 @@ export async function POST(request: NextRequest) {
         verification_method: verification_method || 'id_card_scan',
         verified_by_user_id: verifiedBy,
         timestamp: nowIso,
-        record_source: 'gate' as const,
+        record_source: isAdminScan ? 'admin' : 'gate',
       };
 
       let { data, error } = await supabase

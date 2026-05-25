@@ -79,8 +79,8 @@ export default function DetailedAttendanceReports({
   }, [loadReport]);
 
   useEffect(() => {
-    setMonthView(showStudentReports ? 'students' : 'staff');
-  }, [reportType, showStudentReports]);
+    if (!showStudentReports) setMonthView('staff');
+  }, [showStudentReports]);
 
   const exportCsv = async () => {
     if (!schoolId) return;

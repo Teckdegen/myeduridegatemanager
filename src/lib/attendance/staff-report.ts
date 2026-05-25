@@ -5,14 +5,17 @@ import type { NonSchoolDay } from '@/lib/attendance/non-school-days';
 import { staffStatusFromClockIn, type StaffDayStatus } from '@/lib/attendance/staff-late';
 
 const STAFF_REPORT_ROLES = ['staff', 'teacher', 'gate_officer', 'school_admin'] as const;
-const ALLOWED_SCAN_METHODS = new Set(['id_card_scan', 'face_recognition']);
+
+/** All methods stored on staff_attendance (gate / admin ID scans). */
+const COUNTABLE_VERIFICATION = new Set(['id_card_scan', 'face_recognition', 'manual']);
 
 type StaffRoleRow = { user_id: string; role: string; full_name: string; job_title: string };
 type StaffScanRow = { user_id: string; type: string; timestamp: string };
 
 function isCountableStaffScan(row: { verification_method?: string | null }) {
-  if (!row.verification_method) return true;
-  return ALLOWED_SCAN_METHODS.has(row.verification_method);
+  const method = row.verification_method?.trim();
+  if (!method) return true;
+  return COUNTABLE_VERIFICATION.has(method);
 }
 
 function roleLabel(role: string) {
@@ -29,69 +32,77 @@ async function fetchSchoolStaffRoles(
   schoolId: string,
   staffUserIds?: string[] | null
 ): Promise<StaffRoleRow[]> {
-  const selectWithCustom =
-    'user_id, role, user:user_profiles(full_name), profile:teacher_profiles(custom_role:school_custom_roles(name))';
-
-  let roles: {
-    user_id: string;
-    role: string;
-    user: unknown;
-    profile?: unknown;
-  }[] | null = null;
-
-  const primary = await supabase
+  const { data: roles, error: rolesErr } = await supabase
     .from('user_school_roles')
-    .select(selectWithCustom)
+    .select('user_id, role, user:user_profiles(full_name)')
     .eq('school_id', schoolId)
     .in('role', [...STAFF_REPORT_ROLES])
     .eq('is_active', true);
 
-  if (primary.error && /custom_role|school_custom_roles|teacher_profiles/i.test(primary.error.message)) {
-    const fallback = await supabase
-      .from('user_school_roles')
-      .select('user_id, role, user:user_profiles(full_name)')
-      .eq('school_id', schoolId)
-      .in('role', [...STAFF_REPORT_ROLES])
-      .eq('is_active', true);
-    if (fallback.error) {
-      console.warn('[staff-report] roles:', fallback.error.message);
-      return [];
-    }
-    roles = fallback.data;
-  } else if (primary.error) {
-    console.warn('[staff-report] roles:', primary.error.message);
+  if (rolesErr) {
+    console.warn('[staff-report] roles:', rolesErr.message);
     return [];
-  } else {
-    roles = primary.data;
   }
-
   if (!roles?.length) return [];
 
-  let filtered = roles;
-  if (staffUserIds?.length) {
-    const allowed = new Set(staffUserIds);
-    filtered = roles.filter((r: { user_id: string }) => allowed.has(r.user_id));
+  const { data: profiles } = await supabase
+    .from('teacher_profiles')
+    .select('user_id, custom_role_id')
+    .eq('school_id', schoolId);
+
+  const customRoleIds = [
+    ...new Set(
+      (profiles || [])
+        .map((p: { custom_role_id?: string | null }) => p.custom_role_id)
+        .filter(Boolean) as string[]
+    ),
+  ];
+
+  const customNameById = new Map<string, string>();
+  if (customRoleIds.length) {
+    const { data: customRoles } = await supabase
+      .from('school_custom_roles')
+      .select('id, name')
+      .eq('school_id', schoolId)
+      .in('id', customRoleIds);
+    for (const c of customRoles || []) {
+      customNameById.set(c.id, c.name);
+    }
   }
 
-  return filtered.map((r) => {
-    const prof = Array.isArray(r.profile) ? r.profile[0] : r.profile;
-    const custom = prof
-      ? (Array.isArray((prof as { custom_role?: unknown }).custom_role)
-          ? (prof as { custom_role: { name?: string }[] }).custom_role[0]
-          : (prof as { custom_role?: { name?: string } }).custom_role)
-      : null;
-    const jobTitle =
-      r.role === 'staff' && custom?.name
-        ? custom.name
-        : roleLabel(r.role);
+  const customByUser = new Map<string, string>();
+  for (const p of profiles || []) {
+    if (p.custom_role_id && customNameById.has(p.custom_role_id)) {
+      customByUser.set(p.user_id, customNameById.get(p.custom_role_id)!);
+    }
+  }
 
-    return {
-      user_id: r.user_id,
-      role: r.role,
-      full_name: profileName(r.user),
-      job_title: jobTitle,
-    };
-  });
+  const byUser = new Map<string, StaffRoleRow>();
+
+  for (const r of roles) {
+    if (staffUserIds?.length && !staffUserIds.includes(r.user_id)) continue;
+
+    const customName = customByUser.get(r.user_id);
+    const jobTitle =
+      r.role === 'staff' && customName ? customName : roleLabel(r.role);
+    const full_name = profileName(r.user);
+
+    const existing = byUser.get(r.user_id);
+    if (!existing) {
+      byUser.set(r.user_id, {
+        user_id: r.user_id,
+        role: r.role,
+        full_name,
+        job_title: jobTitle,
+      });
+    } else if (!existing.job_title.includes(jobTitle)) {
+      existing.job_title = `${existing.job_title} · ${jobTitle}`;
+    }
+  }
+
+  return Array.from(byUser.values()).sort((a, b) =>
+    a.full_name.localeCompare(b.full_name)
+  );
 }
 
 async function fetchStaffAttendanceScans(
@@ -103,15 +114,32 @@ async function fetchStaffAttendanceScans(
 ): Promise<StaffScanRow[]> {
   if (!userIds.length) return [];
 
-  const { data, error } = await supabase
-    .from('staff_attendance')
-    .select('user_id, type, timestamp, verification_method')
-    .eq('school_id', schoolId)
-    .in('user_id', userIds)
-    .in('type', ['clock_in', 'clock_out'])
-    .gte('timestamp', rangeStartIso)
-    .lte('timestamp', rangeEndIso)
-    .order('timestamp', { ascending: true });
+  const baseQuery = () =>
+    supabase
+      .from('staff_attendance')
+      .select('user_id, type, timestamp, verification_method')
+      .eq('school_id', schoolId)
+      .in('user_id', userIds)
+      .in('type', ['clock_in', 'clock_out'])
+      .gte('timestamp', rangeStartIso)
+      .lte('timestamp', rangeEndIso)
+      .order('timestamp', { ascending: true });
+
+  let { data, error } = await baseQuery();
+
+  if (error && /verification_method/i.test(error.message)) {
+    const legacy = await supabase
+      .from('staff_attendance')
+      .select('user_id, type, timestamp')
+      .eq('school_id', schoolId)
+      .in('user_id', userIds)
+      .in('type', ['clock_in', 'clock_out'])
+      .gte('timestamp', rangeStartIso)
+      .lte('timestamp', rangeEndIso)
+      .order('timestamp', { ascending: true });
+    data = legacy.data as typeof data;
+    error = legacy.error;
+  }
 
   if (error) {
     console.warn('[staff-report] attendance:', error.message);
@@ -169,7 +197,7 @@ export async function buildStaffDailyReport(
     return roles.map((r) => ({
       user_id: r.user_id,
       full_name: r.full_name,
-      role: roleLabel(r.role),
+      role: r.job_title,
       status: 'excluded' as const,
       clock_in_time: null,
       clock_out_time: null,

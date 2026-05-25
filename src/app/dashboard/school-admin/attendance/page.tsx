@@ -47,11 +47,16 @@ export default function AttendanceReportsPage() {
     <div className="p-6 min-h-screen md:ml-56 pt-14 md:pt-6 max-w-5xl">
       <h1 className="text-2xl font-bold text-slate-900 mb-1">Attendance</h1>
       <p className="text-sm text-slate-500 mb-6">
-        Daily, weekly, and monthly reports for students and staff. Gate scans below (WAT).
+        Daily, weekly, and monthly reports for students and staff. For gate sign-in/out, open the{' '}
+        <strong>Staff</strong> tab on the daily report (student tab only shows pupils). Scans appear below (WAT).
       </p>
 
       <div className="card-elevated p-5 mb-6">
-        <DetailedAttendanceReports schoolId={schoolId} classes={classes} />
+        <DetailedAttendanceReports
+          schoolId={schoolId}
+          classes={classes}
+          defaultView="staff"
+        />
       </div>
 
       <div className="card-elevated p-5">
