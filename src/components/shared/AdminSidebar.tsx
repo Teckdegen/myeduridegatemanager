@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, GraduationCap, ClipboardList, Settings,
   DoorOpen, BarChart3, School, Menu, X, LogOut, Car, Bell, Calendar, ScanLine,
-  ChevronDown, ChevronRight, Plus, List, Shield,
+  ChevronDown, ChevronRight, Plus, List, Shield, KeyRound,
 } from 'lucide-react';
 import { logout } from '@/lib/api';
 
@@ -56,7 +56,7 @@ const navGroups: NavGroup[] = [
 ];
 
 const bottomLinks: NavLink[] = [
-  { label: 'Users & Passwords', href: '/dashboard/school-admin/users', icon: <Users size={18} /> },
+  { label: 'Passwords', href: '/dashboard/school-admin/passwords', icon: <KeyRound size={18} /> },
   { label: 'Classes', href: '/dashboard/school-admin/classes', icon: <School size={18} /> },
   { label: 'Pickup list', href: '/dashboard/school-admin/pickup-persons', icon: <Car size={18} /> },
   { label: 'Notifications', href: '/dashboard/school-admin/notifications', icon: <Bell size={18} /> },
