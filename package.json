@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "seed:admin": "node scripts/seed-admin.js"
+    "seed:super-admins": "node scripts/seed-super-admins.js",
+    "seed:super-admins:inspect": "node scripts/seed-super-admins.js --inspect-only"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
