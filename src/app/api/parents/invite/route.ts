@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { ensureAuthUser, ensureUserProfile } from '@/lib/auth/ensure-user';
+import { suggestUniqueUsername } from '@/lib/auth/username';
 import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -9,25 +10,28 @@ export async function POST(request: NextRequest) {
   try {
     const { student_id, school_id, parent_email, parent_name, parent_phone, relationship } = await request.json();
 
-    if (!student_id || !school_id || !parent_email?.trim() || !parent_name?.trim()) {
-      return NextResponse.json({ error: 'Student, school, parent email, and parent name are required' }, { status: 400 });
+    if (!student_id || !school_id || !parent_name?.trim()) {
+      return NextResponse.json({ error: 'Student, school, and parent name are required' }, { status: 400 });
     }
 
-    const normalizedEmail = parent_email.toLowerCase().trim();
+    const normalizedEmail = parent_email?.trim() ? parent_email.toLowerCase().trim() : null;
     const supabase = getAdminClient();
+
+    const parentUsername = await suggestUniqueUsername(supabase, parent_name);
 
     const { data: existingUser } = await supabase
       .from('user_profiles')
-      .select('id')
-      .eq('email', normalizedEmail)
+      .select('id, username')
+      .eq('username', parentUsername)
       .maybeSingle();
 
     let parentUserId: string;
+    let generatedPassword: string | undefined;
 
     if (existingUser) {
       parentUserId = existingUser.id;
     } else {
-      const { userId, error: authErr } = await ensureAuthUser(supabase, normalizedEmail);
+      const { userId, password, error: authErr } = await ensureAuthUser(supabase, parentUsername);
       if (!userId) {
         return NextResponse.json(
           { error: `Failed to create parent account${authErr ? `: ${authErr}` : ''}` },
@@ -35,20 +39,21 @@ export async function POST(request: NextRequest) {
         );
       }
       parentUserId = userId;
+      generatedPassword = password;
     }
 
     const { error: profileError } = await ensureUserProfile(supabase, {
       id: parentUserId,
-      email: normalizedEmail,
+      username: parentUsername,
       full_name: parent_name.trim(),
       phone: parent_phone || null,
+      email: normalizedEmail,
     });
 
     if (profileError) {
       return NextResponse.json({ error: `Failed to save parent profile: ${profileError.message}` }, { status: 500 });
     }
 
-    // Assign parent role for this school (if not already assigned)
     const { data: existingRole } = await supabase
       .from('user_school_roles')
       .select('id')
@@ -66,7 +71,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Link parent to student
     const { data: existingLink } = await supabase
       .from('student_parents')
       .select('id')
@@ -83,7 +87,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Send welcome email to parent
     const { data: school } = await supabase
       .from('schools')
       .select('name')
@@ -96,7 +99,7 @@ export async function POST(request: NextRequest) {
       .eq('id', student_id)
       .single();
 
-    if (school && student) {
+    if (school && student && normalizedEmail) {
       try {
         await resend.emails.send({
           from: 'MyEduRide <noreply@assetid.site>',
@@ -112,7 +115,9 @@ export async function POST(request: NextRequest) {
               <li>View attendance history</li>
               <li>Receive real-time notifications</li>
             </ul>
-            <p><strong>To login:</strong> Visit <a href="${process.env.NEXT_PUBLIC_APP_URL}">${process.env.NEXT_PUBLIC_APP_URL}</a> and enter your email (${normalizedEmail}). You'll receive a one-time code to access your dashboard.</p>
+            <p><strong>Username:</strong> ${parentUsername}</p>
+            ${generatedPassword ? `<p><strong>Password:</strong> ${generatedPassword}</p>` : ''}
+            <p><strong>To login:</strong> Visit <a href="${process.env.NEXT_PUBLIC_APP_URL}">${process.env.NEXT_PUBLIC_APP_URL}</a> and sign in with your username and password.</p>
             <br>
             <p style="color: #666;">— MyEduRide Team</p>
           `,
@@ -122,7 +127,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, parentUserId });
+    return NextResponse.json({
+      success: true,
+      parentUserId,
+      username: parentUsername,
+      password: generatedPassword,
+    });
   } catch (error) {
     console.error('Parent invite error:', error);
     return NextResponse.json({ error: 'Failed to invite parent' }, { status: 500 });

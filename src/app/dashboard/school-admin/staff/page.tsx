@@ -130,7 +130,7 @@ export default function StaffManagementPage() {
             />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-slate-900 truncate">{s.profile?.full_name || 'Unknown'}</p>
-              <p className="text-xs text-slate-500 truncate">{s.profile?.email}</p>
+              <p className="text-xs text-slate-500 truncate">@{s.profile?.username || 'no-username'}</p>
               {s.staff?.staff_id_number && (
                 <p className="text-xs font-mono text-slate-600">{s.staff.staff_id_number}</p>
               )}
@@ -319,7 +319,8 @@ function CustomRolesPanel({ schoolId, roles, onChange }) {
 function AddStaffModal({ schoolId, customRoles, onClose, onSuccess }) {
   const [form, setForm] = useState({
     full_name: '',
-    email: '',
+    username: '',
+    contact_email: '',
     phone: '',
     access_role: 'staff',
     custom_role_id: '',
@@ -347,8 +348,8 @@ function AddStaffModal({ schoolId, customRoles, onClose, onSuccess }) {
   }, [customRoles, form.access_role]);
 
   const handleSubmit = async () => {
-    if (!form.full_name || !form.email) {
-      toast.error('Name and email required');
+    if (!form.full_name || !form.username) {
+      toast.error('Name and username required');
       return;
     }
     if (form.access_role === 'staff' && !form.custom_role_id) {
@@ -366,7 +367,8 @@ function AddStaffModal({ schoolId, customRoles, onClose, onSuccess }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         full_name: form.full_name,
-        email: form.email,
+        username: form.username,
+        contact_email: form.contact_email || null,
         phone: form.phone,
         role: form.access_role,
         school_id: schoolId,
@@ -380,7 +382,9 @@ function AddStaffModal({ schoolId, customRoles, onClose, onSuccess }) {
     });
     const d = await res.json();
     if (res.ok) {
-      if (d.staff_profile?.photo_url) {
+      if (d.password) {
+        toast.success(`Staff added — username: ${d.username}, password: ${d.password}`, { duration: 10000 });
+      } else if (d.staff_profile?.photo_url) {
         toast.success('Staff added with ID photo');
       } else {
         toast.success('Staff added — add ID photo anytime for ID card PDF');
@@ -407,11 +411,21 @@ function AddStaffModal({ schoolId, customRoles, onClose, onSuccess }) {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Email *</label>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Username *</label>
+            <input
+              type="text"
+              value={form.username}
+              onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase().replace(/\s/g, '') })}
+              className="input"
+              placeholder="e.g. jsmith"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Contact email (optional)</label>
             <input
               type="email"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              value={form.contact_email}
+              onChange={(e) => setForm({ ...form, contact_email: e.target.value })}
               className="input"
             />
           </div>

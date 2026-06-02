@@ -248,9 +248,10 @@ function AddSchoolModal({
   const [formData, setFormData] = useState({
     name: '',
     address: '',
-    admin_email: '',
+    admin_username: '',
     admin_name: '',
     admin_phone: '',
+    admin_email: '',
   });
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState('');
@@ -320,7 +321,7 @@ function AddSchoolModal({
             result.school.logo_url = logoJson.path;
           }
         }
-        toast.success(`${formData.name} created with admin ${formData.admin_name}`);
+        toast.success(`${formData.name} created — admin username: ${result.admin_username || formData.admin_username}`);
         onSuccess(result.school);
       } else {
         toast.error(result.error || 'Failed to create school');
@@ -385,14 +386,25 @@ function AddSchoolModal({
           <p className="text-sm font-medium text-gray-700">School Admin (first admin for this school)</p>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Admin Email</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Admin Username</label>
+            <input
+              type="text"
+              value={formData.admin_username}
+              onChange={(e) => setFormData(prev => ({ ...prev, admin_username: e.target.value }))}
+              className="input"
+              placeholder="school_admin"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Admin Email (optional, for notifications)</label>
             <input
               type="email"
               value={formData.admin_email}
               onChange={(e) => setFormData(prev => ({ ...prev, admin_email: e.target.value }))}
               className="input"
               placeholder="admin@school.com"
-              required
             />
           </div>
 

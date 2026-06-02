@@ -5,16 +5,16 @@ export function getPlatformSchoolId(): string {
   return process.env.PLATFORM_SCHOOL_ID?.trim() || DEFAULT_PLATFORM_SCHOOL_ID;
 }
 
-/** Comma-separated list in SUPER_ADMIN_EMAILS */
-export function getSuperAdminEmails(): string[] {
-  const raw = process.env.SUPER_ADMIN_EMAILS || '';
+/** Comma-separated list in SUPER_ADMIN_USERNAMES */
+export function getSuperAdminUsernames(): string[] {
+  const raw = process.env.SUPER_ADMIN_USERNAMES || '';
   return raw
     .split(',')
-    .map((e) => e.toLowerCase().trim())
-    .filter((e) => e.includes('@'));
+    .map((u) => u.toLowerCase().trim())
+    .filter(Boolean);
 }
 
-export function isSuperAdminEmail(email: string): boolean {
-  const normalized = email.toLowerCase().trim();
-  return getSuperAdminEmails().includes(normalized);
+export function isSuperAdminUsername(username: string): boolean {
+  const normalized = username.toLowerCase().trim();
+  return getSuperAdminUsernames().includes(normalized);
 }

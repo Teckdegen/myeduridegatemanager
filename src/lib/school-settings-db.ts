@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { TIME_FIELDS } from '@/lib/time-input';
 
 const BASE_SELECT =
-  'id, name, address, logo_url, primary_color, secondary_color, timezone, setup_completed, setup_step';
+  'id, name, address, logo_url, principal_signature_url, welcome_message, primary_color, secondary_color, timezone, setup_completed, setup_step';
 
 const TIME_SELECT = TIME_FIELDS.join(', ');
 

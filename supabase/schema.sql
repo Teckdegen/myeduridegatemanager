@@ -1,8 +1,22 @@
 -- ============================================
 -- MyEduRide Gate Manager - Complete Database Schema
 -- Single file: run entire script in Supabase SQL Editor (fresh project)
--- All former supabase/migrations/*.sql changes are included here.
 -- App code uses these tables directly (no Postgres RPC functions required).
+--
+-- AUTH: username + password (NOT email). See user_profiles.username.
+-- FEATURES COVERED:
+--   Schools & branding (logo, signature, welcome message, gate times)
+--   Setup wizard (classes, custom fields, custom staff roles)
+--   Users & roles (super_admin, school_admin, teacher, gate_officer, parent, staff)
+--   Students, staff profiles, ID cards, face/QR gate scan
+--   Student & staff attendance, gate sessions, activity logs
+--   Dismissal, extra lessons, ready-for-pickup flow
+--   Pickup persons, pickup notices, pickup requests
+--   Parent notifications (in-app + web push via push_subscriptions / VAPID)
+--   School calendar, non-school days, gate day overrides
+--   Class promotions, audit logs, auth security events
+--   Storage: photos bucket (students, staff, logos, signatures)
+--
 -- ============================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -13,6 +27,8 @@ CREATE TABLE schools (
   name TEXT NOT NULL,
   address TEXT,
   logo_url TEXT,
+  principal_signature_url TEXT,
+  welcome_message TEXT,
   primary_color TEXT DEFAULT '#1B4D3E',
   secondary_color TEXT DEFAULT '#D4A017',
   gate_open_time TIME DEFAULT '06:30',
@@ -61,14 +77,24 @@ CREATE TABLE school_custom_fields (
 );
 
 -- ============ USER PROFILES ============
+-- LOGIN: username + password (NOT email).
+-- email is optional contact info for notifications only.
+-- Supabase Auth stores users with internal email: {username}@login.myeduride.internal (see src/lib/auth/username.ts).
 CREATE TABLE user_profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  email TEXT UNIQUE NOT NULL,
+  username TEXT NOT NULL UNIQUE,
+  email TEXT,
   full_name TEXT NOT NULL,
-  phone TEXT,
+  phone TEXT UNIQUE,
+  auth_preference TEXT NOT NULL DEFAULT 'password' CHECK (auth_preference = 'password'),
+  failed_login_attempts INT NOT NULL DEFAULT 0,
+  locked_until TIMESTAMPTZ,
+  last_password_change_at TIMESTAMPTZ,
+  parent_requires_photo_for_pickup BOOLEAN DEFAULT false,
   avatar_url TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT user_profiles_username_format CHECK (username ~ '^[a-z0-9][a-z0-9._]{2,31}$')
 );
 
 -- ============ USER SCHOOL ROLES ============
@@ -163,6 +189,14 @@ CREATE TABLE gate_sessions (
   status TEXT NOT NULL CHECK (status IN ('active', 'closed')) DEFAULT 'active',
   started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   ended_at TIMESTAMPTZ
+);
+
+-- ============ SCHOOL CALENDAR SETTINGS ============
+CREATE TABLE school_calendar_settings (
+  school_id UUID PRIMARY KEY REFERENCES schools(id) ON DELETE CASCADE,
+  weekend_days SMALLINT[] NOT NULL DEFAULT ARRAY[0,6],
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ============ ATTENDANCE RECORDS (Students) ============
@@ -313,10 +347,11 @@ CREATE TABLE push_subscriptions (
   UNIQUE(user_id, endpoint)
 );
 
--- ============ OTP CODES ============
+-- ============ OTP CODES (legacy — OTP login disabled; username + password only) ============
 CREATE TABLE otp_codes (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  email TEXT NOT NULL,
+  username TEXT,
+  email TEXT,
   code TEXT NOT NULL,
   expires_at TIMESTAMPTZ NOT NULL,
   used BOOLEAN DEFAULT FALSE,
@@ -336,6 +371,87 @@ CREATE TABLE school_non_school_days (
   range_end_date DATE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(school_id, calendar_date)
+);
+
+-- ============ GATE DAY OVERRIDES (non-school day exceptions) ============
+CREATE TABLE gate_day_overrides (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  override_date DATE NOT NULL,
+  reason TEXT NOT NULL,
+  created_by UUID NOT NULL REFERENCES user_profiles(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(school_id, override_date)
+);
+
+-- ============ STUDENT CLASS PROMOTIONS ============
+CREATE TABLE student_class_promotions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  student_id UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  from_class_id UUID REFERENCES school_classes(id),
+  to_class_id UUID NOT NULL REFERENCES school_classes(id),
+  effective_term TEXT,
+  effective_date DATE NOT NULL,
+  promoted_by UUID NOT NULL REFERENCES user_profiles(id),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============ GATE ACTIVITY LOGS ============
+CREATE TABLE gate_activity_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  school_id UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  gate_officer_user_id UUID REFERENCES user_profiles(id),
+  student_id UUID REFERENCES students(id),
+  action_type TEXT NOT NULL CHECK (
+    action_type IN ('check_in', 'check_out', 'release', 'manual_override', 'clock_in', 'clock_out')
+  ),
+  pickup_person_name TEXT,
+  pickup_person_phone TEXT,
+  details JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============ AUTH SECURITY EVENTS ============
+-- identifier stores username (login id), not email
+CREATE TABLE auth_security_events (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES user_profiles(id) ON DELETE CASCADE,
+  identifier TEXT,
+  event_type TEXT NOT NULL CHECK (
+    event_type IN ('login_success', 'login_failed', 'account_locked', 'password_reset_requested', 'password_changed', 'session_timeout', '2fa_verified')
+  ),
+  ip_address TEXT,
+  user_agent TEXT,
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============ PASSWORD RESET REQUESTS ============
+-- identifier stores username (login id), not email
+CREATE TABLE password_reset_requests (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES user_profiles(id) ON DELETE CASCADE,
+  identifier TEXT NOT NULL,
+  reset_method TEXT NOT NULL CHECK (reset_method IN ('sms', 'email', 'support')),
+  token TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============ AUDIT LOGS ============
+CREATE TABLE audit_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  school_id UUID REFERENCES schools(id) ON DELETE CASCADE,
+  actor_user_id UUID REFERENCES user_profiles(id) ON DELETE SET NULL,
+  target_user_id UUID REFERENCES user_profiles(id) ON DELETE SET NULL,
+  student_id UUID REFERENCES students(id) ON DELETE SET NULL,
+  action TEXT NOT NULL,
+  entity_type TEXT,
+  entity_id TEXT,
+  details JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ============ INDEXES ============
@@ -360,6 +476,8 @@ CREATE INDEX idx_dismissal_school_status ON dismissal_requests(school_id, status
 CREATE INDEX idx_extra_lessons_student_date ON extra_lessons(student_id, date);
 CREATE INDEX idx_extra_lessons_school ON extra_lessons(school_id, date);
 CREATE INDEX idx_notifications_user ON notifications(user_id, is_read);
+CREATE INDEX idx_user_profiles_username ON user_profiles(username);
+CREATE INDEX idx_user_profiles_email ON user_profiles(email) WHERE email IS NOT NULL;
 CREATE INDEX idx_user_roles ON user_school_roles(user_id);
 CREATE INDEX idx_user_roles_school ON user_school_roles(school_id, role);
 CREATE INDEX idx_student_parents ON student_parents(parent_user_id);
@@ -370,10 +488,19 @@ CREATE INDEX idx_pickup_person_students_student ON pickup_person_students(studen
 CREATE INDEX idx_pickup_person_students_person ON pickup_person_students(pickup_person_id);
 CREATE INDEX idx_pickup_requests_school_date ON pickup_requests(school_id, request_date);
 CREATE INDEX idx_pickup_requests_student ON pickup_requests(student_id);
-CREATE INDEX idx_otp_email ON otp_codes(email, used, expires_at);
+CREATE INDEX idx_otp_username ON otp_codes(username, used, expires_at) WHERE username IS NOT NULL;
+CREATE INDEX idx_otp_email ON otp_codes(email, used, expires_at) WHERE email IS NOT NULL;
 CREATE INDEX idx_school_custom_roles_school ON school_custom_roles(school_id, is_active);
 CREATE INDEX idx_school_non_school_days_school_date ON school_non_school_days(school_id, calendar_date);
 CREATE INDEX idx_school_non_school_days_batch ON school_non_school_days(school_id, batch_id);
+CREATE INDEX idx_gate_day_overrides_school_date ON gate_day_overrides(school_id, override_date);
+CREATE INDEX idx_promotions_school_date ON student_class_promotions(school_id, effective_date);
+CREATE INDEX idx_gate_activity_school_time ON gate_activity_logs(school_id, created_at DESC);
+CREATE INDEX idx_gate_activity_student ON gate_activity_logs(student_id, created_at DESC);
+CREATE INDEX idx_auth_security_user_time ON auth_security_events(user_id, created_at DESC);
+CREATE INDEX idx_auth_security_identifier_time ON auth_security_events(identifier, created_at DESC);
+CREATE INDEX idx_password_resets_identifier ON password_reset_requests(identifier, used, expires_at);
+CREATE INDEX idx_audit_logs_school_time ON audit_logs(school_id, created_at DESC);
 
 -- ============ ROW LEVEL SECURITY ============
 ALTER TABLE schools ENABLE ROW LEVEL SECURITY;
@@ -398,6 +525,13 @@ ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE school_custom_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE school_non_school_days ENABLE ROW LEVEL SECURITY;
+ALTER TABLE school_calendar_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE gate_day_overrides ENABLE ROW LEVEL SECURITY;
+ALTER TABLE student_class_promotions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE gate_activity_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE auth_security_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE password_reset_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 
 -- ============ RLS POLICIES ============
 
@@ -549,9 +683,17 @@ CREATE POLICY "Staff see pickup persons" ON pickup_persons
   FOR SELECT USING (
     school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid())
   );
-CREATE POLICY "Admins and parents manage pickup persons" ON pickup_persons
-  FOR ALL USING (
+CREATE POLICY "Admins and parents create/update pickup persons" ON pickup_persons
+  FOR INSERT WITH CHECK (
     school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid() AND role IN ('school_admin', 'super_admin', 'parent'))
+  );
+CREATE POLICY "Admins and parents update pickup persons" ON pickup_persons
+  FOR UPDATE USING (
+    school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid() AND role IN ('school_admin', 'super_admin', 'parent'))
+  );
+CREATE POLICY "Only admins delete pickup persons" ON pickup_persons
+  FOR DELETE USING (
+    school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid() AND role IN ('school_admin', 'super_admin'))
   );
 
 -- Pickup person student links
@@ -560,8 +702,16 @@ CREATE POLICY "Staff see pickup person links" ON pickup_person_students
     school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid())
   );
 CREATE POLICY "Admins manage pickup person links" ON pickup_person_students
-  FOR ALL USING (
+  FOR INSERT WITH CHECK (
     school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid() AND role IN ('school_admin', 'super_admin', 'parent'))
+  );
+CREATE POLICY "Admins and parents update pickup person links" ON pickup_person_students
+  FOR UPDATE USING (
+    school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid() AND role IN ('school_admin', 'super_admin', 'parent'))
+  );
+CREATE POLICY "Only admins delete pickup person links" ON pickup_person_students
+  FOR DELETE USING (
+    school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid() AND role IN ('school_admin', 'super_admin'))
   );
 
 -- Pickup requests
@@ -610,6 +760,100 @@ CREATE POLICY "Admins manage non school days" ON school_non_school_days
     )
   );
 
+-- Calendar settings
+CREATE POLICY "Staff see calendar settings" ON school_calendar_settings
+  FOR SELECT USING (
+    school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid())
+  );
+CREATE POLICY "Admins manage calendar settings" ON school_calendar_settings
+  FOR ALL USING (
+    school_id IN (
+      SELECT school_id FROM user_school_roles WHERE user_id = auth.uid() AND role IN ('school_admin', 'super_admin')
+    )
+  );
+
+-- Day overrides
+CREATE POLICY "Staff see day overrides" ON gate_day_overrides
+  FOR SELECT USING (
+    school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid())
+  );
+CREATE POLICY "Admins and HR override non school days" ON gate_day_overrides
+  FOR ALL USING (
+    school_id IN (
+      SELECT school_id FROM user_school_roles
+      WHERE user_id = auth.uid() AND role IN ('school_admin', 'super_admin', 'staff')
+    )
+  );
+
+-- Promotions
+CREATE POLICY "Staff see promotions" ON student_class_promotions
+  FOR SELECT USING (
+    school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid())
+  );
+CREATE POLICY "Admins manage promotions" ON student_class_promotions
+  FOR ALL USING (
+    school_id IN (
+      SELECT school_id FROM user_school_roles WHERE user_id = auth.uid() AND role IN ('school_admin', 'super_admin')
+    )
+  );
+
+-- Gate activities
+CREATE POLICY "Staff see gate activity logs" ON gate_activity_logs
+  FOR SELECT USING (
+    school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid())
+  );
+CREATE POLICY "Gate staff write gate activity logs" ON gate_activity_logs
+  FOR INSERT WITH CHECK (
+    school_id IN (
+      SELECT school_id FROM user_school_roles WHERE user_id = auth.uid() AND role IN ('gate_officer', 'school_admin')
+    )
+  );
+
+-- Auth security events
+CREATE POLICY "Users see own auth events" ON auth_security_events
+  FOR SELECT USING (
+    user_id = auth.uid() OR
+    user_id IS NULL OR
+    EXISTS (
+      SELECT 1 FROM user_school_roles usr
+      WHERE usr.user_id = auth.uid() AND usr.role IN ('super_admin')
+    )
+  );
+
+-- Password reset requests
+CREATE POLICY "Users see own password resets" ON password_reset_requests
+  FOR SELECT USING (user_id = auth.uid());
+
+-- Audit logs
+CREATE POLICY "School admins see audit logs" ON audit_logs
+  FOR SELECT USING (
+    school_id IN (
+      SELECT school_id FROM user_school_roles WHERE user_id = auth.uid() AND role IN ('school_admin', 'super_admin')
+    )
+  );
+CREATE POLICY "School staff write audit logs" ON audit_logs
+  FOR INSERT WITH CHECK (
+    school_id IN (
+      SELECT school_id FROM user_school_roles WHERE user_id = auth.uid() AND role IN ('school_admin', 'super_admin', 'gate_officer', 'teacher', 'staff')
+    )
+  );
+
+-- Parents (linked children only — defense in depth for direct Supabase client use)
+CREATE POLICY "Parents see linked students" ON students
+  FOR SELECT USING (
+    id IN (SELECT student_id FROM student_parents WHERE parent_user_id = auth.uid())
+  );
+CREATE POLICY "Parents see children attendance" ON attendance_records
+  FOR SELECT USING (
+    student_id IN (SELECT student_id FROM student_parents WHERE parent_user_id = auth.uid())
+  );
+CREATE POLICY "Parents see school calendar days" ON school_non_school_days
+  FOR SELECT USING (
+    school_id IN (
+      SELECT school_id FROM user_school_roles WHERE user_id = auth.uid() AND role = 'parent'
+    )
+  );
+
 -- ============ REALTIME ============
 ALTER PUBLICATION supabase_realtime ADD TABLE attendance_records;
 ALTER PUBLICATION supabase_realtime ADD TABLE dismissal_requests;
@@ -631,8 +875,17 @@ CREATE TRIGGER update_students_updated_at BEFORE UPDATE ON students FOR EACH ROW
 CREATE TRIGGER update_user_profiles_updated_at BEFORE UPDATE ON user_profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER update_teacher_profiles_updated_at BEFORE UPDATE ON teacher_profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER update_school_classes_updated_at BEFORE UPDATE ON school_classes FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER update_school_calendar_settings_updated_at BEFORE UPDATE ON school_calendar_settings FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ============ COLUMN DOCUMENTATION ============
+COMMENT ON TABLE user_profiles IS 'App users. Login is username + password. email is optional contact for notifications only.';
+COMMENT ON COLUMN user_profiles.username IS 'Unique login username (3–32 chars: a-z, 0-9, dot, underscore). Required.';
+COMMENT ON COLUMN user_profiles.email IS 'Optional contact email for notifications — NOT used for login.';
+COMMENT ON COLUMN user_profiles.auth_preference IS 'Always password. OTP/email login removed.';
+COMMENT ON TABLE otp_codes IS 'Legacy — OTP login disabled. App uses username + password only.';
+COMMENT ON COLUMN schools.logo_url IS 'Storage path in photos bucket: logos/{school_id}.jpg';
+COMMENT ON COLUMN schools.principal_signature_url IS 'Storage path in photos bucket: signatures/{school_id}.jpg';
+COMMENT ON COLUMN schools.welcome_message IS 'Shown on school-branded login page when ?school_id= is set';
 COMMENT ON COLUMN students.photo_url IS 'Storage path under photos bucket (e.g. students/{school_id}/{id}.jpg) or legacy public URL';
 COMMENT ON COLUMN teacher_profiles.photo_url IS 'Storage path under photos bucket or legacy public URL';
 COMMENT ON COLUMN attendance_records.minutes_late IS 'Minutes late for late arrivals (NULL if on_time or absent)';
@@ -675,6 +928,4 @@ CREATE POLICY "Service role photos all"
   WITH CHECK (bucket_id = 'photos');
 
 -- ============ END OF SCHEMA ============
--- Run this entire file in Supabase SQL Editor on a fresh project.
--- For existing projects: compare tables/columns with your DB and apply missing parts only.
--- Do not use separate migration files — this file is the single source of truth.
+-- Run this entire file in Supabase SQL Editor. This is the single source of truth — no separate migration files.

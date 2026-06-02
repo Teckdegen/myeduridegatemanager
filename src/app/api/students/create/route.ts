@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { ensureAuthUser, ensureUserProfile } from '@/lib/auth/ensure-user';
+import { suggestUniqueUsername } from '@/lib/auth/username';
 import { uploadBase64Photo } from '@/lib/storage/upload-photo';
 
 export async function POST(request: NextRequest) {
@@ -74,58 +75,82 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Auto-invite parent if email provided in custom_fields
     const parentEmail = custom_fields?.parent_email;
-    if (parentEmail && parentEmail.includes('@') && data) {
+    const parentName = custom_fields?.parent_name;
+    if (parentName?.trim() && data) {
       try {
-        const email = parentEmail.toLowerCase().trim();
-        console.log('[PARENT] Registering parent:', email);
+        console.log('[PARENT] Registering parent:', parentName);
 
-        const { data: existingUser } = await supabase.from('user_profiles').select('id').eq('email', email).maybeSingle();
-
+        const email = parentEmail?.includes('@') ? parentEmail.toLowerCase().trim() : null;
         let parentUserId: string | undefined;
-        if (existingUser) {
-          parentUserId = existingUser.id;
-        } else {
-          const { userId } = await ensureAuthUser(supabase, email);
-          parentUserId = userId || undefined;
+        let parentUsername: string | undefined;
+        let generatedPassword: string | undefined;
+
+        if (email) {
+          const { data: byEmail } = await supabase
+            .from('user_profiles')
+            .select('id, username')
+            .eq('email', email)
+            .maybeSingle();
+          if (byEmail) {
+            parentUserId = byEmail.id;
+            parentUsername = byEmail.username || undefined;
+          }
         }
 
-        if (parentUserId) {
+        if (!parentUserId) {
+          parentUsername = await suggestUniqueUsername(supabase, parentName);
+          const { data: existingUser } = await supabase
+            .from('user_profiles')
+            .select('id, username')
+            .eq('username', parentUsername)
+            .maybeSingle();
+
+          if (existingUser) {
+            parentUserId = existingUser.id;
+            parentUsername = existingUser.username || parentUsername;
+          } else {
+            const { userId, password } = await ensureAuthUser(supabase, parentUsername);
+            parentUserId = userId || undefined;
+            generatedPassword = password;
+          }
+        }
+
+        if (parentUserId && parentUsername) {
           await ensureUserProfile(supabase, {
             id: parentUserId,
-            email,
-            full_name: custom_fields?.parent_name || 'Parent',
+            username: parentUsername,
+            full_name: parentName || 'Parent',
             phone: custom_fields?.parent_phone || null,
+            email,
           });
         }
 
         if (parentUserId) {
-          // Assign parent role
           const { error: roleErr } = await supabase.from('user_school_roles').upsert({
             user_id: parentUserId, school_id, role: 'parent', is_active: true
           }, { onConflict: 'user_id,school_id,role' });
           console.log('[PARENT] Role assigned, error:', roleErr?.message);
 
-          // Link parent to student
           const { error: linkErr } = await supabase.from('student_parents').upsert({
             student_id: data.id, parent_user_id: parentUserId, relationship: custom_fields?.relationship || 'parent', is_primary: true
           }, { onConflict: 'student_id,parent_user_id' });
           console.log('[PARENT] Linked to student, error:', linkErr?.message);
 
-          // Send welcome email
-          try {
-            const { Resend } = require('resend');
-            const resend = new Resend(process.env.RESEND_API_KEY);
-            await resend.emails.send({
-              from: 'MyEduRide <noreply@assetid.site>',
-              to: email,
-              subject: `Your child ${first_name} has been registered`,
-              html: `<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:20px;"><h2>Welcome to MyEduRide</h2><p>Hello ${custom_fields?.parent_name || 'Parent'},</p><p>Your child <strong>${first_name} ${last_name}</strong> has been registered at school.</p><p>You can now log in to view their attendance:</p><p><strong>Email:</strong> ${email}</p><p>Visit the app and enter your email to receive a login code.</p><p style="color:#666;font-size:12px;">MyEduRide — The Student Safety Platform</p></div>`,
-            });
-            console.log('[PARENT] Welcome email sent');
-          } catch (emailErr) {
-            console.error('[PARENT] Email failed:', emailErr);
+          if (email) {
+            try {
+              const { Resend } = require('resend');
+              const resend = new Resend(process.env.RESEND_API_KEY);
+              await resend.emails.send({
+                from: 'MyEduRide <noreply@assetid.site>',
+                to: email,
+                subject: `Your child ${first_name} has been registered`,
+                html: `<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:20px;"><h2>Welcome to MyEduRide</h2><p>Hello ${parentName || 'Parent'},</p><p>Your child <strong>${first_name} ${last_name}</strong> has been registered at school.</p><p><strong>Username:</strong> ${parentUsername}</p>${generatedPassword ? `<p><strong>Password:</strong> ${generatedPassword}</p>` : ''}<p>Visit the app and sign in with your username and password.</p><p style="color:#666;font-size:12px;">MyEduRide — The Student Safety Platform</p></div>`,
+              });
+              console.log('[PARENT] Welcome email sent');
+            } catch (emailErr) {
+              console.error('[PARENT] Email failed:', emailErr);
+            }
           }
         }
       } catch (parentErr) {

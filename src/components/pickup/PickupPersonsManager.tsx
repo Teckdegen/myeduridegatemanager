@@ -214,9 +214,15 @@ export default function PickupPersonsManager({
                   : p._linkedChildren || p._childName}
               </p>
             </div>
-            <button type="button" onClick={() => remove(p)} className="btn-danger p-2 shrink-0" aria-label="Delete">
-              <Trash2 size={16} />
-            </button>
+            {mode === 'admin' ? (
+              <button type="button" onClick={() => remove(p)} className="btn-danger p-2 shrink-0" aria-label="Delete">
+                <Trash2 size={16} />
+              </button>
+            ) : (
+              <span className="text-[10px] text-slate-400 shrink-0 text-right">
+                Removal by school only
+              </span>
+            )}
           </div>
         ))}
       </div>

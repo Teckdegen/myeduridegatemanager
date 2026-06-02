@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 
     const { data: school, error: schoolErr } = await supabase
       .from('schools')
-      .select('name, address, logo_url, primary_color')
+      .select('name, address, logo_url, principal_signature_url, primary_color')
       .eq('id', school_id)
       .single();
 
@@ -40,11 +40,13 @@ export async function POST(request: NextRequest) {
     }
 
     const logoDataUrl = await loadPhotoDataUrl(supabase, school.logo_url);
+    const signatureDataUrl = await loadPhotoDataUrl(supabase, school.principal_signature_url);
 
     const branding: SchoolBranding = {
       name: school.name,
       address: school.address,
       logoUrl: logoDataUrl || school.logo_url,
+      signatureUrl: signatureDataUrl || school.principal_signature_url,
       primaryColor: school.primary_color,
     };
 

@@ -1,15 +1,16 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ensureAuthUser, ensureUserProfile } from '@/lib/auth/ensure-user';
-import { getPlatformSchoolId, isSuperAdminEmail } from '@/lib/auth/super-admin';
+import { getPlatformSchoolId, isSuperAdminUsername } from '@/lib/auth/super-admin';
+import { normalizeUsername } from '@/lib/auth/username';
 
-/** Create platform school, auth user, profile, and super_admin role for env-listed emails. */
+/** Create platform school, auth user, profile, and super_admin role for env-listed usernames. */
 export async function ensureSuperAdminAccess(
   supabase: SupabaseClient,
-  email: string
+  username: string
 ): Promise<{ ok: boolean; error?: string }> {
-  const normalized = email.toLowerCase().trim();
-  if (!isSuperAdminEmail(normalized)) {
-    return { ok: false, error: 'Not a configured super admin email' };
+  const normalized = normalizeUsername(username);
+  if (!isSuperAdminUsername(normalized)) {
+    return { ok: false, error: 'Not a configured super admin username' };
   }
 
   const platformSchoolId = getPlatformSchoolId();
@@ -29,25 +30,35 @@ export async function ensureSuperAdminAccess(
     return { ok: false, error: schoolErr.message };
   }
 
-  const { userId, error: authErr } = await ensureAuthUser(supabase, normalized);
-  if (!userId) {
+  const fullName =
+    process.env.SUPER_ADMIN_DEFAULT_NAME?.trim() ||
+    normalized.replace(/[._-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const { userId, username: resolvedUsername, password, error: authErr } = await ensureAuthUser(
+    supabase,
+    { username: normalized, full_name: fullName }
+  );
+
+  if (!userId || !resolvedUsername) {
     return { ok: false, error: authErr || 'Could not create auth user' };
   }
 
-  const localPart = normalized.split('@')[0] || 'Admin';
-  const fullName =
-    process.env.SUPER_ADMIN_DEFAULT_NAME?.trim() ||
-    localPart.replace(/[._-]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-
   const { error: profileErr } = await ensureUserProfile(supabase, {
     id: userId,
-    email: normalized,
+    username: resolvedUsername,
+    email: null,
     full_name: fullName,
   });
 
   if (profileErr) {
     console.error('[super-admin] profile:', profileErr.message);
     return { ok: false, error: profileErr.message };
+  }
+
+  if (password) {
+    await supabase.auth.admin.updateUserById(userId, {
+      user_metadata: { login_password: password, username: resolvedUsername, full_name: fullName },
+    });
   }
 
   const { error: roleErr } = await supabase.from('user_school_roles').upsert(

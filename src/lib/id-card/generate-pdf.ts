@@ -18,6 +18,7 @@ export type SchoolBranding = {
   name: string;
   address?: string | null;
   logoUrl?: string | null;
+  signatureUrl?: string | null;
   primaryColor?: string | null;
 };
 
@@ -220,9 +221,23 @@ function drawBack(
   doc.setFontSize(4.5);
   doc.setTextColor(...navy);
   doc.text('AUTHORISED SIGNATURE', 5, 19);
-  doc.setFont('helvetica', 'italic');
-  doc.setFontSize(5.5);
-  doc.text('Principal', 5, 34);
+  if (school.signatureUrl && String(school.signatureUrl).startsWith('data:')) {
+    try {
+      const fmt = school.signatureUrl.includes('image/png') ? 'PNG' : 'JPEG';
+      doc.addImage(school.signatureUrl, fmt, 6, 20.5, 30, 9);
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(4.8);
+      doc.text('Principal / Director', 5, 34);
+    } catch {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(4.8);
+      doc.text('Authorized by School', 5, 34);
+    }
+  } else {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(4.8);
+    doc.text('Authorized by School', 5, 34);
+  }
 
   doc.roundedRect(45, 15, 37, 24, 2, 2, 'FD');
   doc.setFont('helvetica', 'bold');

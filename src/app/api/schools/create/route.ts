@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { ensureAuthUser, ensureUserProfile } from '@/lib/auth/ensure-user';
+import { isValidUsername, normalizeUsername } from '@/lib/auth/username';
 import { getSessionFromRequest, sessionHasRole } from '@/lib/session';
 import { ensureStaffProfile } from '@/lib/staff/ensure-profile';
 import { Resend } from 'resend';
@@ -33,13 +34,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Super admin access required' }, { status: 403 });
     }
 
-    const { name, address, logo_url, admin_email, admin_name, admin_phone } = await request.json();
+    const { name, address, logo_url, admin_username, admin_name, admin_phone, admin_email } = await request.json();
 
-    if (!name?.trim() || !admin_email?.trim() || !admin_name?.trim()) {
-      return NextResponse.json({ error: 'School name, admin name, and admin email are required' }, { status: 400 });
+    if (!name?.trim() || !admin_username?.trim() || !admin_name?.trim()) {
+      return NextResponse.json({ error: 'School name, admin username, and admin name are required' }, { status: 400 });
     }
 
-    const normalizedEmail = admin_email.toLowerCase().trim();
+    const normalizedUsername = normalizeUsername(admin_username);
+    if (!isValidUsername(normalizedUsername)) {
+      return NextResponse.json(
+        { error: 'Admin username must be 3–30 characters (letters, numbers, underscore only)' },
+        { status: 400 }
+      );
+    }
+
+    const normalizedEmail = admin_email?.trim() ? admin_email.toLowerCase().trim() : null;
     const supabase = getAdminClient();
 
     // Create school (setup not completed yet)
@@ -92,17 +101,18 @@ export async function POST(request: NextRequest) {
 
     // Resolve or create admin user
     let adminUserId: string;
+    let adminPassword: string | undefined;
 
     const { data: existingProfile } = await supabase
       .from('user_profiles')
       .select('id')
-      .eq('email', normalizedEmail)
+      .eq('username', normalizedUsername)
       .maybeSingle();
 
     if (existingProfile) {
       adminUserId = existingProfile.id;
     } else {
-      const { userId, error: authErr } = await ensureAuthUser(supabase, normalizedEmail);
+      const { userId, password, error: authErr } = await ensureAuthUser(supabase, normalizedUsername);
       if (!userId) {
         await rollbackSchool();
         return NextResponse.json(
@@ -111,13 +121,15 @@ export async function POST(request: NextRequest) {
         );
       }
       adminUserId = userId;
+      adminPassword = password;
     }
 
     const { error: profileError } = await ensureUserProfile(supabase, {
       id: adminUserId,
-      email: normalizedEmail,
+      username: normalizedUsername,
       full_name: admin_name.trim(),
       phone: admin_phone || null,
+      email: normalizedEmail,
     });
 
     if (profileError) {
@@ -162,13 +174,13 @@ export async function POST(request: NextRequest) {
       defaultJobRoles.map((r) => ({ ...r, school_id: school.id, is_active: true }))
     );
 
-    // Send welcome email
-    try {
-      await resend.emails.send({
-        from: 'MyEduRide <noreply@assetid.site>',
-        to: normalizedEmail,
-        subject: `Your school "${name}" is ready to set up`,
-        html: `
+    if (normalizedEmail) {
+      try {
+        await resend.emails.send({
+          from: 'MyEduRide <noreply@assetid.site>',
+          to: normalizedEmail,
+          subject: `Your school "${name}" is ready to set up`,
+          html: `
           <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto;">
             <div style="background: #1B4D3E; padding: 20px; text-align: center; border-radius: 12px 12px 0 0;">
               <h2 style="color: white; margin: 0; font-size: 18px;">Welcome to MyEduRide</h2>
@@ -183,20 +195,25 @@ export async function POST(request: NextRequest) {
                 <li>Add your teachers</li>
                 <li>Add your students</li>
               </ul>
-              <p><strong>To login:</strong> Visit <a href="${process.env.NEXT_PUBLIC_APP_URL}">${process.env.NEXT_PUBLIC_APP_URL}</a> and enter your email (${normalizedEmail}). You will receive a one-time code.</p>
+              <p><strong>Username:</strong> ${normalizedUsername}</p>
+              ${adminPassword ? `<p><strong>Password:</strong> ${adminPassword}</p>` : ''}
+              <p><strong>To login:</strong> Visit <a href="${process.env.NEXT_PUBLIC_APP_URL}">${process.env.NEXT_PUBLIC_APP_URL}</a> and sign in with your username and password.</p>
               <br>
               <p style="color: #666; font-size: 12px;">MyEduRide — The Student Safety Platform</p>
             </div>
           </div>
         `,
-      });
-    } catch (emailErr) {
-      console.error('Email send failed:', emailErr);
+        });
+      } catch (emailErr) {
+        console.error('Email send failed:', emailErr);
+      }
     }
 
     return NextResponse.json({
       success: true,
       school_id: school.id,
+      admin_username: normalizedUsername,
+      admin_password: adminPassword,
       school: {
         ...school,
         student_count: 0,

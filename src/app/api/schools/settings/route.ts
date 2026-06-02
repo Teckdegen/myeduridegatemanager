@@ -85,6 +85,10 @@ export async function PUT(request: NextRequest) {
     }
     if (body.address !== undefined) updates.address = body.address?.trim() || null;
     if (body.logo_url !== undefined) updates.logo_url = body.logo_url?.trim() || null;
+    if (body.principal_signature_url !== undefined) {
+      updates.principal_signature_url = body.principal_signature_url?.trim() || null;
+    }
+    if (body.welcome_message !== undefined) updates.welcome_message = body.welcome_message?.trim() || null;
     if (body.primary_color !== undefined) updates.primary_color = body.primary_color;
     if (body.secondary_color !== undefined) updates.secondary_color = body.secondary_color;
 

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { getSession } from '@/lib/api';
-import { ChevronDown, Shield, GraduationCap, DoorOpen, Users, User, Check } from 'lucide-react';
+import { ChevronDown, Shield, GraduationCap, DoorOpen, Users, User, Check, KeyRound } from 'lucide-react';
 import Link from 'next/link';
 
 const ROLE_CONFIG: Record<string, { label: string; href: string; icon: React.ReactNode }> = {
@@ -63,7 +63,7 @@ export function RoleSwitcher({ showLogout = true, className = '' }: RoleSwitcher
           <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-xl border z-50 overflow-hidden">
             <div className="p-3 border-b bg-gray-50">
               <p className="font-medium text-sm text-gray-900">{session?.full_name || 'User'}</p>
-              <p className="text-xs text-gray-500 truncate">{session?.email}</p>
+              <p className="text-xs text-gray-500 truncate">@{session?.username || session?.email}</p>
             </div>
 
             {userRoles.length > 0 && (
@@ -97,6 +97,17 @@ export function RoleSwitcher({ showLogout = true, className = '' }: RoleSwitcher
             {userRoles.length === 0 && (
               <p className="p-3 text-xs text-gray-500">No roles assigned</p>
             )}
+
+            <div className="p-2 border-t">
+              <Link
+                href="/dashboard/change-password"
+                onClick={() => setOpen(false)}
+                className="w-full flex items-center gap-2.5 px-2 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <KeyRound size={14} className="text-gray-400" />
+                Change password
+              </Link>
+            </div>
           </div>
         </>
       )}

@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 
 export type AppSession = {
   user_id: string;
+  username: string;
   email: string;
   full_name: string;
   roles: { role: string; school_id: string }[];

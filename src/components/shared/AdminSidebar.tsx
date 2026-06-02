@@ -17,6 +17,7 @@ const navItems: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard/school-admin', icon: <LayoutDashboard size={18} /> },
   { label: 'Students', href: '/dashboard/school-admin/students', icon: <Users size={18} /> },
   { label: 'Staff', href: '/dashboard/school-admin/staff', icon: <GraduationCap size={18} /> },
+  { label: 'Users & Passwords', href: '/dashboard/school-admin/users', icon: <Users size={18} /> },
   { label: 'Classes', href: '/dashboard/school-admin/classes', icon: <School size={18} /> },
   { label: 'Pickup list', href: '/dashboard/school-admin/pickup-persons', icon: <Car size={18} /> },
   { label: 'Notifications', href: '/dashboard/school-admin/notifications', icon: <Bell size={18} /> },

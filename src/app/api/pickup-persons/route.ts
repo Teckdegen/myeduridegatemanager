@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
+import {
+  canListSchoolPickupPersons,
+  canViewStudentPickupPersons,
+} from '@/lib/auth/school-access';
 import { getSessionFromRequest } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
@@ -47,6 +51,11 @@ export async function GET(request: NextRequest) {
     const supabase = getAdminClient();
 
     if (studentId) {
+      const allowed = await canViewStudentPickupPersons(supabase, session, studentId);
+      if (!allowed) {
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+      }
+
       const { data, error } = await supabase
         .from('pickup_person_students')
         .select(`
@@ -60,6 +69,11 @@ export async function GET(request: NextRequest) {
     }
 
     if (schoolId) {
+      const allowed = await canListSchoolPickupPersons(supabase, session, schoolId);
+      if (!allowed) {
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+      }
+
       const { data, error } = await supabase
         .from('pickup_persons')
         .select(`
@@ -184,6 +198,15 @@ export async function PUT(request: NextRequest) {
     if (!id || !school_id) return NextResponse.json({ error: 'id and school_id required' }, { status: 400 });
 
     const supabase = getAdminClient();
+    const isAdmin = session.roles.some(
+      (r: { role: string; school_id: string }) =>
+        r.role === 'super_admin' || (r.role === 'school_admin' && r.school_id === school_id)
+    );
+    const isParent = session.roles.some((r: { role: string }) => r.role === 'parent');
+    if (!isAdmin && !isParent) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+    }
+
     const updates: any = {};
     if (name !== undefined) updates.name = name.trim();
     if (relationship !== undefined) updates.relationship = relationship.trim();
@@ -232,6 +255,17 @@ export async function DELETE(request: NextRequest) {
     if (!id || !schoolId) return NextResponse.json({ error: 'id and school_id required' }, { status: 400 });
 
     const supabase = getAdminClient();
+    const isAdmin = session.roles.some(
+      (r: { role: string; school_id: string }) =>
+        r.role === 'super_admin' || (r.role === 'school_admin' && r.school_id === schoolId)
+    );
+    if (!isAdmin) {
+      return NextResponse.json(
+        { error: 'Parents cannot delete pickup persons. Contact school admin for removal.' },
+        { status: 403 }
+      );
+    }
+
     const { error } = await supabase
       .from('pickup_persons')
       .delete()

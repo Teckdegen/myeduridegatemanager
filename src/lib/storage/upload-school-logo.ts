@@ -57,3 +57,29 @@ export async function uploadSchoolLogoBuffer(
 
   return { path: storagePath, error: null };
 }
+
+/** Upload principal/director signature image for ID cards. */
+export async function uploadSchoolSignatureBuffer(
+  supabase: SupabaseClient,
+  schoolId: string,
+  buffer: Buffer,
+  contentType: string,
+  filename?: string
+): Promise<{ path: string | null; error: string | null }> {
+  const resolved = resolveLogoMime(contentType, filename);
+  if (!resolved) {
+    return { path: null, error: 'Signature must be JPG, PNG, or WebP' };
+  }
+  const ext = extFromMime(resolved);
+  const storagePath = `signatures/${schoolId}.${ext}`;
+
+  const { error } = await supabase.storage
+    .from(BUCKET)
+    .upload(storagePath, buffer, { contentType: resolved, upsert: true });
+
+  if (error) {
+    console.error('[upload-school-signature]', error.message);
+    return { path: null, error: error.message };
+  }
+  return { path: storagePath, error: null };
+}

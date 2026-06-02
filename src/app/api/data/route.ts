@@ -1,24 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
+import {
+  canListSchoolStudents,
+  canViewSchoolCustomFields,
+  canViewSchoolDashboard,
+} from '@/lib/auth/school-access';
 import { ATTENDANCE_UI_NOTE } from '@/lib/attendance/window';
 import { todayInLagos, lagosDayBounds } from '@/lib/timezone';
+import { getSessionFromRequest } from '@/lib/session';
 
 export async function POST(request: NextRequest) {
   try {
-    const sessionCookie = request.cookies.get('myeduride_session')?.value;
-    if (!sessionCookie) {
+    const session = getSessionFromRequest(request);
+    if (!session) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
-
-    let session: any;
-    try {
-      let decoded = sessionCookie;
-      for (let i = 0; i < 3; i++) {
-        try { session = JSON.parse(decoded); break; } catch { decoded = decodeURIComponent(decoded); }
-      }
-      if (!session) session = JSON.parse(decodeURIComponent(decodeURIComponent(sessionCookie)));
-    } catch { return NextResponse.json({ error: 'Invalid session' }, { status: 401 }); }
-    if (!session || !session.user_id) return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
 
     const { action, params } = await request.json();
     console.log('[DATA API] action:', action, 'user:', session.user_id);
@@ -34,9 +30,16 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case 'get_school_admin_data': {
+        const requestedRole = params?.role || 'school_admin';
+        if (!session.roles.some((r: { role: string }) => r.role === requestedRole)) {
+          return NextResponse.json(
+            { error: 'Access denied', school: null, school_id: null },
+            { status: 403 }
+          );
+        }
         const { data: role } = await withTimeout(
           supabase.from('user_school_roles').select('school_id')
-            .eq('user_id', session.user_id).eq('role', params?.role || 'school_admin').eq('is_active', true).limit(1).single(),
+            .eq('user_id', session.user_id).eq('role', requestedRole).eq('is_active', true).limit(1).single(),
           8000
         ).catch(() => ({ data: null }));
         if (!role) return NextResponse.json({ error: 'No school found', school: null, school_id: null }, { status: 200 });
@@ -47,6 +50,9 @@ export async function POST(request: NextRequest) {
       case 'get_school_dashboard': {
         const schoolId = params?.school_id;
         if (!schoolId) return NextResponse.json({ error: 'school_id required' }, { status: 400 });
+        if (!canViewSchoolDashboard(session, schoolId)) {
+          return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+        }
         const { startIso, endIso } = lagosDayBounds();
         const { count: totalStudents } = await supabase.from('students').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('is_active', true);
         const { count: totalTeachers } = await supabase.from('user_school_roles').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('role', 'teacher').eq('is_active', true);
@@ -182,7 +188,19 @@ export async function POST(request: NextRequest) {
       }
 
       case 'get_students': {
-        const { data } = await supabase.from('students').select('*, class:school_classes(name, grade)').eq('school_id', params?.school_id).eq('is_active', true).order('last_name');
+        const schoolId = params?.school_id;
+        if (!schoolId) {
+          return NextResponse.json({ error: 'school_id required', students: [] }, { status: 400 });
+        }
+        if (!canListSchoolStudents(session, schoolId)) {
+          return NextResponse.json({ error: 'Access denied', students: [] }, { status: 403 });
+        }
+        const { data } = await supabase
+          .from('students')
+          .select('*, class:school_classes(name, grade)')
+          .eq('school_id', schoolId)
+          .eq('is_active', true)
+          .order('last_name');
         return NextResponse.json({ students: data || [] });
       }
 
@@ -241,7 +259,19 @@ export async function POST(request: NextRequest) {
       }
 
       case 'get_custom_fields': {
-        const { data } = await supabase.from('school_custom_fields').select('*').eq('school_id', params?.school_id).eq('is_active', true).order('sort_order');
+        const schoolId = params?.school_id;
+        if (!schoolId) {
+          return NextResponse.json({ error: 'school_id required', fields: [] }, { status: 400 });
+        }
+        if (!canViewSchoolCustomFields(session, schoolId)) {
+          return NextResponse.json({ error: 'Access denied', fields: [] }, { status: 403 });
+        }
+        const { data } = await supabase
+          .from('school_custom_fields')
+          .select('*')
+          .eq('school_id', schoolId)
+          .eq('is_active', true)
+          .order('sort_order');
         return NextResponse.json({ fields: data || [] });
       }
 
@@ -463,26 +493,6 @@ export async function POST(request: NextRequest) {
           .eq('id', notificationId)
           .eq('user_id', session.user_id);
         return NextResponse.json({ success: true });
-      }
-
-      case 'query': {
-        const { table, select, filters, order, limit: queryLimit } = params;
-        console.log('[DATA API] query table:', table, 'filters:', filters);
-        let query = supabase.from(table).select(select || '*');
-        if (filters) {
-          for (const [key, value] of Object.entries(filters)) {
-            query = query.eq(key, value);
-          }
-        }
-        if (order) query = query.order(order.column || 'created_at', { ascending: order.ascending ?? false });
-        if (queryLimit) query = query.limit(queryLimit);
-        
-        const { data, error } = await withTimeout(query, 8000).catch((e: any) => ({ data: null, error: { message: e.message } }));
-        if (error) {
-          console.error('[DATA API] query error:', error);
-          return NextResponse.json({ error: error.message, data: [] }, { status: 200 });
-        }
-        return NextResponse.json({ data: data || [] });
       }
 
       default:

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { ensureAuthUser, ensureUserProfile } from '@/lib/auth/ensure-user';
+import { isValidUsername, normalizeUsername } from '@/lib/auth/username';
 import { uploadBase64Photo } from '@/lib/storage/upload-photo';
 import { Resend } from 'resend';
 import {
@@ -15,7 +16,7 @@ const SYSTEM_ACCESS_ROLES = new Set(['staff', 'teacher', 'gate_officer', 'school
 export async function POST(request: NextRequest) {
   try {
     const {
-      email,
+      username,
       full_name,
       phone,
       role,
@@ -27,19 +28,30 @@ export async function POST(request: NextRequest) {
       face_descriptor,
       face_photos,
       skip_face,
+      contact_email,
     } = await request.json();
 
     const accessRole = role || 'staff';
 
-    if (!email?.trim() || !full_name?.trim() || !accessRole || !school_id) {
-      return NextResponse.json({ error: 'Email, name, role, and school are required' }, { status: 400 });
+    if (!username?.trim() || !full_name?.trim() || !accessRole || !school_id) {
+      return NextResponse.json({ error: 'Username, name, role, and school are required' }, { status: 400 });
+    }
+
+    const normalizedUsername = normalizeUsername(username);
+    if (!isValidUsername(normalizedUsername)) {
+      return NextResponse.json(
+        { error: 'Username must be 3–30 characters (letters, numbers, underscore only)' },
+        { status: 400 }
+      );
     }
 
     if (!SYSTEM_ACCESS_ROLES.has(accessRole)) {
       return NextResponse.json({ error: 'Invalid access role' }, { status: 400 });
     }
 
-    const normalizedEmail = email.toLowerCase().trim();
+    const normalizedEmail = contact_email?.trim()
+      ? contact_email.toLowerCase().trim()
+      : null;
     const supabase = getAdminClient();
 
     let customRole = null;
@@ -74,15 +86,16 @@ export async function POST(request: NextRequest) {
     const { data: existingUser } = await supabase
       .from('user_profiles')
       .select('id')
-      .eq('email', normalizedEmail)
+      .eq('username', normalizedUsername)
       .maybeSingle();
 
     let userId: string;
+    let generatedPassword: string | undefined;
 
     if (existingUser) {
       userId = existingUser.id;
     } else {
-      const { userId: authId, error: authErr } = await ensureAuthUser(supabase, normalizedEmail);
+      const { userId: authId, password, error: authErr } = await ensureAuthUser(supabase, normalizedUsername);
       if (!authId) {
         return NextResponse.json(
           { error: `Failed to create user account${authErr ? `: ${authErr}` : ''}` },
@@ -90,13 +103,15 @@ export async function POST(request: NextRequest) {
         );
       }
       userId = authId;
+      generatedPassword = password;
     }
 
     const { error: profileError } = await ensureUserProfile(supabase, {
       id: userId,
-      email: normalizedEmail,
+      username: normalizedUsername,
       full_name: full_name.trim(),
       phone: phone || null,
+      email: normalizedEmail,
     });
 
     if (profileError) {
@@ -255,12 +270,13 @@ export async function POST(request: NextRequest) {
 
     const { data: school } = await supabase.from('schools').select('name').eq('id', school_id).single();
 
-    try {
-      await resend.emails.send({
-        from: `MyEduRide <noreply@assetid.site>`,
-        to: normalizedEmail,
-        subject: `You have been added as ${roleLabel} at ${school?.name || 'a school'}`,
-        html: `
+    if (normalizedEmail) {
+      try {
+        await resend.emails.send({
+          from: `MyEduRide <noreply@assetid.site>`,
+          to: normalizedEmail,
+          subject: `You have been added as ${roleLabel} at ${school?.name || 'a school'}`,
+          html: `
           <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto;">
             <div style="background: #1B4D3E; padding: 20px; text-align: center; border-radius: 12px 12px 0 0;">
               <h2 style="color: white; margin: 0; font-size: 18px;">Welcome to MyEduRide</h2>
@@ -269,20 +285,25 @@ export async function POST(request: NextRequest) {
               <p>Hello ${full_name},</p>
               <p>You have been added as <strong>${roleLabel}</strong> at <strong>${school?.name || 'your school'}</strong>.</p>
               <p>Use your staff ID card to sign in and out at the gate. View your attendance from your staff dashboard after login.</p>
-              <p><strong>To login:</strong> Visit <a href="${process.env.NEXT_PUBLIC_APP_URL}">${process.env.NEXT_PUBLIC_APP_URL}</a> and enter your email. You will receive a one-time code.</p>
+              <p><strong>Username:</strong> ${normalizedUsername}</p>
+              ${generatedPassword ? `<p><strong>Password:</strong> ${generatedPassword}</p>` : ''}
+              <p><strong>To login:</strong> Visit <a href="${process.env.NEXT_PUBLIC_APP_URL}">${process.env.NEXT_PUBLIC_APP_URL}</a> and sign in with your username and password.</p>
               <br>
               <p style="color: #666; font-size: 12px;">MyEduRide — The Student Safety Platform</p>
             </div>
           </div>
         `,
-      });
-    } catch (emailErr) {
-      console.error('Email send failed:', emailErr);
+        });
+      } catch (emailErr) {
+        console.error('Email send failed:', emailErr);
+      }
     }
 
     return NextResponse.json({
       success: true,
       userId,
+      username: normalizedUsername,
+      password: generatedPassword,
       role: accessRole,
       job_title: roleLabel,
       staff_profile: savedStaffProfile

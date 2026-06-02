@@ -6,6 +6,7 @@ import { fetchData } from '@/lib/api';
 import { Save, Clock, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { schoolToSettingsForm, TIME_FIELDS } from '@/lib/time-input';
+import { ChangePasswordCard } from '@/components/shared/ChangePasswordCard';
 
 export default function SchoolSettingsPage() {
   const [loading, setLoading] = useState(true);
@@ -14,6 +15,8 @@ export default function SchoolSettingsPage() {
   const [formData, setFormData] = useState(schoolToSettingsForm(null));
   const [logoUploading, setLogoUploading] = useState(false);
   const [logoPreview, setLogoPreview] = useState('');
+  const [signatureUploading, setSignatureUploading] = useState(false);
+  const [signaturePreview, setSignaturePreview] = useState('');
 
   const loadSettings = useCallback(async (id) => {
     const sid = id || schoolId;
@@ -31,6 +34,9 @@ export default function SchoolSettingsPage() {
       setFormData(schoolToSettingsForm(data.school));
       if (data.school?.logo_url) {
         setLogoPreview(`/api/photo?path=${encodeURIComponent(data.school.logo_url)}`);
+      }
+      if (data.school?.principal_signature_url) {
+        setSignaturePreview(`/api/photo?path=${encodeURIComponent(data.school.principal_signature_url)}`);
       }
     } catch (err) {
       console.error(err);
@@ -68,7 +74,16 @@ export default function SchoolSettingsPage() {
     }
     setSaving(true);
     try {
-      const payload = { school_id: schoolId, name: formData.name, address: formData.address, logo_url: formData.logo_url, primary_color: formData.primary_color, secondary_color: formData.secondary_color };
+      const payload = {
+        school_id: schoolId,
+        name: formData.name,
+        address: formData.address,
+        logo_url: formData.logo_url,
+        principal_signature_url: formData.principal_signature_url,
+        welcome_message: formData.welcome_message,
+        primary_color: formData.primary_color,
+        secondary_color: formData.secondary_color,
+      };
       for (const field of TIME_FIELDS) {
         payload[field] = formData[field];
       }
@@ -178,6 +193,58 @@ export default function SchoolSettingsPage() {
                 </div>
               </div>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Principal/Director Signature</label>
+              <div className="flex items-center gap-3">
+                {signaturePreview && (
+                  <img src={signaturePreview} alt="Signature" className="h-12 w-24 object-contain rounded-lg border border-gray-200 bg-gray-50" />
+                )}
+                <label className="cursor-pointer flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700">
+                  <Upload size={16} />
+                  {signatureUploading ? 'Uploading…' : 'Upload signature'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={signatureUploading || !schoolId}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file || !schoolId) return;
+                      setSignatureUploading(true);
+                      try {
+                        const fd = new FormData();
+                        fd.append('school_id', schoolId);
+                        fd.append('file', file);
+                        const res = await fetch('/api/schools/signature', {
+                          method: 'POST',
+                          credentials: 'include',
+                          body: fd,
+                        });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.error || 'Upload failed');
+                        setFormData((p) => ({ ...p, principal_signature_url: data.path }));
+                        setSignaturePreview(data.preview_url || `/api/photo?path=${encodeURIComponent(data.path)}`);
+                        toast.success('Signature uploaded');
+                      } catch (err) {
+                        toast.error(err.message || 'Signature upload failed');
+                      }
+                      setSignatureUploading(false);
+                    }}
+                  />
+                </label>
+              </div>
+              <p className="text-xs text-gray-400 mt-1">Shown on student ID cards. If empty, card uses placeholder text.</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Welcome Message (optional)</label>
+              <input
+                type="text"
+                value={formData.welcome_message || ''}
+                onChange={(e) => setFormData((p) => ({ ...p, welcome_message: e.target.value }))}
+                className="input"
+                placeholder="Welcome to [School Name]"
+              />
+            </div>
           </div>
         </div>
 
@@ -218,6 +285,10 @@ export default function SchoolSettingsPage() {
           <Save size={16} /> {saving ? 'Saving...' : 'Save Settings'}
         </button>
       </form>
+
+      <div className="mt-8">
+        <ChangePasswordCard />
+      </div>
     </div>
   );
 }

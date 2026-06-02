@@ -1,0 +1,129 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import { getAdminClient } from '@/lib/supabase/admin';
+import { ensureSuperAdminAccess } from '@/lib/auth/ensure-super-admin';
+import { isSuperAdminUsername } from '@/lib/auth/super-admin';
+import { findProfileByUsername } from '@/lib/auth/ensure-user';
+import { authEmailFromUsername, isValidUsername, normalizeUsername } from '@/lib/auth/username';
+
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCK_MINUTES = 15;
+
+function getPublicSupabaseClient() {
+  let url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  url = url.replace(/\/rest\/v1\/?.*$/, '').replace(/\/$/, '');
+  return createClient(url, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '', {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const username = normalizeUsername(body.username || '');
+    const password = (body.password || '').trim();
+
+    if (!username || !password) {
+      return NextResponse.json({ error: 'Username and password are required' }, { status: 400 });
+    }
+
+    if (!isValidUsername(username)) {
+      return NextResponse.json({ error: 'Invalid username format' }, { status: 400 });
+    }
+
+    const supabase = getAdminClient();
+
+    if (isSuperAdminUsername(username)) {
+      const boot = await ensureSuperAdminAccess(supabase, username);
+      if (!boot.ok) {
+        console.error('[login] super admin bootstrap:', boot.error);
+      }
+    }
+
+    const { data: profile } = await findProfileByUsername(supabase, username);
+
+    if (!profile) {
+      return NextResponse.json({ error: 'Invalid username or password' }, { status: 401 });
+    }
+
+    if (profile.locked_until && new Date(profile.locked_until) > new Date()) {
+      return NextResponse.json(
+        { error: 'Account is locked. Try again later.' },
+        { status: 423 }
+      );
+    }
+
+    const authClient = getPublicSupabaseClient();
+    const authEmail = authEmailFromUsername(profile.username || username);
+    const { error: signInError } = await authClient.auth.signInWithPassword({
+      email: authEmail,
+      password,
+    });
+
+    if (signInError) {
+      const nextAttempts = (profile.failed_login_attempts || 0) + 1;
+      const isLocked = nextAttempts >= MAX_FAILED_ATTEMPTS;
+
+      await supabase
+        .from('user_profiles')
+        .update({
+          failed_login_attempts: nextAttempts,
+          locked_until: isLocked
+            ? new Date(Date.now() + LOCK_MINUTES * 60 * 1000).toISOString()
+            : null,
+        })
+        .eq('id', profile.id);
+
+      return NextResponse.json({ error: 'Invalid username or password' }, { status: 401 });
+    }
+
+    await authClient.auth.signOut();
+
+    await supabase
+      .from('user_profiles')
+      .update({
+        failed_login_attempts: 0,
+        locked_until: null,
+        auth_preference: 'password',
+      })
+      .eq('id', profile.id);
+
+    const { data: roles } = await supabase
+      .from('user_school_roles')
+      .select('role, school_id')
+      .eq('user_id', profile.id)
+      .eq('is_active', true);
+
+    const sessionData = JSON.stringify({
+      user_id: profile.id,
+      username: profile.username,
+      email: profile.email,
+      full_name: profile.full_name,
+      roles: roles || [],
+    });
+
+    const response = NextResponse.json({
+      success: true,
+      user: {
+        id: profile.id,
+        username: profile.username,
+        email: profile.email,
+        full_name: profile.full_name,
+      },
+      roles: roles || [],
+    });
+
+    response.cookies.set('myeduride_session', sessionData, {
+      httpOnly: false,
+      secure: false,
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7,
+      path: '/',
+    });
+
+    return response;
+  } catch (err: any) {
+    console.error('Login error:', err?.message || err);
+    return NextResponse.json({ error: 'Login failed.' }, { status: 500 });
+  }
+}

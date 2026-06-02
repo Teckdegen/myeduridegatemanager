@@ -4,8 +4,6 @@ School gate management platform: QR/ID scan attendance, teacher dismissal queue,
 
 **Stack:** Next.js 14 App Router · TypeScript · Supabase (Postgres + Auth + Storage) · Resend · Web Push (VAPID) · face-api.js · Vercel
 
-**Deep dive:** [`supabase/migrations/README.md`](supabase/migrations/README.md) (schema ER diagram, extension guide)
-
 ---
 
 ## Quick start
@@ -26,9 +24,9 @@ npm run dev
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | client | Web push subscription |
 | `VAPID_PRIVATE_KEY` | server | Web push send |
 | `NEXT_PUBLIC_APP_URL` | server | Email deep links |
-| `SUPER_ADMIN_EMAILS` | server | Comma-separated bootstrap emails |
+| `SUPER_ADMIN_USERNAMES` | server | Comma-separated bootstrap usernames |
 
-**Supabase setup:** Run `supabase/schema.sql` (creates tables, RLS, `photos` bucket). Enable Email auth provider. Bucket is **private** — images served via `/api/photo`.
+**Supabase setup:** Run entire [`supabase/schema.sql`](supabase/schema.sql) in the SQL Editor (creates tables, RLS, `photos` bucket). Enable Email auth provider. Bucket is **private** — images served via `/api/photo`. No separate migration files — `schema.sql` is the single source of truth.
 
 **Timezone:** Business logic uses `Africa/Lagos` (WAT, UTC+1). DB stores `TIMESTAMPTZ` in UTC. Helpers: `src/lib/timezone.ts`, `src/lib/attendance/lagos-dates.ts`.
 
@@ -78,26 +76,103 @@ PostgreSQL + Storage (photos bucket)
 
 ---
 
-## Database (summary)
+## Database
 
-Full DDL: [`supabase/schema.sql`](supabase/schema.sql)
+Full DDL: [`supabase/schema.sql`](supabase/schema.sql) — run the entire file in Supabase SQL Editor on a new project. No migration folder; all schema changes belong in this file.
 
-| Table | Writes via | Notes |
-|-------|-----------|-------|
-| `schools` | schools/* | Tenant root, gate hours, branding |
-| `school_classes` | classes, setup | `UNIQUE(school_id, name)` |
-| `students` | students/* | `student_id_number`, `qr_code_data` unique |
-| `teacher_profiles` | staff/*, ensure-profile | Staff ID + QR (`STF-…`) |
-| `user_school_roles` | staff/create, schools/create | RBAC |
-| `attendance_records` | gate/accept, teacher/scan | `source`: gate \| teacher |
-| `dismissal_requests` | teacher/ready-for-pickup | `UNIQUE(student_id, dismissal_date)` |
-| `extra_lessons` | teacher/extra-lesson | `UNIQUE(student_id, date)` |
-| `pickup_persons` + `pickup_person_students` | pickup-persons | M:N authorised collectors |
-| `pickup_requests` | pickup-requests | Parent → admin messages |
-| `notifications` | many routes | In-app inbox |
-| `gate_sessions` | gate/session | Links scans to shift |
+### Auth model (username, not email)
 
-**Realtime enabled:** `attendance_records`, `dismissal_requests`, `extra_lessons`, `notifications`, `pickup_requests`
+- **Login:** `username` + `password` only
+- **`user_profiles.username`:** required, unique, 3–32 chars (`a-z`, `0-9`, `.`, `_`)
+- **`user_profiles.email`:** optional contact for notification emails — **not** used for login
+- **Supabase Auth:** internal email `{username}@login.myeduride.internal` (see `src/lib/auth/username.ts`)
+- **`auth_preference`:** always `password` (OTP removed)
+- **VAPID keys** (`.env`): browser push notifications only — unrelated to login
+
+### Tables by feature
+
+**Schools & setup**
+
+| Table | Purpose |
+|-------|---------|
+| `schools` | School profile, gate times, branding (`logo_url`, `principal_signature_url`, `welcome_message`) |
+| `school_classes` | Classes / grades |
+| `school_custom_fields` | Extra fields on student/teacher forms |
+| `school_custom_roles` | Job titles (Accountant, Cleaner, etc.) |
+| `school_calendar_settings` | Weekend days |
+| `school_non_school_days` | Holidays, closures |
+| `gate_day_overrides` | Open gate on a non-school day |
+
+**Users & roles**
+
+| Table | Purpose |
+|-------|---------|
+| `user_profiles` | All app users — **username is login id** |
+| `user_school_roles` | Role per school: `super_admin`, `school_admin`, `teacher`, `gate_officer`, `parent`, `staff` |
+
+**Staff & students**
+
+| Table | Purpose |
+|-------|---------|
+| `teacher_profiles` | Staff ID, QR, photo, face descriptor, custom role |
+| `teacher_class_assignments` | Class teacher links |
+| `students` | Student records, QR, photo, custom fields |
+| `student_parents` | Parent ↔ student links |
+| `student_class_promotions` | Class promotion history |
+
+**Gate & attendance**
+
+| Table | Purpose |
+|-------|---------|
+| `gate_sessions` | Active arrival/dismissal sessions |
+| `attendance_records` | Student arrival/departure |
+| `staff_attendance` | Staff clock in/out |
+| `gate_activity_logs` | Gate audit trail |
+| `dismissal_requests` | Teacher “ready for pickup” |
+| `extra_lessons` | Students in extra lesson |
+
+**Pickup**
+
+| Table | Purpose |
+|-------|---------|
+| `pickup_persons` | Authorised pickup people (with photo) |
+| `pickup_person_students` | Pickup person ↔ student links |
+| `pickup_notices` | Parent daily pickup notice |
+| `pickup_requests` | Parent pickup message to school |
+
+**Notifications**
+
+| Table | Purpose |
+|-------|---------|
+| `notifications` | In-app notification inbox |
+| `push_subscriptions` | Web push (VAPID) endpoints |
+
+**Security & audit**
+
+| Table | Purpose |
+|-------|---------|
+| `auth_security_events` | Login/security events (`identifier` = username) |
+| `password_reset_requests` | Password reset tokens (`identifier` = username) |
+| `audit_logs` | Admin audit trail |
+| `otp_codes` | **Legacy** — OTP login disabled |
+
+### Storage
+
+| Bucket | Paths |
+|--------|-------|
+| `photos` | `students/`, `staff/`, `logos/`, `signatures/`, pickup photos |
+
+### Realtime (enabled tables)
+
+`attendance_records`, `dismissal_requests`, `extra_lessons`, `notifications`, `pickup_requests`
+
+### Auth-related env vars
+
+```env
+SUPER_ADMIN_USERNAMES=myeduride4,disclimited234,teckdegen
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=...   # push only
+VAPID_PRIVATE_KEY=...              # push only
+```
 
 ---
 
