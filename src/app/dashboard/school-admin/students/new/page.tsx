@@ -8,6 +8,8 @@ import { toast } from 'sonner';
 import { ArrowLeft, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
 import FaceCapture from '@/components/shared/FaceCapture';
+import { InitialPasswordFields } from '@/components/shared/InitialPasswordFields';
+import { validatePasswordPair } from '@/lib/auth/password-policy';
 
 export default function AddStudentPage() {
   const [classes, setClasses] = useState([]);
@@ -17,6 +19,8 @@ export default function AddStudentPage() {
     parent_name: '', parent_phone: '', parent_email: '', class_id: '',
   });
   const [faceData, setFaceData] = useState({ photos: [], face_descriptor: null });
+  const [parentPassword, setParentPassword] = useState('');
+  const [parentConfirmPassword, setParentConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const router = useRouter();
@@ -39,6 +43,13 @@ export default function AddStudentPage() {
   const handleSubmit = async () => {
     if (!form.first_name || !form.last_name) { toast.error('Name is required'); return; }
     if (faceData.photos.length < 3) { toast.error('Take 3 face photos of the student'); return; }
+    if (form.parent_name?.trim()) {
+      const pwErr = validatePasswordPair(parentPassword, parentConfirmPassword);
+      if (pwErr) {
+        toast.error(`Parent password: ${pwErr}`);
+        return;
+      }
+    }
     setLoading(true);
 
     try {
@@ -57,6 +68,8 @@ export default function AddStudentPage() {
             parent_phone: form.parent_phone,
             parent_email: form.parent_email,
           },
+          parent_initial_password: form.parent_name?.trim() ? parentPassword : undefined,
+          parent_confirm_password: form.parent_name?.trim() ? parentConfirmPassword : undefined,
         }),
       });
       const result = await res.json();
@@ -118,7 +131,11 @@ export default function AddStudentPage() {
                   <div className="col-span-2"><label className="block text-xs font-medium text-gray-600 mb-1">Class</label>
                     <select value={form.class_id} onChange={e => setForm({...form, class_id: e.target.value})} className="input">
                       <option value="">Select class...</option>
-                      {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      {classes.map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}{c.section ? ` · Arm ${c.section}` : ''}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 )}
@@ -133,6 +150,18 @@ export default function AddStudentPage() {
                 <div><label className="block text-xs font-medium text-gray-600 mb-1">Parent Phone</label><input type="tel" value={form.parent_phone} onChange={e => setForm({...form, parent_phone: e.target.value})} className="input" /></div>
                 <div><label className="block text-xs font-medium text-gray-600 mb-1">Parent Email</label><input type="email" value={form.parent_email} onChange={e => setForm({...form, parent_email: e.target.value})} className="input" /></div>
               </div>
+              {form.parent_name?.trim() && (
+                <div className="mt-4">
+                  <InitialPasswordFields
+                    password={parentPassword}
+                    confirmPassword={parentConfirmPassword}
+                    onPasswordChange={setParentPassword}
+                    onConfirmChange={setParentConfirmPassword}
+                    label="Parent default password"
+                    hint="Send username and password to the parent. They should change it after first login."
+                  />
+                </div>
+              )}
             </div>
 
             <div className="card">

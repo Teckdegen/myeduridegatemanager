@@ -117,6 +117,38 @@ export async function POST(request: NextRequest) {
       .eq('user_id', profile.id)
       .eq('is_active', true);
 
+    const adminSchoolIds = (roles || [])
+      .filter((r) => r.role === 'school_admin')
+      .map((r) => r.school_id)
+      .filter(Boolean);
+
+    if (adminSchoolIds.length > 0) {
+      const { data: adminSchools } = await supabase
+        .from('schools')
+        .select('id, name, approval_status')
+        .in('id', adminSchoolIds);
+
+      const pending = (adminSchools || []).filter((s) => s.approval_status === 'pending');
+      if (pending.length > 0) {
+        return NextResponse.json(
+          {
+            error: `Your school registration (${pending[0].name}) is pending approval. You can sign in after a platform administrator approves it.`,
+          },
+          { status: 403 }
+        );
+      }
+
+      const rejected = (adminSchools || []).filter((s) => s.approval_status === 'rejected');
+      if (rejected.length === adminSchoolIds.length) {
+        return NextResponse.json(
+          {
+            error: 'Your school registration was not approved. Please contact MyEduRide support.',
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     const schoolRole =
       (roles || []).find((r) => r.role === 'school_admin') ||
       (roles || []).find((r) => r.role === 'parent') ||

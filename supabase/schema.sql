@@ -40,6 +40,7 @@ CREATE TABLE schools (
   timezone TEXT DEFAULT 'Africa/Lagos',
   setup_completed BOOLEAN DEFAULT FALSE,
   setup_step TEXT DEFAULT 'classes' CHECK (setup_step IN ('classes', 'fields', 'teachers', 'students', 'complete')),
+  approval_status TEXT NOT NULL DEFAULT 'approved' CHECK (approval_status IN ('pending', 'approved', 'rejected')),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -56,8 +57,10 @@ CREATE TABLE school_classes (
   is_active BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(school_id, name)
 );
+
+CREATE UNIQUE INDEX school_classes_school_id_name_section_key
+  ON school_classes (school_id, name, COALESCE(section, ''));
 
 -- ============ SCHOOL CUSTOM FIELDS ============
 CREATE TABLE school_custom_fields (

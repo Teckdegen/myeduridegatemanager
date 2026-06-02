@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { ensureAuthUser, ensureUserProfile } from '@/lib/auth/ensure-user';
+import { resolveInitialPassword, validatePasswordPair } from '@/lib/auth/password-policy';
+import { setAuthPasswordForProfile } from '@/lib/auth/update-password';
 import { isValidUsername, normalizeUsername } from '@/lib/auth/username';
 import { uploadBase64Photo } from '@/lib/storage/upload-photo';
 import { Resend } from 'resend';
@@ -29,6 +31,8 @@ export async function POST(request: NextRequest) {
       face_photos,
       skip_face,
       contact_email,
+      initial_password,
+      confirm_password,
     } = await request.json();
 
     const accessRole = role || 'staff';
@@ -47,6 +51,14 @@ export async function POST(request: NextRequest) {
 
     if (!SYSTEM_ACCESS_ROLES.has(accessRole)) {
       return NextResponse.json({ error: 'Invalid access role' }, { status: 400 });
+    }
+
+    const initialPassword = resolveInitialPassword(initial_password);
+    if (initial_password !== undefined && initial_password !== null && initial_password !== '') {
+      const pwErr = validatePasswordPair(initial_password, confirm_password || '');
+      if (pwErr) {
+        return NextResponse.json({ error: pwErr }, { status: 400 });
+      }
     }
 
     const normalizedEmail = contact_email?.trim()
@@ -94,8 +106,21 @@ export async function POST(request: NextRequest) {
 
     if (existingUser) {
       userId = existingUser.id;
+      if (initialPassword) {
+        const { error: pwErr } = await setAuthPasswordForProfile(supabase, userId, initialPassword, {
+          createAuthIfMissing: true,
+        });
+        if (pwErr) {
+          return NextResponse.json({ error: pwErr }, { status: 500 });
+        }
+        generatedPassword = initialPassword;
+      }
     } else {
-      const { userId: authId, password, error: authErr } = await ensureAuthUser(supabase, normalizedUsername);
+      const { userId: authId, password, error: authErr } = await ensureAuthUser(supabase, {
+        username: normalizedUsername,
+        full_name: full_name.trim(),
+        password: initialPassword || undefined,
+      });
       if (!authId) {
         return NextResponse.json(
           { error: `Failed to create user account${authErr ? `: ${authErr}` : ''}` },

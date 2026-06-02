@@ -37,6 +37,7 @@ export interface School {
   dismissal_end_time: string;
   setup_completed: boolean;
   setup_step: SetupStep;
+  approval_status?: 'pending' | 'approved' | 'rejected';
   created_at: string;
   updated_at: string;
 }

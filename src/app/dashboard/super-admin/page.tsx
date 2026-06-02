@@ -4,10 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 import type { School } from '@/lib/types';
 import { Building2, Users, Plus, Search, Settings, BarChart3, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { InitialPasswordFields } from '@/components/shared/InitialPasswordFields';
 
 interface SchoolWithStats extends School {
   student_count: number;
   staff_count: number;
+  approval_status?: 'pending' | 'approved' | 'rejected';
 }
 
 export default function SuperAdminDashboard() {
@@ -90,10 +92,29 @@ export default function SuperAdminDashboard() {
     }
   };
 
-  const filteredSchools = schools.filter(s =>
+  const pendingSchools = schools.filter((s) => s.approval_status === 'pending');
+  const approvedSchools = schools.filter((s) => s.approval_status !== 'pending');
+
+  const filteredSchools = approvedSchools.filter(s =>
     s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (s.address || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const handleApproveSchool = async (schoolId: string, action: 'approve' | 'reject') => {
+    const res = await fetch('/api/schools/approve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ school_id: schoolId, action }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      toast.error(data.error || 'Failed');
+      return;
+    }
+    toast.success(action === 'approve' ? 'School approved' : 'School rejected');
+    fetchSchools({ silent: true });
+  };
 
   if (loading) {
     return (
@@ -143,6 +164,43 @@ export default function SuperAdminDashboard() {
             </div>
           </div>
         </div>
+
+        {pendingSchools.length > 0 && (
+          <div className="card mb-6 border-amber-200 bg-amber-50/50">
+            <h2 className="font-bold text-amber-900 mb-3">
+              Pending school registrations ({pendingSchools.length})
+            </h2>
+            <div className="space-y-3">
+              {pendingSchools.map((school) => (
+                <div
+                  key={school.id}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-white rounded-xl border border-amber-100"
+                >
+                  <div>
+                    <p className="font-semibold text-gray-900">{school.name}</p>
+                    {school.address && <p className="text-xs text-gray-500">{school.address}</p>}
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleApproveSchool(school.id, 'reject')}
+                      className="btn-secondary text-sm"
+                    >
+                      Reject
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleApproveSchool(school.id, 'approve')}
+                      className="btn-primary text-sm"
+                    >
+                      Approve
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Search + Add */}
         <div className="flex gap-3 mb-4">
@@ -252,6 +310,8 @@ function AddSchoolModal({
     admin_name: '',
     admin_phone: '',
     admin_email: '',
+    admin_password: '',
+    confirm_password: '',
   });
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState('');
@@ -321,7 +381,10 @@ function AddSchoolModal({
             result.school.logo_url = logoJson.path;
           }
         }
-        toast.success(`${formData.name} created — admin username: ${result.admin_username || formData.admin_username}`);
+        toast.success(
+          `${formData.name} created — username: ${result.admin_username || formData.admin_username}, password: ${result.admin_password || formData.admin_password}`,
+          { duration: 12000 }
+        );
         onSuccess(result.school);
       } else {
         toast.error(result.error || 'Failed to create school');
@@ -428,6 +491,14 @@ function AddSchoolModal({
               className="input"
             />
           </div>
+
+          <InitialPasswordFields
+            password={formData.admin_password}
+            confirmPassword={formData.confirm_password}
+            onPasswordChange={(v) => setFormData((prev) => ({ ...prev, admin_password: v }))}
+            onConfirmChange={(v) => setFormData((prev) => ({ ...prev, confirm_password: v }))}
+            label="Admin default password"
+          />
 
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50">

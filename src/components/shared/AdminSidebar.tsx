@@ -42,7 +42,7 @@ const navGroups: NavGroup[] = [
     icon: <GraduationCap size={18} />,
     items: [
       { label: 'Staff list', href: '/dashboard/school-admin/staff', icon: <List size={16} /> },
-      { label: 'Add staff', href: '/dashboard/school-admin/staff?add=1', icon: <Plus size={16} /> },
+      { label: 'Add staff', href: '/dashboard/school-admin/staff/new', icon: <Plus size={16} /> },
     ],
   },
   {
@@ -68,8 +68,11 @@ const bottomLinks: NavLink[] = [
 ];
 
 function pathMatches(pathname: string, href: string) {
-  if (href === '/dashboard/school-admin') return pathname === href;
-  return pathname === href || pathname.startsWith(`${href}/`) || pathname.startsWith(href.split('?')[0]);
+  const base = href.split('?')[0];
+  if (base === '/dashboard/school-admin') return pathname === base;
+  if (base === '/dashboard/school-admin/staff') return pathname === base;
+  if (base === '/dashboard/school-admin/students') return pathname === base;
+  return pathname === base || pathname.startsWith(`${base}/`);
 }
 
 function groupIsActive(pathname: string, group: NavGroup) {

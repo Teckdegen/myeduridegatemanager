@@ -16,15 +16,11 @@ import {
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
-
-type CredentialUser = {
-  id: string;
-  username: string;
-  full_name: string;
-  roles: string[];
-  password: string;
-  staff_id_number?: string | null;
-};
+import {
+  CredentialPasswordRows,
+  CredentialPasswordTableHead,
+  type CredentialUser,
+} from '@/components/shared/CredentialPasswordRows';
 
 type SchoolBlock = {
   id: string;
@@ -41,87 +37,14 @@ function formatRole(role: string) {
   return role.replace(/_/g, ' ');
 }
 
-function UserRows({
-  users,
-  draftPasswords,
-  setDraftPasswords,
-  onSave,
-  savingId,
-  showPasswords,
-}: {
-  users: CredentialUser[];
-  draftPasswords: Record<string, string>;
-  setDraftPasswords: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  onSave: (userId: string) => void;
-  savingId: string | null;
-  showPasswords: boolean;
-}) {
-  if (users.length === 0) return null;
-
-  return (
-    <tbody>
-      {users.map((user) => (
-        <tr key={user.id} className="border-b last:border-b-0 hover:bg-gray-50/80">
-          <td className="py-3 px-5">
-            <p className="font-medium text-gray-900">{user.full_name || '—'}</p>
-            {user.staff_id_number && (
-              <p className="text-xs font-mono text-gray-500">{user.staff_id_number}</p>
-            )}
-          </td>
-          <td className="py-3 pr-4 font-mono text-xs">{user.username || '—'}</td>
-          <td className="py-3 pr-4 capitalize text-xs">
-            {user.roles.length ? user.roles.map(formatRole).join(', ') : '—'}
-          </td>
-          <td className="py-3 pr-4 min-w-[200px]">
-            <input
-              type={showPasswords ? 'text' : 'password'}
-              value={draftPasswords[user.id] ?? ''}
-              onChange={(e) =>
-                setDraftPasswords((prev) => ({ ...prev, [user.id]: e.target.value }))
-              }
-              className="input h-9 font-mono text-xs w-full"
-              placeholder="No password on file"
-            />
-          </td>
-          <td className="py-3 pr-5">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const pw = draftPasswords[user.id] ?? user.password ?? '';
-                  navigator.clipboard.writeText(
-                    `Username: ${user.username}\nPassword: ${pw || '(not set)'}`
-                  );
-                  toast.success('Copied');
-                }}
-                className="btn-secondary h-9 px-2.5"
-                title="Copy credentials"
-              >
-                <Copy size={14} />
-              </button>
-              <button
-                type="button"
-                onClick={() => onSave(user.id)}
-                disabled={savingId === user.id}
-                className="btn-primary h-9 px-3 inline-flex items-center gap-1.5"
-              >
-                <KeyRound size={14} />
-                {savingId === user.id ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-          </td>
-        </tr>
-      ))}
-    </tbody>
-  );
-}
-
 function UserSection({
   title,
   icon,
   users,
   draftPasswords,
+  draftConfirmPasswords,
   setDraftPasswords,
+  setDraftConfirmPasswords,
   onSave,
   savingId,
   showPasswords,
@@ -130,7 +53,9 @@ function UserSection({
   icon: React.ReactNode;
   users: CredentialUser[];
   draftPasswords: Record<string, string>;
+  draftConfirmPasswords: Record<string, string>;
   setDraftPasswords: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  setDraftConfirmPasswords: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   onSave: (userId: string) => void;
   savingId: string | null;
   showPasswords: boolean;
@@ -145,20 +70,16 @@ function UserSection({
         <span className="text-gray-400 font-normal">({users.length})</span>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[640px]">
+        <table className="w-full text-sm min-w-[800px]">
           <thead>
-            <tr className="text-left border-b bg-white text-xs text-gray-500 uppercase">
-              <th className="py-2 px-5">Name</th>
-              <th className="py-2 pr-4">Username</th>
-              <th className="py-2 pr-4">Role</th>
-              <th className="py-2 pr-4">Password</th>
-              <th className="py-2 pr-5">Actions</th>
-            </tr>
+            <CredentialPasswordTableHead />
           </thead>
-          <UserRows
+          <CredentialPasswordRows
             users={users}
             draftPasswords={draftPasswords}
+            draftConfirmPasswords={draftConfirmPasswords}
             setDraftPasswords={setDraftPasswords}
+            setDraftConfirmPasswords={setDraftConfirmPasswords}
             onSave={onSave}
             savingId={savingId}
             showPasswords={showPasswords}
@@ -177,6 +98,7 @@ export default function SuperAdminPasswordsPage() {
   const [expandedSchools, setExpandedSchools] = useState<Set<string>>(new Set());
   const [superExpanded, setSuperExpanded] = useState(true);
   const [draftPasswords, setDraftPasswords] = useState<Record<string, string>>({});
+  const [draftConfirmPasswords, setDraftConfirmPasswords] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [showPasswords, setShowPasswords] = useState(true);
   const [totalUsers, setTotalUsers] = useState(0);
@@ -202,13 +124,19 @@ export default function SuperAdminPasswordsPage() {
       setExpandedSchools(new Set(loadedSchools.filter((s) => s.total_users > 0).map((s) => s.id)));
 
       const passwordMap: Record<string, string> = {};
-      for (const u of supers) passwordMap[u.id] = u.password || '';
+      const confirmMap: Record<string, string> = {};
+      for (const u of supers) {
+        passwordMap[u.id] = u.password || '';
+        confirmMap[u.id] = u.password || '';
+      }
       for (const school of loadedSchools) {
         for (const user of school.users) {
           passwordMap[user.id] = user.password || '';
+          confirmMap[user.id] = user.password || '';
         }
       }
       setDraftPasswords(passwordMap);
+      setDraftConfirmPasswords(confirmMap);
     } catch {
       toast.error('Failed to load credentials');
     } finally {
@@ -265,8 +193,13 @@ export default function SuperAdminPasswordsPage() {
 
   const savePassword = async (userId: string) => {
     const password = (draftPasswords[userId] || '').trim();
+    const confirmPassword = (draftConfirmPasswords[userId] || '').trim();
     if (!password) {
-      toast.error('Enter a password first');
+      toast.error('Enter a new password');
+      return;
+    }
+    if (password !== confirmPassword) {
+      toast.error('Password and confirmation do not match');
       return;
     }
 
@@ -276,7 +209,7 @@ export default function SuperAdminPasswordsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ user_id: userId, password }),
+        body: JSON.stringify({ user_id: userId, password, confirm_password: confirmPassword }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -285,6 +218,7 @@ export default function SuperAdminPasswordsPage() {
       }
 
       toast.success('Password updated');
+      setDraftConfirmPasswords((prev) => ({ ...prev, [userId]: password }));
       const patch = (u: CredentialUser) => (u.id === userId ? { ...u, password } : u);
       setSuperAdmins((prev) => prev.map(patch));
       setSchools((prev) =>
@@ -404,20 +338,16 @@ export default function SuperAdminPasswordsPage() {
                   {filteredSupers.length === 0 ? (
                     <p className="px-5 py-6 text-sm text-gray-400 text-center">No super admins</p>
                   ) : (
-                    <table className="w-full text-sm min-w-[640px]">
+                    <table className="w-full text-sm min-w-[800px]">
                       <thead>
-                        <tr className="text-left border-b bg-gray-50/80 text-xs text-gray-500 uppercase">
-                          <th className="py-3 px-5">Name</th>
-                          <th className="py-3 pr-4">Username</th>
-                          <th className="py-3 pr-4">Role</th>
-                          <th className="py-3 pr-4">Password</th>
-                          <th className="py-3 pr-5">Actions</th>
-                        </tr>
+                        <CredentialPasswordTableHead />
                       </thead>
-                      <UserRows
+                      <CredentialPasswordRows
                         users={filteredSupers}
                         draftPasswords={draftPasswords}
+                        draftConfirmPasswords={draftConfirmPasswords}
                         setDraftPasswords={setDraftPasswords}
+                        setDraftConfirmPasswords={setDraftConfirmPasswords}
                         onSave={savePassword}
                         savingId={savingId}
                         showPasswords={showPasswords}
@@ -473,7 +403,9 @@ export default function SuperAdminPasswordsPage() {
                               icon={<GraduationCap size={14} className="text-blue-600" />}
                               users={school.staff}
                               draftPasswords={draftPasswords}
+                              draftConfirmPasswords={draftConfirmPasswords}
                               setDraftPasswords={setDraftPasswords}
+                              setDraftConfirmPasswords={setDraftConfirmPasswords}
                               onSave={savePassword}
                               savingId={savingId}
                               showPasswords={showPasswords}
@@ -483,7 +415,9 @@ export default function SuperAdminPasswordsPage() {
                               icon={<User size={14} className="text-orange-600" />}
                               users={school.parents}
                               draftPasswords={draftPasswords}
+                              draftConfirmPasswords={draftConfirmPasswords}
                               setDraftPasswords={setDraftPasswords}
+                              setDraftConfirmPasswords={setDraftConfirmPasswords}
                               onSave={savePassword}
                               savingId={savingId}
                               showPasswords={showPasswords}
@@ -493,7 +427,9 @@ export default function SuperAdminPasswordsPage() {
                               icon={<Users size={14} className="text-gray-600" />}
                               users={school.other}
                               draftPasswords={draftPasswords}
+                              draftConfirmPasswords={draftConfirmPasswords}
                               setDraftPasswords={setDraftPasswords}
+                              setDraftConfirmPasswords={setDraftConfirmPasswords}
                               onSave={savePassword}
                               savingId={savingId}
                               showPasswords={showPasswords}

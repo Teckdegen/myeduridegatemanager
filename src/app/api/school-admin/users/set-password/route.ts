@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
+import { validatePasswordPair } from '@/lib/auth/password-policy';
 import { setAuthPasswordForProfile } from '@/lib/auth/update-password';
 import { getSessionFromRequest } from '@/lib/session';
 
@@ -26,12 +27,15 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const userId = (body.user_id || '').trim();
     const password = (body.password || '').trim();
+    const confirmPassword = (body.confirm_password || '').trim();
 
-    if (!userId || !password) {
-      return NextResponse.json({ error: 'user_id and password are required' }, { status: 400 });
+    if (!userId) {
+      return NextResponse.json({ error: 'user_id is required' }, { status: 400 });
     }
-    if (password.length < 6) {
-      return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 });
+
+    const pwErr = validatePasswordPair(password, confirmPassword);
+    if (pwErr) {
+      return NextResponse.json({ error: pwErr }, { status: 400 });
     }
 
     const supabase = getAdminClient();

@@ -1,12 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { ensureAuthUser, ensureUserProfile } from '@/lib/auth/ensure-user';
+import { resolveInitialPassword, validatePasswordPair } from '@/lib/auth/password-policy';
+import { setAuthPasswordForProfile } from '@/lib/auth/update-password';
 import { suggestUniqueUsername } from '@/lib/auth/username';
 import { uploadBase64Photo } from '@/lib/storage/upload-photo';
 
 export async function POST(request: NextRequest) {
   try {
-    const { school_id, class_id, first_name, last_name, custom_fields, photo_base64, face_descriptor } = await request.json();
+    const {
+      school_id,
+      class_id,
+      first_name,
+      last_name,
+      custom_fields,
+      photo_base64,
+      face_descriptor,
+      parent_initial_password,
+      parent_confirm_password,
+    } = await request.json();
     const supabase = getAdminClient();
 
     if (!school_id || !first_name || !last_name) {
@@ -77,6 +89,14 @@ export async function POST(request: NextRequest) {
 
     const parentEmail = custom_fields?.parent_email;
     const parentName = custom_fields?.parent_name;
+    const parentPassword = resolveInitialPassword(parent_initial_password);
+    if (parent_initial_password) {
+      const pwErr = validatePasswordPair(parent_initial_password, parent_confirm_password || '');
+      if (pwErr) {
+        return NextResponse.json({ error: `Parent password: ${pwErr}` }, { status: 400 });
+      }
+    }
+
     if (parentName?.trim() && data) {
       try {
         console.log('[PARENT] Registering parent:', parentName);
@@ -109,8 +129,18 @@ export async function POST(request: NextRequest) {
           if (existingUser) {
             parentUserId = existingUser.id;
             parentUsername = existingUser.username || parentUsername;
+            if (parentPassword && parentUserId) {
+              await setAuthPasswordForProfile(supabase, parentUserId, parentPassword, {
+                createAuthIfMissing: true,
+              });
+              generatedPassword = parentPassword;
+            }
           } else {
-            const { userId, password } = await ensureAuthUser(supabase, parentUsername);
+            const { userId, password } = await ensureAuthUser(supabase, {
+              username: parentUsername,
+              full_name: parentName || 'Parent',
+              password: parentPassword || undefined,
+            });
             parentUserId = userId || undefined;
             generatedPassword = password;
           }

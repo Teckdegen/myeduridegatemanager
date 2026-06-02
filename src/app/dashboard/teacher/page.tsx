@@ -7,7 +7,7 @@ import StudentAvatar from '@/components/shared/StudentAvatar';
 import { PageHeader } from '@/components/ui/PageHeader';
 import {
   Users, UserCheck, AlertTriangle, GraduationCap, Clock, Download,
-  BookOpen, Car, CheckCircle2, ScanLine,
+  BookOpen, Car, CheckCircle2, ScanLine, Search,
 } from 'lucide-react';
 import TeacherScanModal from '@/components/teacher/TeacherScanModal';
 import Link from 'next/link';
@@ -23,6 +23,7 @@ export default function TeacherDashboard() {
   const [busyId, setBusyId] = useState(null);
   const [dismissAllBusy, setDismissAllBusy] = useState(false);
   const [showScan, setShowScan] = useState(false);
+  const [readySearch, setReadySearch] = useState('');
   useEffect(() => {
     loadClass();
     const interval = setInterval(loadClass, 60000);
@@ -54,6 +55,14 @@ export default function TeacherDashboard() {
   );
   const readyStudents = useMemo(() => students.filter((s) => s.ready_for_pickup), [students]);
   const extraStudents = useMemo(() => students.filter((s) => s.in_extra_lesson), [students]);
+
+  const filteredReadyStudents = useMemo(() => {
+    const q = readySearch.trim().toLowerCase();
+    if (!q) return readyStudents;
+    return readyStudents.filter((s) =>
+      `${s.first_name} ${s.last_name} ${s.student_id_number || ''}`.toLowerCase().includes(q)
+    );
+  }, [readyStudents, readySearch]);
 
   const markReady = async (studentId, studentName) => {
     setBusyId(studentId);
@@ -288,13 +297,27 @@ export default function TeacherDashboard() {
       {readyStudents.length > 0 && (
         <>
           <PageHeader title="Ready for pickup" subtitle="Sent to gate — cannot mark again today" />
+          <div className="relative mb-3">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+            <input
+              type="search"
+              value={readySearch}
+              onChange={(e) => setReadySearch(e.target.value)}
+              placeholder="Search ready students…"
+              className="input pl-9 min-h-[44px]"
+            />
+          </div>
           <div className="card-elevated divide-y">
-            {readyStudents.map((s) =>
-              renderRow(s, (
-                <span className="text-xs text-emerald-700 font-semibold flex items-center gap-1 shrink-0">
-                  <CheckCircle2 size={14} /> Ready
-                </span>
-              ))
+            {filteredReadyStudents.length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-6">No matches for your search</p>
+            ) : (
+              filteredReadyStudents.map((s) =>
+                renderRow(s, (
+                  <span className="text-xs text-emerald-700 font-semibold flex items-center gap-1 shrink-0">
+                    <CheckCircle2 size={14} /> Ready
+                  </span>
+                ))
+              )
             )}
           </div>
         </>

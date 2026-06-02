@@ -13,7 +13,8 @@ export default function ClassesPage() {
   const [schoolId, setSchoolId] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ name: '', grade: '', section: '', assigned_teacher_id: '' });
+  const [form, setForm] = useState({ name: '', arm: '', assigned_teacher_id: '' });
+  const ARM_OPTIONS = ['A', 'B', 'C'];
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { loadAll(); }, []);
@@ -60,7 +61,7 @@ export default function ClassesPage() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ name: '', grade: '', section: '', assigned_teacher_id: '' });
+    setForm({ name: '', arm: '', assigned_teacher_id: '' });
     setModalOpen(true);
   };
 
@@ -68,24 +69,29 @@ export default function ClassesPage() {
     setEditing(cls);
     setForm({
       name: cls.name,
-      grade: cls.grade,
-      section: cls.section || '',
+      arm: cls.section || '',
       assigned_teacher_id: cls.assigned_teacher_id || '',
     });
     setModalOpen(true);
   };
 
   const saveClass = async () => {
-    if (!form.name.trim() || !form.grade.trim()) {
-      toast.error('Name and academic level are required');
+    if (!form.name.trim() || !form.arm.trim()) {
+      toast.error('Class name and arm are required');
       return;
     }
     setSaving(true);
     try {
       const method = editing ? 'PUT' : 'POST';
+      const payload = {
+        name: form.name.trim(),
+        grade: form.name.trim(),
+        section: form.arm.trim().toUpperCase(),
+        assigned_teacher_id: form.assigned_teacher_id || null,
+      };
       const body = editing
-        ? { id: editing.id, school_id: schoolId, ...form, assigned_teacher_id: form.assigned_teacher_id || null }
-        : { school_id: schoolId, ...form, assigned_teacher_id: form.assigned_teacher_id || null };
+        ? { id: editing.id, school_id: schoolId, ...payload }
+        : { school_id: schoolId, ...payload };
 
       const res = await fetch('/api/classes', {
         method,
@@ -105,7 +111,8 @@ export default function ClassesPage() {
   };
 
   const deleteClass = async (cls) => {
-    if (!confirm(`Delete class "${cls.name}"?`)) return;
+    const label = cls.section ? `${cls.name} (Arm ${cls.section})` : cls.name;
+    if (!confirm(`Delete class "${label}"?`)) return;
     try {
       const res = await fetch(`/api/classes?id=${cls.id}&school_id=${schoolId}`, {
         method: 'DELETE',
@@ -152,8 +159,9 @@ export default function ClassesPage() {
           <div key={cls.id} className="card">
             <div className="flex items-start justify-between mb-3">
               <div>
-                <h3 className="text-lg font-bold">{cls.name}</h3>
-                <p className="text-sm text-gray-500">{cls.grade}{cls.section ? ` · ${cls.section}` : ''}</p>
+                <h3 className="text-lg font-bold">
+                  {cls.name}{cls.section ? ` · Arm ${cls.section}` : ''}
+                </h3>
                 <p className="text-xs text-gray-400 mt-1">{teacherName(cls)}</p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-primary-50 flex items-center justify-center">
@@ -186,11 +194,15 @@ export default function ClassesPage() {
               <button type="button" onClick={() => setModalOpen(false)}><X size={20} /></button>
             </div>
             <label className="text-xs font-medium text-gray-500 block mb-1">Class name *</label>
-            <input className="input mb-3" placeholder="e.g. Primary 5A" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-            <label className="text-xs font-medium text-gray-500 block mb-1">Academic level *</label>
-            <input className="input mb-3" placeholder="e.g. Primary 5" value={form.grade} onChange={(e) => setForm((f) => ({ ...f, grade: e.target.value }))} />
-            <label className="text-xs font-medium text-gray-500 block mb-1">Section (optional)</label>
-            <input className="input mb-3" value={form.section} onChange={(e) => setForm((f) => ({ ...f, section: e.target.value }))} />
+            <input className="input mb-3" placeholder="e.g. Primary 4" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+            <label className="text-xs font-medium text-gray-500 block mb-1">Arm *</label>
+            <select className="input mb-3" value={form.arm} onChange={(e) => setForm((f) => ({ ...f, arm: e.target.value }))}>
+              <option value="">Select arm…</option>
+              {ARM_OPTIONS.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
+            <p className="text-[11px] text-gray-400 -mt-2 mb-3">You can create the same class name with different arms (e.g. Primary 4 A, B, C).</p>
             <label className="text-xs font-medium text-gray-500 block mb-1">Class teacher (homeroom)</label>
             <select className="input mb-4" value={form.assigned_teacher_id} onChange={(e) => setForm((f) => ({ ...f, assigned_teacher_id: e.target.value }))}>
               <option value="">— None —</option>
@@ -198,7 +210,9 @@ export default function ClassesPage() {
                 <option key={t.id} value={t.id}>{t.user?.full_name || 'Teacher'}</option>
               ))}
             </select>
-            <p className="text-[11px] text-gray-400 -mt-3 mb-4">Only users with the Class teacher role appear here (not gate staff).</p>
+            <p className="text-[11px] text-gray-400 -mt-3 mb-4">
+              Class teachers and staff with a &quot;can be class teacher&quot; job role appear here.
+            </p>
             <button type="button" onClick={saveClass} disabled={saving} className="btn-primary w-full py-3">
               {saving ? 'Saving…' : editing ? 'Update class' : 'Create class'}
             </button>

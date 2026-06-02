@@ -7,6 +7,7 @@ import { Users, GraduationCap, UserCheck, TrendingUp, Plus, Bell, School, Search
 import Link from 'next/link';
 import StudentAvatar from '@/components/shared/StudentAvatar';
 import PickupRequestsPanel from '@/components/admin/PickupRequestsPanel';
+import ReadyForPickupPanel from '@/components/admin/ReadyForPickupPanel';
 import { formatTimeLagos } from '@/lib/timezone';
 
 export default function SchoolAdminDashboard() {
@@ -199,7 +200,8 @@ export default function SchoolAdminDashboard() {
         </div>
       </div>
 
-      <div className="mb-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+        <ReadyForPickupPanel schoolId={schoolId} />
         <PickupRequestsPanel schoolId={schoolId} />
       </div>
 
@@ -215,7 +217,7 @@ export default function SchoolAdminDashboard() {
               </div>
               <span className="text-sm font-medium text-gray-700">Add Student</span>
             </Link>
-            <Link href="/dashboard/school-admin/staff" className="flex items-center gap-3 p-3 rounded-xl hover:bg-blue-50 transition-all group">
+            <Link href="/dashboard/school-admin/staff/new" className="flex items-center gap-3 p-3 rounded-xl hover:bg-blue-50 transition-all group">
               <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-all">
                 <GraduationCap size={16} className="text-blue-600" />
               </div>

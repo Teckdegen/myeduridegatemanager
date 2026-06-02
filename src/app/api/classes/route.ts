@@ -85,9 +85,15 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { school_id, name, grade, section, assigned_teacher_id, sort_order } = body;
 
-    if (!school_id || !name?.trim() || !grade?.trim()) {
-      return NextResponse.json({ error: 'school_id, name, and grade are required' }, { status: 400 });
+    const arm = section?.trim();
+    if (!school_id || !name?.trim()) {
+      return NextResponse.json({ error: 'school_id and class name are required' }, { status: 400 });
     }
+    if (!arm) {
+      return NextResponse.json({ error: 'Arm is required (e.g. A, B, or C)' }, { status: 400 });
+    }
+
+    const gradeValue = grade?.trim() || name.trim();
 
     // Verify admin access
     const isAdmin = session.roles.some(
@@ -110,13 +116,29 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const { data: duplicate } = await supabase
+      .from('school_classes')
+      .select('id')
+      .eq('school_id', school_id)
+      .eq('name', name.trim())
+      .eq('section', arm)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (duplicate) {
+      return NextResponse.json(
+        { error: `Class "${name.trim()}" with arm ${arm} already exists` },
+        { status: 409 }
+      );
+    }
+
     const { data, error } = await supabase
       .from('school_classes')
       .insert({
         school_id,
         name: name.trim(),
-        grade: grade.trim(),
-        section: section?.trim() || null,
+        grade: gradeValue,
+        section: arm,
         assigned_teacher_id: assigned_teacher_id || null,
         sort_order: sort_order ?? 0,
         is_active: true,
@@ -126,7 +148,12 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       if (error.code === '23505') {
-        return NextResponse.json({ error: 'A class with this name already exists' }, { status: 409 });
+        return NextResponse.json(
+          {
+            error: `Class "${name.trim()}" with arm ${arm} already exists. If you see this for different arms, run the database migration in supabase/migrations/20250602_class_name_arm_unique.sql`,
+          },
+          { status: 409 }
+        );
       }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
@@ -177,10 +204,35 @@ export async function PUT(request: NextRequest) {
       }
     }
 
+    const nextName = name !== undefined ? name.trim() : undefined;
+    const nextArm = section !== undefined ? section?.trim() : undefined;
+    if (section !== undefined && !nextArm) {
+      return NextResponse.json({ error: 'Arm is required (e.g. A, B, or C)' }, { status: 400 });
+    }
+
+    if (nextName && nextArm) {
+      const { data: duplicate } = await supabase
+        .from('school_classes')
+        .select('id')
+        .eq('school_id', school_id)
+        .eq('name', nextName)
+        .eq('section', nextArm)
+        .eq('is_active', true)
+        .neq('id', id)
+        .maybeSingle();
+      if (duplicate) {
+        return NextResponse.json(
+          { error: `Class "${nextName}" with arm ${nextArm} already exists` },
+          { status: 409 }
+        );
+      }
+    }
+
     const updates: Record<string, unknown> = {};
-    if (name !== undefined) updates.name = name.trim();
+    if (name !== undefined) updates.name = nextName;
     if (grade !== undefined) updates.grade = grade.trim();
-    if (section !== undefined) updates.section = section?.trim() || null;
+    else if (name !== undefined) updates.grade = nextName;
+    if (section !== undefined) updates.section = nextArm;
     if (assigned_teacher_id !== undefined) updates.assigned_teacher_id = assigned_teacher_id || null;
     if (sort_order !== undefined) updates.sort_order = sort_order;
 
@@ -194,7 +246,7 @@ export async function PUT(request: NextRequest) {
 
     if (error) {
       if (error.code === '23505') {
-        return NextResponse.json({ error: 'A class with this name already exists' }, { status: 409 });
+        return NextResponse.json({ error: 'A class with this name and arm already exists' }, { status: 409 });
       }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }

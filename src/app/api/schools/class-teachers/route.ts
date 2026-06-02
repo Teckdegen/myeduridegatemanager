@@ -5,7 +5,7 @@ import { fetchEligibleClassTeachers } from '@/lib/school/eligible-class-teachers
 
 export const dynamic = 'force-dynamic';
 
-/** GET — users with role `teacher` only (for class homeroom assignment). */
+/** GET — class teachers and staff with a class-capable job role (homeroom assignment). */
 export async function GET(request: NextRequest) {
   try {
     const session = getSessionFromRequest(request);

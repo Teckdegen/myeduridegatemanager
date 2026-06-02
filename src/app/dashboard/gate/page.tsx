@@ -830,18 +830,16 @@ export default function GateOfficerDashboard() {
           <div className="space-y-2 pb-4">
             <h2 className="text-sm font-bold text-slate-800">Ready for Pickup – Awaiting Release</h2>
             <p className="text-xs text-slate-500 mb-2">Only students marked ready by teachers. Release is recorded at server time (WAT).</p>
-            {pickupQueue.length > 0 && (
-              <div className="relative mb-2">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                <input
-                  type="search"
-                  value={readyPickupSearch}
-                  onChange={(e) => setReadyPickupSearch(e.target.value)}
-                  placeholder="Search name, class, or ID…"
-                  className="input pl-9 min-h-[44px]"
-                />
-              </div>
-            )}
+            <div className="relative mb-2">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input
+                type="search"
+                value={readyPickupSearch}
+                onChange={(e) => setReadyPickupSearch(e.target.value)}
+                placeholder="Search name, class, or ID…"
+                className="input pl-9 min-h-[44px]"
+              />
+            </div>
             {pickupQueue.length === 0 ? (
               <div className="card text-center py-10 text-slate-400 text-sm">No students waiting for pickup</div>
             ) : filteredPickupQueue.length === 0 ? (
