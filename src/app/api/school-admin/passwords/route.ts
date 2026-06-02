@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest } from '@/lib/session';
+import {
+  fetchAllActiveSchoolRoles,
+  fetchAllTeacherProfiles,
+  fetchProfilesByIds,
+  loadAuthPasswordsForUsers,
+} from '@/lib/db/fetch-all';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,26 +31,6 @@ type SchoolCredentials = {
   users: CredentialUser[];
   total_users: number;
 };
-
-async function loadAuthPasswords(supabase: ReturnType<typeof getAdminClient>, userIds: string[]) {
-  const authById = new Map<string, string>();
-  if (userIds.length === 0) return authById;
-
-  const idSet = new Set(userIds);
-  let page = 1;
-  const perPage = 1000;
-  while (page <= 20) {
-    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage });
-    if (error) throw error;
-    for (const user of data.users) {
-      if (!idSet.has(user.id)) continue;
-      authById.set(user.id, (user.user_metadata?.login_password as string) || '');
-    }
-    if (data.users.length < perPage) break;
-    page += 1;
-  }
-  return authById;
-}
 
 function toUserRow(
   profile: { id: string; username: string | null; full_name: string | null },
@@ -94,50 +80,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: schoolsErr.message }, { status: 500 });
     }
 
-    const { data: roleRows, error: rolesErr } = await supabase
-      .from('user_school_roles')
-      .select('user_id, school_id, role')
-      .in('school_id', schoolIds)
-      .eq('is_active', true);
-
-    if (rolesErr) {
-      return NextResponse.json({ error: rolesErr.message }, { status: 500 });
-    }
-
-    const userIds = [...new Set((roleRows || []).map((r) => r.user_id).filter(Boolean))];
-    const profileById = new Map<
-      string,
-      { id: string; username: string | null; full_name: string | null }
-    >();
-
-    if (userIds.length > 0) {
-      const { data: profiles, error: profilesErr } = await supabase
-        .from('user_profiles')
-        .select('id, username, full_name')
-        .in('id', userIds);
-
-      if (profilesErr) {
-        return NextResponse.json({ error: profilesErr.message }, { status: 500 });
-      }
-      for (const p of profiles || []) {
-        profileById.set(p.id, p);
-      }
-    }
-
-    const authById = await loadAuthPasswords(supabase, userIds);
-
-    const { data: staffProfiles } = await supabase
-      .from('teacher_profiles')
-      .select('user_id, school_id, staff_id_number')
-      .in('school_id', schoolIds);
+    const roleRows = await fetchAllActiveSchoolRoles(supabase, schoolIds);
+    const userIds = [...new Set(roleRows.map((r) => r.user_id).filter(Boolean))];
+    const [profileById, authById, staffProfiles] = await Promise.all([
+      fetchProfilesByIds(supabase, userIds),
+      loadAuthPasswordsForUsers(supabase, userIds),
+      fetchAllTeacherProfiles(supabase, schoolIds),
+    ]);
 
     const staffIdByUserSchool = new Map<string, string | null>();
-    for (const sp of staffProfiles || []) {
+    for (const sp of staffProfiles) {
       staffIdByUserSchool.set(`${sp.user_id}:${sp.school_id}`, sp.staff_id_number);
     }
 
     const rolesBySchoolUser = new Map<string, Map<string, string[]>>();
-    for (const row of roleRows || []) {
+    for (const row of roleRows) {
       if (!row.school_id || !row.user_id) continue;
       if (row.role === 'super_admin') continue;
 
