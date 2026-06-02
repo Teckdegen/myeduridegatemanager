@@ -5,6 +5,7 @@ import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest } from '@/lib/session';
 import { lagosDayBounds, todayInLagos } from '@/lib/timezone';
 import { getGateDayStatus } from '@/lib/gate/school-day-gate';
+import { fetchEnrichedPickupQueue } from '@/lib/gate/pickup-queue-enrich';
 
 type PickupPersonRow = {
   id: string;
@@ -96,48 +97,20 @@ export async function GET(request: NextRequest) {
 
     const today = dateStr || todayInLagos();
 
-    const { data: pickupQueueRaw, error: queueErr } = await supabase
-      .from('dismissal_requests')
-      .select(
-        `id, status, created_at, notes, dismissal_date, student_id,
-         student:students(id, first_name, last_name, student_id_number, photo_url, class:school_classes(name))`
-      )
-      .eq('school_id', schoolId)
-      .eq('dismissal_date', today)
-      .in('status', ['pending', 'approved'])
-      .order('created_at', { ascending: true });
+    const queueResult = await fetchEnrichedPickupQueue(supabase, schoolId, {
+      today,
+      startIso,
+      endIso,
+      students: students || [],
+    });
 
-    if (queueErr) {
-      console.error('[gate/dashboard] pickup_queue:', queueErr.message);
-      return NextResponse.json({ error: queueErr.message }, { status: 500 });
+    if (queueResult.error) {
+      console.error('[gate/dashboard] pickup_queue:', queueResult.error);
+      return NextResponse.json({ error: queueResult.error }, { status: 500 });
     }
 
-    const { data: todayDepartures } = await supabase
-      .from('attendance_records')
-      .select('student_id')
-      .eq('school_id', schoolId)
-      .eq('type', 'departure')
-      .gte('timestamp', startIso)
-      .lte('timestamp', endIso);
-
-    const departedStudentIds = new Set(
-      (todayDepartures || []).map((r: { student_id: string }) => r.student_id)
-    );
-
-    const stuckIds = (pickupQueueRaw || [])
-      .filter((row: { student_id: string }) => departedStudentIds.has(row.student_id))
-      .map((row: { id: string }) => row.id);
-
-    if (stuckIds.length > 0) {
-      await supabase
-        .from('dismissal_requests')
-        .update({ status: 'completed', completed_at: new Date().toISOString() })
-        .in('id', stuckIds);
-    }
-
-    const pickupQueue = (pickupQueueRaw || []).filter(
-      (row: { student_id: string }) => !departedStudentIds.has(row.student_id)
-    );
+    const pickupQueue = queueResult.pickupQueue;
+    const pickupPersonsByStudent = queueResult.pickup_persons_by_student || {};
 
     const { data: pickupNoticesRaw } = await supabase
       .from('pickup_notices')
@@ -159,28 +132,6 @@ export async function GET(request: NextRequest) {
       .eq('school_id', schoolId)
       .eq('request_date', dateStr)
       .order('created_at', { ascending: false });
-
-    const pickupPersonsByStudent: Record<string, PickupPersonRow[]> = {};
-
-    if (studentIds.length > 0) {
-      const { data: ppLinks } = await supabase
-        .from('pickup_person_students')
-        .select(`
-          student_id,
-          pickup_person:pickup_persons(id, name, relationship, phone, photo_url)
-        `)
-        .eq('school_id', schoolId)
-        .in('student_id', studentIds);
-
-      for (const link of ppLinks || []) {
-        const person = normalizePerson(link.pickup_person);
-        if (!person) continue;
-        if (!pickupPersonsByStudent[link.student_id]) {
-          pickupPersonsByStudent[link.student_id] = [];
-        }
-        pickupPersonsByStudent[link.student_id].push(person);
-      }
-    }
 
     const enrichNotice = (notice: Record<string, unknown>): EnrichedPickupNotice => {
       const sid = String(notice.student_id ?? '');

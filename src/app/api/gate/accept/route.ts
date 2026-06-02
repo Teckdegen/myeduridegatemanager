@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest, sessionHasRole } from '@/lib/session';
 import { canAccessGateOperations } from '@/lib/gate/access';
+import { fetchStudentPickupContext } from '@/lib/gate/student-pickup-context';
 import { notifyParentsOfAttendance } from '@/lib/notifications/parent-notify';
 import {
   isLateAtTimestamp,
@@ -347,19 +348,17 @@ export async function POST(request: NextRequest) {
     let pickupPhone = bodyPickupPhone?.trim() || null;
     if (type === 'departure' && !pickupName) {
       const today = todayInLagos();
-      const { data: notice } = await supabase
-        .from('pickup_notices')
-        .select('pickup_person_name, pickup_person_phone')
-        .eq('student_id', student_id)
-        .eq('school_id', schoolId)
-        .eq('notice_date', today)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (notice) {
-        pickupName = notice.pickup_person_name;
-        pickupPhone = notice.pickup_person_phone;
-      }
+      const ctx = await fetchStudentPickupContext(supabase, schoolId, student_id, today);
+      pickupName =
+        (ctx.pickup_notice?.pickup_person_name as string) ||
+        (ctx.pickup_request?.pickup_person_name as string) ||
+        ctx.pickup_persons[0]?.name ||
+        null;
+      pickupPhone =
+        (ctx.pickup_notice?.pickup_person_phone as string) ||
+        (ctx.pickup_request?.pickup_person_phone as string) ||
+        ctx.pickup_persons[0]?.phone ||
+        null;
     }
 
     const studentAction =

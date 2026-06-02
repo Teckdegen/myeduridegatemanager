@@ -24,6 +24,13 @@ import { applyScanHints, isActionBlocked } from '@/lib/gate/scan-hints-client';
 import { toast } from 'sonner';
 import { formatTimeLagos } from '@/lib/timezone';
 import { photoSrc } from '@/lib/photo';
+import PickupPersonBadge from '@/components/pickup/PickupPersonBadge';
+
+function queueStudent(item) {
+  const s = item?.student;
+  if (!s) return null;
+  return Array.isArray(s) ? s[0] : s;
+}
 
 function splitName(fullName) {
   const parts = (fullName || '').trim().split(/\s+/).filter(Boolean);
@@ -203,8 +210,9 @@ export default function GateOfficerDashboard() {
   }, []);
 
   useEffect(() => {
-    if (!sessionActive || !schoolId) return;
+    if (!schoolId) return;
     loadGateData();
+    if (!sessionActive) return undefined;
     const poll = setInterval(loadGateData, 15000);
     return () => clearInterval(poll);
   }, [sessionActive, schoolId, loadGateData]);
@@ -529,11 +537,14 @@ export default function GateOfficerDashboard() {
   });
 
   const filteredPickupQueue = pickupQueue.filter((item) => {
-    const s = item.student;
+    const s = queueStudent(item);
     if (!s) return false;
     const q = readyPickupSearch.toLowerCase();
     if (!q) return true;
-    return `${s.first_name} ${s.last_name} ${s.student_id_number} ${s.class?.name || ''}`.toLowerCase().includes(q);
+    const pickupName = item.pickup_person_name || '';
+    return `${s.first_name} ${s.last_name} ${s.student_id_number} ${s.class?.name || ''} ${pickupName}`
+      .toLowerCase()
+      .includes(q);
   });
 
   const scanActionMode = gateMode === 'arrival' ? 'arrival' : 'departure';
@@ -846,9 +857,8 @@ export default function GateOfficerDashboard() {
               <div className="card text-center py-8 text-slate-400 text-sm">No matches for your search</div>
             ) : (
               filteredPickupQueue.map((item) => {
-                const s = item.student;
+                const s = queueStudent(item);
                 if (!s) return null;
-                const notice = noticeForStudent(s.id);
                 return (
                   <div key={item.id} className="card-elevated p-3 flex items-center gap-3">
                     <StudentAvatar photoUrl={s.photo_url} firstName={s.first_name} lastName={s.last_name} size="sm" />
@@ -857,9 +867,12 @@ export default function GateOfficerDashboard() {
                       <p className="text-sm font-medium text-primary-700">{s.class?.name || 'No class'}</p>
                       <p className="text-xs text-slate-500 font-mono">{s.student_id_number}</p>
                       <p className="text-xs text-slate-400">Ready {formatTimeLagos(item.created_at)}</p>
-                      {notice && (
-                        <p className="text-[10px] text-blue-700 mt-0.5">Pickup: {notice.pickup_person_name}</p>
-                      )}
+                      <PickupPersonBadge
+                        name={item.pickup_person_name}
+                        phone={item.pickup_person_phone}
+                        source={item.pickup_source}
+                        persons={item.authorised_pickup_persons || []}
+                      />
                     </div>
                     <button type="button" onClick={() => openStudentForRelease(s, true)} className="btn-primary text-xs px-3 py-2 shrink-0">
                       Release

@@ -5,6 +5,8 @@ import { assertTeacherStudentAccess } from '@/lib/attendance/teacher-access';
 import { Resend } from 'resend';
 import { sendPushToUser } from '@/lib/push/send';
 import { todayInLagos } from '@/lib/timezone';
+import { fetchStudentPickupContext } from '@/lib/gate/student-pickup-context';
+import { getParentRecipientsForStudent } from '@/lib/notifications/parent-recipients';
 
 export const dynamic = 'force-dynamic';
 
@@ -112,8 +114,23 @@ export async function POST(request: NextRequest) {
       timeZone: 'Africa/Lagos',
     });
 
+    const pickupCtx = await fetchStudentPickupContext(supabase, school_id, student_id, today);
+    const pickupName =
+      (pickupCtx.pickup_notice?.pickup_person_name as string) ||
+      (pickupCtx.pickup_request?.pickup_person_name as string) ||
+      pickupCtx.pickup_persons[0]?.name ||
+      null;
+    const pickupPhone =
+      (pickupCtx.pickup_notice?.pickup_person_phone as string) ||
+      (pickupCtx.pickup_request?.pickup_person_phone as string) ||
+      pickupCtx.pickup_persons[0]?.phone ||
+      null;
+
     const title = `${student.first_name} is ready for pickup`;
-    const message = `${student.first_name} ${student.last_name} has been dismissed at ${schoolName}. Please come to collect your child.`;
+    const pickupLine = pickupName
+      ? `Expected pickup: ${pickupName}${pickupPhone ? ` (${pickupPhone})` : ''}.`
+      : 'Please come to the gate to collect your child.';
+    const message = `${student.first_name} ${student.last_name} has been dismissed at ${schoolName}. ${pickupLine}`;
 
     const emailHtml = `
       <div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;">
@@ -128,45 +145,40 @@ export async function POST(request: NextRequest) {
           <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:16px;margin-bottom:16px;">
             <p style="margin:4px 0;color:#374151;"><strong>Student:</strong> ${student.first_name} ${student.last_name}</p>
             <p style="margin:4px 0;color:#374151;"><strong>Time:</strong> ${timeStr}</p>
+            ${pickupName ? `<p style="margin:4px 0;color:#374151;"><strong>Authorised pickup:</strong> ${pickupName}${pickupPhone ? ` · ${pickupPhone}` : ''}</p>` : ''}
             ${notes ? `<p style="margin:4px 0;color:#374151;"><strong>Note:</strong> ${notes}</p>` : ''}
           </div>
           <p style="text-align:center;color:#6b7280;font-size:13px;">
-            Your child will be released at the gate once you arrive and the gate officer confirms.
+            Your child will be released at the gate once the authorised pickup person is verified.
           </p>
           <p style="text-align:center;color:#9ca3af;font-size:12px;margin-top:20px;">MyEduRide</p>
         </div>
       </div>
     `;
 
-    // Notify parents
-    const { data: parentLinks } = await supabase
-      .from('student_parents')
-      .select('parent_user_id')
-      .eq('student_id', student_id);
+    const parents = await getParentRecipientsForStudent(supabase, student_id);
 
-    const parentIds = (parentLinks || []).map((l: any) => l.parent_user_id);
-    if (parentIds.length > 0) {
-      const { data: parents } = await supabase
-        .from('user_profiles')
-        .select('id, email, full_name')
-        .in('id', parentIds);
-
-      for (const parent of parents || []) {
+    for (const parent of parents) {
+      let emailSent = false;
+      if (parent.email && process.env.RESEND_API_KEY) {
         try {
-          if (process.env.RESEND_API_KEY) {
-            await resend.emails.send({
-              from: `${schoolName} via MyEduRide <noreply@assetid.site>`,
-              to: parent.email,
-              subject: `🚗 ${student.first_name} is ready for pickup`,
-              html: emailHtml,
-            });
-          }
+          await resend.emails.send({
+            from: `${schoolName} via MyEduRide <noreply@assetid.site>`,
+            to: parent.email,
+            subject: `🚗 ${student.first_name} is ready for pickup`,
+            html: emailHtml,
+          });
+          emailSent = true;
         } catch (e) {
-          console.error('[ready-for-pickup] email failed:', e);
+          console.error('[ready-for-pickup] email failed:', parent.email, e);
         }
+      } else if (!parent.email) {
+        console.warn('[ready-for-pickup] no email for parent of student', student_id);
+      }
 
+      if (parent.user_id) {
         try {
-          await sendPushToUser(supabase, parent.id, {
+          await sendPushToUser(supabase, parent.user_id, {
             title,
             message,
             type: 'dismissal',
@@ -179,14 +191,14 @@ export async function POST(request: NextRequest) {
         }
 
         await supabase.from('notifications').insert({
-          user_id: parent.id,
+          user_id: parent.user_id,
           school_id,
           student_id,
           title,
           message,
           type: 'dismissal',
           is_read: false,
-          email_sent: !!process.env.RESEND_API_KEY,
+          email_sent: emailSent,
           push_sent: true,
         });
       }
