@@ -5,6 +5,11 @@ import { todayInLagos } from '@/lib/timezone';
 import { resolveReportCapabilities } from '@/lib/attendance/report-access';
 import { fetchNonSchoolDaysInRange } from '@/lib/attendance/non-school-days';
 import {
+  fetchSchoolCalendarContext,
+  isCountableSchoolDayWithContext,
+  isWeekendDay,
+} from '@/lib/attendance/school-calendar';
+import {
   lagosDateStringsInRange,
   lagosDayBoundsFromDateStr,
   lagosWeekend,
@@ -61,6 +66,15 @@ export async function GET(request: NextRequest) {
       reportType,
       dateParam
     );
+
+    const calendarCtx = await fetchSchoolCalendarContext(
+      supabase,
+      resolvedSchoolId,
+      startDateStr,
+      endDateStr
+    );
+    const nonSchoolDays = calendarCtx.nonSchoolDays;
+    const isCountableDay = (dayKey: string) => isCountableSchoolDayWithContext(dayKey, calendarCtx);
 
     if (caps.studentIds != null && caps.studentIds.length === 0) {
       return NextResponse.json({
@@ -258,13 +272,11 @@ export async function GET(request: NextRequest) {
     if (reportType === 'daily') {
       const dayKey = dateParam;
       const { startIso: dayStartIso, endIso: dayEndIso } = lagosDayBoundsFromDateStr(dayKey);
-      const dailyNonSchool = await fetchNonSchoolDaysInRange(
-        supabase,
-        resolvedSchoolId,
-        dayKey,
-        dayKey
-      );
-      const dayExcluded = dailyNonSchool.has(dayKey);
+      const dayExcluded = !isCountableDay(dayKey);
+      const excludedInfo = calendarCtx.nonSchoolDays.get(dayKey);
+      const excludedTitle =
+        excludedInfo?.title ||
+        (isWeekendDay(dayKey, calendarCtx.weekendDays) ? 'Weekend' : 'Non-school day');
 
       const staffReport =
         includeStaff
@@ -283,12 +295,11 @@ export async function GET(request: NextRequest) {
           : [];
 
       if (dayExcluded) {
-        const info = dailyNonSchool.get(dayKey)!;
         return NextResponse.json({
           type: 'daily',
           date: dayKey,
           excluded: true,
-          excluded_title: info.title,
+          excluded_title: excludedTitle,
           summary: { total: (students || []).length, present: 0, late: 0, absent: 0 },
           report: [],
           staff_report: includeStaff ? staffReport : undefined,
@@ -369,13 +380,6 @@ export async function GET(request: NextRequest) {
     }
 
     const dayStrings = lagosDateStringsInRange(startDateStr, endDateStr);
-    const nonSchoolDays = await fetchNonSchoolDaysInRange(
-      supabase,
-      resolvedSchoolId,
-      startDateStr,
-      endDateStr
-    );
-    const isCountableDay = (dayKey: string) => isCountableSchoolDay(dayKey, nonSchoolDays);
 
     const classMap: Record<string, { class_id: string; class_name: string; students: typeof students }> = {};
     for (const s of students) {
@@ -395,7 +399,7 @@ export async function GET(request: NextRequest) {
           absent: 0,
           total: (students || []).length,
           excluded: true,
-          excluded_title: excluded?.title || (lagosWeekend(dayKey) ? 'Weekend' : ''),
+          excluded_title: excluded?.title || (isWeekendDay(dayKey, calendarCtx.weekendDays) ? 'Weekend' : ''),
         };
       }
       let present = 0, late = 0, absent = 0;
@@ -451,7 +455,7 @@ export async function GET(request: NextRequest) {
       let late = 0;
       let absent = 0;
       const days = monthCalendarDays.map((dayKey) => {
-        if (lagosWeekend(dayKey)) {
+        if (isWeekendDay(dayKey, calendarCtx.weekendDays)) {
           return { date: dayKey, status: 'weekend' as const };
         }
         if (nonSchoolDays.has(dayKey)) {
