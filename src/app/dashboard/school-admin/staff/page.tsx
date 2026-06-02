@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { fetchData } from '@/lib/api';
 import { Plus, Trash2, GraduationCap, DoorOpen, Shield, User, Briefcase } from 'lucide-react';
 import { toast } from 'sonner';
@@ -17,6 +18,7 @@ const ACCESS_OPTIONS = [
 ];
 
 export default function StaffManagementPage() {
+  const searchParams = useSearchParams();
   const [staff, setStaff] = useState([]);
   const [customRoles, setCustomRoles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -26,6 +28,10 @@ export default function StaffManagementPage() {
   useEffect(() => {
     loadStaff();
   }, []);
+
+  useEffect(() => {
+    if (searchParams.get('add') === '1') setShowAddModal(true);
+  }, [searchParams]);
 
   const loadStaff = async () => {
     try {

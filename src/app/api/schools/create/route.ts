@@ -4,6 +4,7 @@ import { ensureAuthUser, ensureUserProfile } from '@/lib/auth/ensure-user';
 import { isValidUsername, normalizeUsername } from '@/lib/auth/username';
 import { getSessionFromRequest, sessionHasRole } from '@/lib/session';
 import { ensureStaffProfile } from '@/lib/staff/ensure-profile';
+import { ensureSchoolCalendarSettings } from '@/lib/attendance/school-calendar';
 import { Resend } from 'resend';
 
 export const dynamic = 'force-dynamic';
@@ -68,6 +69,8 @@ export async function POST(request: NextRequest) {
       console.error('School insert error:', schoolError);
       return NextResponse.json({ error: 'Failed to create school' }, { status: 500 });
     }
+
+    await ensureSchoolCalendarSettings(supabase, school.id);
 
     const rollbackSchool = async () => {
       await supabase.from('schools').delete().eq('id', school.id);

@@ -5,6 +5,7 @@ import { ensureSuperAdminAccess } from '@/lib/auth/ensure-super-admin';
 import { isSuperAdminUsername } from '@/lib/auth/super-admin';
 import { findProfileByUsername } from '@/lib/auth/ensure-user';
 import { authEmailFromUsername, isValidUsername, normalizeUsername } from '@/lib/auth/username';
+import { writeAuditLog } from '@/lib/audit/log';
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
@@ -43,6 +44,11 @@ export async function POST(request: NextRequest) {
     const { data: profile } = await findProfileByUsername(supabase, username);
 
     if (!profile) {
+      await writeAuditLog(supabase, {
+        actor_user_id: '00000000-0000-0000-0000-000000000000',
+        action: 'login_failed_unknown_user',
+        details: { username },
+      }).catch(() => {});
       return NextResponse.json({ error: 'Invalid username or password' }, { status: 401 });
     }
 
@@ -74,6 +80,23 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', profile.id);
 
+      const schoolId = (
+        await supabase
+          .from('user_school_roles')
+          .select('school_id')
+          .eq('user_id', profile.id)
+          .eq('is_active', true)
+          .limit(1)
+          .maybeSingle()
+      ).data?.school_id;
+
+      await writeAuditLog(supabase, {
+        school_id: schoolId,
+        actor_user_id: profile.id,
+        action: isLocked ? 'login_locked' : 'login_failed',
+        details: { attempts: nextAttempts },
+      });
+
       return NextResponse.json({ error: 'Invalid username or password' }, { status: 401 });
     }
 
@@ -94,12 +117,50 @@ export async function POST(request: NextRequest) {
       .eq('user_id', profile.id)
       .eq('is_active', true);
 
+    const schoolRole =
+      (roles || []).find((r) => r.role === 'school_admin') ||
+      (roles || []).find((r) => r.role === 'parent') ||
+      (roles || []).find((r) => r.role === 'gate_officer') ||
+      (roles || []).find((r) => r.role === 'teacher') ||
+      (roles || [])[0];
+
+    let primarySchool: {
+      id: string;
+      name: string;
+      logo_url: string | null;
+      welcome_message: string | null;
+    } | null = null;
+
+    if (schoolRole?.school_id) {
+      const { data: school } = await supabase
+        .from('schools')
+        .select('id, name, logo_url, welcome_message')
+        .eq('id', schoolRole.school_id)
+        .maybeSingle();
+      if (school) {
+        primarySchool = {
+          id: school.id,
+          name: school.name,
+          logo_url: school.logo_url,
+          welcome_message: school.welcome_message,
+        };
+      }
+    }
+
+    await writeAuditLog(supabase, {
+      school_id: schoolRole?.school_id || null,
+      actor_user_id: profile.id,
+      action: 'login_success',
+      details: { roles: (roles || []).map((r) => r.role) },
+    });
+
     const sessionData = JSON.stringify({
       user_id: profile.id,
       username: profile.username,
       email: profile.email,
       full_name: profile.full_name,
       roles: roles || [],
+      primary_school: primarySchool,
     });
 
     const response = NextResponse.json({

@@ -5,6 +5,7 @@ import {
   canViewStudentPickupPersons,
 } from '@/lib/auth/school-access';
 import { getSessionFromRequest } from '@/lib/session';
+import { writeAuditLog } from '@/lib/audit/log';
 
 export const dynamic = 'force-dynamic';
 
@@ -179,6 +180,15 @@ export async function POST(request: NextRequest) {
       'pickup_person'
     );
 
+    await writeAuditLog(supabase, {
+      school_id,
+      actor_user_id: session.user_id,
+      action: 'pickup_person_created',
+      entity_type: 'pickup_persons',
+      entity_id: person.id,
+      details: { name: person.name, by_parent: isParent && !isAdmin },
+    });
+
     return NextResponse.json({ success: true, pickup_person: person });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
@@ -202,9 +212,11 @@ export async function PUT(request: NextRequest) {
       (r: { role: string; school_id: string }) =>
         r.role === 'super_admin' || (r.role === 'school_admin' && r.school_id === school_id)
     );
-    const isParent = session.roles.some((r: { role: string }) => r.role === 'parent');
-    if (!isAdmin && !isParent) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+    if (!isAdmin) {
+      return NextResponse.json(
+        { error: 'Only school admin can edit pickup persons. Parents should contact the school for changes.' },
+        { status: 403 }
+      );
     }
 
     const updates: any = {};
@@ -222,6 +234,14 @@ export async function PUT(request: NextRequest) {
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await writeAuditLog(supabase, {
+      school_id,
+      actor_user_id: session.user_id,
+      action: 'pickup_person_updated',
+      entity_type: 'pickup_persons',
+      entity_id: id,
+    });
 
     // Update student links if provided
     if (student_ids) {
@@ -273,6 +293,15 @@ export async function DELETE(request: NextRequest) {
       .eq('school_id', schoolId);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await writeAuditLog(supabase, {
+      school_id: schoolId,
+      actor_user_id: session.user_id,
+      action: 'pickup_person_deleted',
+      entity_type: 'pickup_persons',
+      entity_id: id,
+    });
+
     return NextResponse.json({ success: true });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

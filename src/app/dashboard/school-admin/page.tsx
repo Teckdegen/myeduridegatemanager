@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { fetchData, getSession } from '@/lib/api';
-import { Users, GraduationCap, UserCheck, Clock, TrendingUp, AlertTriangle, Plus, Bell, School } from 'lucide-react';
+import { Users, GraduationCap, UserCheck, TrendingUp, Plus, Bell, School, Search } from 'lucide-react';
 import Link from 'next/link';
 import StudentAvatar from '@/components/shared/StudentAvatar';
 import PickupRequestsPanel from '@/components/admin/PickupRequestsPanel';
@@ -19,10 +19,16 @@ export default function SchoolAdminDashboard() {
   const [userName, setUserName] = useState('');
   const [loading, setLoading] = useState(true);
   const [schoolId, setSchoolId] = useState('');
+  const [activitySearch, setActivitySearch] = useState('');
 
   useEffect(() => {
     const session = getSession();
-    if (session) setUserName(session.full_name || '');
+    if (session) {
+      setUserName(session.full_name || '');
+      if (session.primary_school?.name) {
+        setSchoolName(session.primary_school.name);
+      }
+    }
     loadDashboard();
   }, []);
 
@@ -43,13 +49,24 @@ export default function SchoolAdminDashboard() {
     return <div className="min-h-screen flex items-center justify-center"><div className="animate-pulse text-primary-600 font-medium">Loading dashboard...</div></div>;
   }
 
+  const filteredActivity = recentActivity.filter((record) => {
+    const q = activitySearch.toLowerCase();
+    if (!q) return true;
+    const name = `${record.student?.first_name || ''} ${record.student?.last_name || ''}`;
+    return `${name} ${record.type || ''}`.toLowerCase().includes(q);
+  });
+
   return (
-    <div className="p-6 min-h-screen">
-      {/* Top bar */}
-      <div className="flex items-center justify-between mb-8">
+    <div className="page-shell max-w-6xl">
+      <div className="hero-banner mb-6">
+        <p className="text-white/80 text-sm font-medium">Welcome to</p>
+        <h1 className="text-2xl sm:text-3xl font-bold text-white mt-0.5">{schoolName || 'Your school'}</h1>
+        {userName && <p className="text-white/70 text-sm mt-2">Signed in as {userName}</p>}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{schoolName}</p>
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Today at a glance</h2>
         </div>
         <div className="flex items-center gap-3">
           <button className="p-2.5 rounded-xl bg-white border border-gray-100 shadow-sm hover:shadow-md transition-all">
@@ -67,39 +84,38 @@ export default function SchoolAdminDashboard() {
         </div>
       </div>
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <div className="stat-card">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-8">
+        <div className="dash-stat">
           <div>
-            <p className="text-xs text-gray-500 mb-1">Students</p>
-            <p className="text-2xl font-bold text-gray-900">{formatNumber(stats.total_students)}</p>
+            <p className="text-sm text-gray-500 mb-1">Students</p>
+            <p className="text-3xl sm:text-4xl font-bold text-gray-900">{formatNumber(stats.total_students)}</p>
           </div>
           <div className="w-11 h-11 rounded-xl bg-purple-100 flex items-center justify-center">
             <Users size={20} className="text-purple-600" />
           </div>
         </div>
-        <div className="stat-card">
+        <div className="dash-stat">
           <div>
-            <p className="text-xs text-gray-500 mb-1">Teachers</p>
-            <p className="text-2xl font-bold text-gray-900">{formatNumber(stats.total_teachers)}</p>
+            <p className="text-sm text-gray-500 mb-1">Teachers</p>
+            <p className="text-3xl sm:text-4xl font-bold text-gray-900">{formatNumber(stats.total_teachers)}</p>
           </div>
           <div className="w-11 h-11 rounded-xl bg-blue-100 flex items-center justify-center">
             <GraduationCap size={20} className="text-blue-600" />
           </div>
         </div>
-        <div className="stat-card">
+        <div className="dash-stat">
           <div>
-            <p className="text-xs text-gray-500 mb-1">Parents</p>
-            <p className="text-2xl font-bold text-gray-900">{formatNumber(stats.total_parents)}</p>
+            <p className="text-sm text-gray-500 mb-1">Parents</p>
+            <p className="text-3xl sm:text-4xl font-bold text-gray-900">{formatNumber(stats.total_parents)}</p>
           </div>
           <div className="w-11 h-11 rounded-xl bg-orange-100 flex items-center justify-center">
             <UserCheck size={20} className="text-orange-600" />
           </div>
         </div>
-        <div className="stat-card">
+        <div className="dash-stat">
           <div>
-            <p className="text-xs text-gray-500 mb-1">Present Today</p>
-            <p className="text-2xl font-bold text-gray-900">{formatNumber(stats.present_today)}</p>
+            <p className="text-sm text-gray-500 mb-1">Present today</p>
+            <p className="text-3xl sm:text-4xl font-bold text-gray-900">{formatNumber(stats.present_today)}</p>
           </div>
           <div className="w-11 h-11 rounded-xl bg-green-100 flex items-center justify-center">
             <TrendingUp size={20} className="text-green-600" />
@@ -218,10 +234,20 @@ export default function SchoolAdminDashboard() {
         <div className="card lg:col-span-2">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-sm">Recent Gate Activity</h3>
-            <Link href="/dashboard/school-admin/gate-log" className="text-xs text-primary-600 hover:underline">View All</Link>
+            <Link href="/dashboard/school-admin/reports/gate-activities" className="text-xs text-primary-600 hover:underline min-h-[44px] inline-flex items-center">View all</Link>
+          </div>
+          <div className="relative mb-3">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+            <input
+              type="search"
+              value={activitySearch}
+              onChange={(e) => setActivitySearch(e.target.value)}
+              placeholder="Search activity…"
+              className="input pl-9 text-sm min-h-[44px]"
+            />
           </div>
           <div className="space-y-3">
-            {recentActivity.slice(0, 5).map((record: any) => (
+            {filteredActivity.slice(0, 8).map((record: any) => (
               <div key={record.id} className="flex items-center gap-3">
                 <StudentAvatar
                   photoUrl={record.student?.photo_url}
@@ -242,8 +268,10 @@ export default function SchoolAdminDashboard() {
                 </div>
               </div>
             ))}
-            {recentActivity.length === 0 && (
-              <p className="text-sm text-gray-400 text-center py-6">No gate activity yet</p>
+            {filteredActivity.length === 0 && (
+              <p className="text-sm text-gray-400 text-center py-6">
+                {recentActivity.length === 0 ? 'No gate activity yet' : 'No matches for your search'}
+              </p>
             )}
           </div>
         </div>

@@ -1,30 +1,62 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 const LOGO_URL = 'https://www.image2url.com/r2/default/images/1779230378321-292c7b74-6217-41ff-832a-180a535ea4cb.png';
 const BG_VIDEO_URL = 'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260314_131748_f2ca2a28-fed7-44c8-b9a9-bd9acdd5ec31.mp4';
+
+type SchoolBranding = {
+  id: string;
+  name: string;
+  logo_url?: string | null;
+  welcome_message?: string | null;
+};
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [schoolBranding, setSchoolBranding] = useState<any>(null);
-  const [schoolId, setSchoolId] = useState<string | null>(null);
+  const [schoolBranding, setSchoolBranding] = useState<SchoolBranding | null>(null);
+  const brandingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const sid = new URLSearchParams(window.location.search).get('school_id');
-    setSchoolId(sid);
-  }, []);
-
-  useEffect(() => {
-    if (!schoolId) return;
-    fetch(`/api/public/school-branding?school_id=${schoolId}`)
+    if (!sid) return;
+    fetch(`/api/public/school-branding?school_id=${sid}`)
       .then((r) => r.json())
       .then((d) => setSchoolBranding(d.school || null))
       .catch(() => {});
-  }, [schoolId]);
+  }, []);
+
+  useEffect(() => {
+    const trimmed = username.trim();
+    if (brandingTimer.current) clearTimeout(brandingTimer.current);
+    if (trimmed.length < 3) {
+      setSchoolBranding(null);
+      return;
+    }
+    brandingTimer.current = setTimeout(() => {
+      fetch(`/api/public/login-branding?username=${encodeURIComponent(trimmed)}`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.school) setSchoolBranding(d.school);
+        })
+        .catch(() => {});
+    }, 400);
+    return () => {
+      if (brandingTimer.current) clearTimeout(brandingTimer.current);
+    };
+  }, [username]);
+
+  const logoSrc = schoolBranding?.logo_url
+    ? `/api/photo?path=${encodeURIComponent(schoolBranding.logo_url)}`
+    : LOGO_URL;
+
+  const welcomeLine =
+    schoolBranding?.welcome_message ||
+    (schoolBranding?.name ? `Welcome to ${schoolBranding.name}` : 'Sign in to your MyEduRide account');
 
   const handleLogin = async () => {
     if (!username.trim() || !password.trim()) return;
@@ -39,11 +71,12 @@ export default function LoginPage() {
       });
 
       const text = await response.text();
-      console.log('[LOGIN] login response status:', response.status);
-      console.log('[LOGIN] login response body:', text);
-
-      let data: any = {};
-      try { data = JSON.parse(text); } catch { data = { error: text }; }
+      let data: { error?: string } = {};
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { error: text };
+      }
 
       if (!response.ok) {
         setError(data.error || 'Failed to sign in.');
@@ -52,8 +85,7 @@ export default function LoginPage() {
       }
 
       window.location.href = '/dashboard';
-    } catch (err: any) {
-      console.error('[LOGIN] login error:', err);
+    } catch {
       setError('Network error. Check your connection.');
     }
 
@@ -62,28 +94,21 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
-      {/* Background video */}
       <video autoPlay muted loop playsInline className="absolute inset-0 w-full h-full object-cover">
         <source src={BG_VIDEO_URL} type="video/mp4" />
       </video>
 
-      {/* Dark overlay */}
       <div className="absolute inset-0 bg-black/40" />
 
-      {/* Content */}
       <div className="relative z-10 w-full max-w-md px-4">
         <div className="bg-white/10 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 p-8">
-          {/* Logo */}
           <div className="text-center mb-8">
-            <img
-              src={schoolBranding?.logo_url ? `/api/photo?path=${encodeURIComponent(schoolBranding.logo_url)}` : LOGO_URL}
-              alt="MyEduRide"
-              className="h-16 mx-auto mb-4 object-contain"
-            />
+            <img src={logoSrc} alt={schoolBranding?.name || 'MyEduRide'} className="h-20 mx-auto mb-4 object-contain max-w-[200px]" />
+            {schoolBranding?.name && (
+              <p className="text-lg font-bold text-white mb-2">{schoolBranding.name}</p>
+            )}
             <h1 className="text-2xl font-bold text-white">Welcome Back</h1>
-            <p className="text-white/60 mt-1 text-sm">
-              {schoolBranding?.welcome_message || (schoolBranding?.name ? `Welcome to ${schoolBranding.name}` : 'Sign in to your MyEduRide account')}
-            </p>
+            <p className="text-white/70 mt-2 text-sm">{welcomeLine}</p>
           </div>
 
           <div className="space-y-5">
@@ -94,7 +119,7 @@ export default function LoginPage() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="Enter your username"
-                className="w-full px-4 py-3 border border-white/20 rounded-xl focus:ring-2 focus:ring-white/40 focus:border-transparent outline-none text-white placeholder:text-white/40 transition-all bg-white/10 backdrop-blur-sm"
+                className="w-full px-4 py-3.5 border border-white/20 rounded-xl focus:ring-2 focus:ring-white/40 focus:border-transparent outline-none text-white placeholder:text-white/40 transition-all bg-white/10 backdrop-blur-sm min-h-[48px]"
                 autoFocus
                 autoComplete="username"
               />
@@ -107,8 +132,10 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter your password"
-                className="w-full px-4 py-3 border border-white/20 rounded-xl focus:ring-2 focus:ring-white/40 focus:border-transparent outline-none text-white placeholder:text-white/40 transition-all bg-white/10 backdrop-blur-sm"
-                onKeyDown={(e) => { if (e.key === 'Enter') handleLogin(); }}
+                className="w-full px-4 py-3.5 border border-white/20 rounded-xl focus:ring-2 focus:ring-white/40 focus:border-transparent outline-none text-white placeholder:text-white/40 transition-all bg-white/10 backdrop-blur-sm min-h-[48px]"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleLogin();
+                }}
               />
             </div>
 
@@ -122,7 +149,7 @@ export default function LoginPage() {
               type="button"
               onClick={handleLogin}
               disabled={loading || !username.trim() || !password.trim()}
-              className="w-full py-3 px-4 rounded-xl bg-white text-primary-700 font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/90 shadow-lg"
+              className="w-full py-3.5 px-4 rounded-xl bg-white text-primary-700 font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/90 shadow-lg min-h-[48px]"
             >
               {loading ? 'Signing in...' : 'Sign In'}
             </button>

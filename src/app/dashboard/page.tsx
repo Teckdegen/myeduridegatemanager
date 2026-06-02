@@ -23,11 +23,17 @@ export default function DashboardRouter() {
   const [userName, setUserName] = useState('');
   const router = useRouter();
 
+  const [schoolWelcome, setSchoolWelcome] = useState('');
+
   useEffect(() => {
     setMounted(true);
     const session = getSession();
     if (!session?.user_id) { router.push('/auth/login'); return; }
     setUserName(session.full_name || '');
+    const ps = session.primary_school;
+    if (ps?.name) {
+      setSchoolWelcome(ps.welcome_message || `Welcome to ${ps.name}`);
+    }
 
     const userRoles = [...new Set((session.roles || []).map((r: any) => r.role))] as string[];
     
@@ -51,6 +57,9 @@ export default function DashboardRouter() {
         <div className="text-center mb-8">
           <img src={LOGO_URL} alt="MyEduRide" className="h-12 mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-gray-900">Welcome back, {userName.split(' ')[0]}</h1>
+          {schoolWelcome ? (
+            <p className="text-primary-700 font-medium mt-1">{schoolWelcome}</p>
+          ) : null}
           <p className="text-gray-500 mt-1">Choose how you want to continue</p>
         </div>
 

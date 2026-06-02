@@ -2,7 +2,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle, LogOut as LogOutIcon, User } from 'lucide-react';
+import { CheckCircle, LogOut as LogOutIcon, Search, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { todayInLagos } from '@/lib/timezone';
 
@@ -10,9 +10,11 @@ export default function AttendanceSignLog({
   schoolId,
   title = 'Sign in / out log',
   defaultEntity = 'all',
+  searchable = false,
 }) {
   const [date, setDate] = useState(todayInLagos());
   const [entity, setEntity] = useState(defaultEntity);
+  const [searchQuery, setSearchQuery] = useState('');
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -36,6 +38,14 @@ export default function AttendanceSignLog({
     load();
   }, [load]);
 
+  const filteredEntries = searchable && searchQuery.trim()
+    ? entries.filter((e) => {
+        const q = searchQuery.toLowerCase();
+        const hay = `${e.name} ${e.type_label} ${e.detail || ''} ${e.time_display || ''} ${e.pickup_notice?.pickup_person_name || ''}`.toLowerCase();
+        return hay.includes(q);
+      })
+    : entries;
+
   return (
     <div className="space-y-4">
       <div>
@@ -58,11 +68,24 @@ export default function AttendanceSignLog({
         </div>
       </div>
 
+      {searchable && (
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search student name, date, time, or pickup person…"
+            className="input pl-9"
+          />
+        </div>
+      )}
+
       {loading && <p className="text-sm text-slate-500 animate-pulse">Loading…</p>}
 
       {!loading && (
         <div className="card-elevated divide-y max-h-[70vh] overflow-y-auto">
-          {entries.map((e) => (
+          {filteredEntries.map((e) => (
             <div key={`${e.entity}-${e.id}`} className="px-4 py-3 flex items-center gap-3">
               <div
                 className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
@@ -109,8 +132,10 @@ export default function AttendanceSignLog({
               </div>
             </div>
           ))}
-          {entries.length === 0 && (
-            <p className="py-12 text-center text-slate-400 text-sm">No sign-ins for this date</p>
+          {filteredEntries.length === 0 && (
+            <p className="py-12 text-center text-slate-400 text-sm">
+              {entries.length === 0 ? 'No sign-ins for this date' : 'No matches for your search'}
+            </p>
           )}
         </div>
       )}

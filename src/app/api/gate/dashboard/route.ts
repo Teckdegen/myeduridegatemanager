@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest } from '@/lib/session';
 import { lagosDayBounds, todayInLagos } from '@/lib/timezone';
+import { getGateDayStatus } from '@/lib/gate/school-day-gate';
 
 type PickupPersonRow = {
   id: string;
@@ -228,6 +229,8 @@ export async function GET(request: NextRequest) {
       if (sid && !pickupRequestsByStudent[sid]) pickupRequestsByStudent[sid] = r;
     }
 
+    const gate_day = await getGateDayStatus(supabase, schoolId, today);
+
     return NextResponse.json({
       school: school || null,
       students: students || [],
@@ -237,6 +240,7 @@ export async function GET(request: NextRequest) {
       pickup_requests_by_student: pickupRequestsByStudent,
       pickup_persons_by_student: pickupPersonsByStudent,
       day: dateStr,
+      gate_day,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to load gate data';

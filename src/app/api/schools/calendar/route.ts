@@ -3,16 +3,21 @@ import { randomUUID } from 'crypto';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest, sessionHasRole } from '@/lib/session';
 import { lagosDateStringsInRange, lagosWeekend } from '@/lib/attendance/lagos-dates';
+import { writeAuditLog } from '@/lib/audit/log';
+import { ensureSchoolCalendarSettings } from '@/lib/attendance/school-calendar';
 
 export const dynamic = 'force-dynamic';
 
 const MAX_RANGE_DAYS = 366;
+const VALID_DAY_TYPES = new Set(['public_holiday', 'school_event', 'closure']);
 
 function canManage(session: ReturnType<typeof getSessionFromRequest>, schoolId: string) {
   if (!session) return false;
   if (sessionHasRole(session, 'super_admin')) return true;
   return session.roles.some(
-    (r) => r.school_id === schoolId && r.role === 'school_admin'
+    (r) =>
+      r.school_id === schoolId &&
+      (r.role === 'school_admin' || r.role === 'staff')
   );
 }
 
@@ -119,12 +124,30 @@ export async function GET(request: NextRequest) {
   const { data, error } = await q;
   if (error) {
     if (/school_non_school_days/i.test(error.message)) {
-      return NextResponse.json({ events: [], migration_required: true });
+      return NextResponse.json({ events: [], gate_overrides: [], migration_required: true });
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ events: groupCalendarDays(data || []), days: data || [] });
+  const [{ data: overrides }, { data: calendarSettings }] = await Promise.all([
+    supabase
+      .from('gate_day_overrides')
+      .select('id, override_date, reason, created_at')
+      .eq('school_id', schoolId)
+      .order('override_date', { ascending: true }),
+    supabase
+      .from('school_calendar_settings')
+      .select('weekend_days')
+      .eq('school_id', schoolId)
+      .maybeSingle(),
+  ]);
+
+  return NextResponse.json({
+    events: groupCalendarDays(data || []),
+    days: data || [],
+    gate_overrides: overrides || [],
+    calendar_settings: calendarSettings || { weekend_days: [0, 6] },
+  });
 }
 
 /** POST — add single day or date range */
@@ -133,6 +156,78 @@ export async function POST(request: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
   const body = await request.json();
+
+  if (body.action === 'gate_override') {
+    const { school_id, override_date, reason } = body;
+    const date = normalizeDateInput(String(override_date || ''));
+    if (!school_id || !date || !reason?.trim()) {
+      return NextResponse.json(
+        { error: 'school_id, override_date, and reason are required' },
+        { status: 400 }
+      );
+    }
+    if (!canManage(session, school_id)) {
+      return NextResponse.json({ error: 'School admin access required' }, { status: 403 });
+    }
+
+    const supabase = getAdminClient();
+    const { data, error } = await supabase
+      .from('gate_day_overrides')
+      .upsert(
+        {
+          school_id,
+          override_date: date,
+          reason: String(reason).trim(),
+          created_by: session.user_id,
+        },
+        { onConflict: 'school_id,override_date' }
+      )
+      .select()
+      .single();
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await writeAuditLog(supabase, {
+      school_id,
+      actor_user_id: session.user_id,
+      action: 'gate_day_override_added',
+      entity_type: 'gate_day_overrides',
+      entity_id: data?.id,
+      details: { override_date: date, reason: String(reason).trim() },
+    });
+
+    return NextResponse.json({ success: true, override: data });
+  }
+
+  if (body.action === 'delete_gate_override') {
+    const { school_id, id, override_date } = body;
+    if (!school_id || (!id && !override_date)) {
+      return NextResponse.json({ error: 'school_id and id or override_date required' }, { status: 400 });
+    }
+    if (!canManage(session, school_id)) {
+      return NextResponse.json({ error: 'School admin access required' }, { status: 403 });
+    }
+
+    const supabase = getAdminClient();
+    let q = supabase.from('gate_day_overrides').delete().eq('school_id', school_id);
+    if (id) q = q.eq('id', id);
+    else q = q.eq('override_date', normalizeDateInput(String(override_date))!);
+
+    const { error } = await q;
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await writeAuditLog(supabase, {
+      school_id,
+      actor_user_id: session.user_id,
+      action: 'gate_day_override_removed',
+      entity_type: 'gate_day_overrides',
+      entity_id: id || null,
+      details: { override_date: override_date || null },
+    });
+
+    return NextResponse.json({ success: true });
+  }
+
   const {
     school_id,
     calendar_date,
@@ -157,6 +252,13 @@ export async function POST(request: NextRequest) {
 
   if (!canManage(session, school_id)) {
     return NextResponse.json({ error: 'School admin access required' }, { status: 403 });
+  }
+
+  if (!VALID_DAY_TYPES.has(String(day_type))) {
+    return NextResponse.json(
+      { error: 'day_type must be public_holiday, school_event, or closure' },
+      { status: 400 }
+    );
   }
 
   const endDate = end && end >= start ? end : start;

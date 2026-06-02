@@ -17,6 +17,9 @@ import {
   validateStudentGateAction,
   validateStaffGateAction,
 } from '@/lib/gate/daily-limits';
+import { assertGateDayOpen } from '@/lib/gate/school-day-gate';
+import { writeAuditLog } from '@/lib/audit/log';
+import { writeGateActivityLog } from '@/lib/gate/activity-log';
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,6 +38,9 @@ export async function POST(request: NextRequest) {
       staff_profile_id,
       user_id,
       gate_session_id,
+      pickup_person_name: bodyPickupName,
+      pickup_person_phone: bodyPickupPhone,
+      from_ready_queue,
     } = body;
 
     const supabase = getAdminClient();
@@ -72,6 +78,20 @@ export async function POST(request: NextRequest) {
 
       if (!canAccessGateOperations(session, schoolId)) {
         return NextResponse.json({ error: 'Gate access required' }, { status: 403 });
+      }
+
+      if (!sessionHasRole(session, 'super_admin')) {
+        const dayCheck = await assertGateDayOpen(supabase, schoolId);
+        if (!dayCheck.ok) {
+          return NextResponse.json(
+            {
+              error: `Gate closed today: ${dayCheck.status.label}`,
+              code: 'gate_closed',
+              gate_day: dayCheck.status,
+            },
+            { status: 403 }
+          );
+        }
       }
 
       if (!profile || profile.user_id !== user_id || profile.school_id !== schoolId) {
@@ -143,6 +163,34 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
 
+      await writeAuditLog(supabase, {
+        school_id: schoolId,
+        actor_user_id: session.user_id,
+        target_user_id: user_id,
+        action: `gate_staff_${staffType}`,
+        entity_type: 'staff_attendance',
+        entity_id: data?.id,
+        details: { verification_method, record_source: isAdminScan ? 'admin' : 'gate' },
+      });
+
+      const { data: staffProfile } = await supabase
+        .from('user_profiles')
+        .select('full_name')
+        .eq('id', user_id)
+        .maybeSingle();
+
+      await writeGateActivityLog(supabase, {
+        school_id: schoolId,
+        gate_officer_user_id: session.user_id,
+        action_type: staffType,
+        details: {
+          staff_user_id: user_id,
+          staff_name: staffProfile?.full_name || 'Staff',
+          verification_method,
+          record_source: isAdminScan ? 'admin' : 'gate',
+        },
+      });
+
       return NextResponse.json({
         success: true,
         record: data,
@@ -187,6 +235,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Gate access required' }, { status: 403 });
     }
 
+    if (!sessionHasRole(session, 'super_admin')) {
+      const dayCheck = await assertGateDayOpen(supabase, schoolId);
+      if (!dayCheck.ok) {
+        return NextResponse.json(
+          {
+            error: `Gate closed today: ${dayCheck.status.label}`,
+            code: 'gate_closed',
+            gate_day: dayCheck.status,
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     const studentToday = await getStudentTodayStatus(supabase, schoolId, student_id);
     const validation = validateStudentGateAction(studentToday, type);
     if (!validation.allowed) {
@@ -205,12 +267,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    let usedAdminBypass = false;
     if (type === 'departure') {
       const isAdminBypass =
         sessionHasRole(session, 'super_admin') ||
         session.roles.some(
           (r) => r.school_id === schoolId && r.role === 'school_admin'
         );
+      usedAdminBypass = isAdminBypass && !from_ready_queue;
 
       if (!isAdminBypass) {
         const today = todayInLagos();
@@ -268,6 +332,57 @@ export async function POST(request: NextRequest) {
         console.error('[gate/accept] dismissal complete:', dismissCompleteErr.message);
       }
     }
+
+    await writeAuditLog(supabase, {
+      school_id: schoolId,
+      actor_user_id: session.user_id,
+      student_id,
+      action: type === 'departure' ? 'gate_student_release' : 'gate_student_check_in',
+      entity_type: 'attendance_records',
+      entity_id: data.id,
+      details: { status: data.status, verification_method },
+    });
+
+    let pickupName = bodyPickupName?.trim() || null;
+    let pickupPhone = bodyPickupPhone?.trim() || null;
+    if (type === 'departure' && !pickupName) {
+      const today = todayInLagos();
+      const { data: notice } = await supabase
+        .from('pickup_notices')
+        .select('pickup_person_name, pickup_person_phone')
+        .eq('student_id', student_id)
+        .eq('school_id', schoolId)
+        .eq('notice_date', today)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (notice) {
+        pickupName = notice.pickup_person_name;
+        pickupPhone = notice.pickup_person_phone;
+      }
+    }
+
+    const studentAction =
+      type === 'departure'
+        ? usedAdminBypass
+          ? 'manual_override'
+          : 'release'
+        : 'check_in';
+
+    await writeGateActivityLog(supabase, {
+      school_id: schoolId,
+      gate_officer_user_id: session.user_id,
+      student_id,
+      action_type: studentAction,
+      pickup_person_name: type === 'departure' ? pickupName : null,
+      pickup_person_phone: type === 'departure' ? pickupPhone : null,
+      details: {
+        attendance_record_id: data.id,
+        status: data.status,
+        verification_method,
+        from_ready_queue: !!from_ready_queue,
+      },
+    });
 
     const notifyType = type === 'departure' ? 'departure' : 'arrival';
     const notifyResult = await notifyParentsOfAttendance({

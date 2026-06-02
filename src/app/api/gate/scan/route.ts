@@ -11,6 +11,8 @@ import {
   validateStaffGateAction,
 } from '@/lib/gate/daily-limits';
 import { fetchStudentPickupContext } from '@/lib/gate/student-pickup-context';
+import { getGateDayStatus } from '@/lib/gate/school-day-gate';
+import { sessionHasRole } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,6 +36,21 @@ export async function POST(request: NextRequest) {
 
     const supabase = getAdminClient();
     const scan = String(scan_data).trim();
+
+    const gateDay = sessionHasRole(session, 'super_admin')
+      ? { date: '', gate_open: true, reason: null, label: null, has_override: false }
+      : await getGateDayStatus(supabase, school_id);
+
+    if (!gateDay.gate_open) {
+      return NextResponse.json(
+        {
+          error: `Gate closed today: ${gateDay.label}`,
+          code: 'gate_closed',
+          gate_day: gateDay,
+        },
+        { status: 403 }
+      );
+    }
 
     const studentId = await resolveStudentId(supabase, school_id, scan);
     if (studentId) {

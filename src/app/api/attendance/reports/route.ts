@@ -3,7 +3,6 @@ import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest } from '@/lib/session';
 import { todayInLagos } from '@/lib/timezone';
 import { resolveReportCapabilities } from '@/lib/attendance/report-access';
-import { fetchNonSchoolDaysInRange } from '@/lib/attendance/non-school-days';
 import {
   fetchSchoolCalendarContext,
   isCountableSchoolDayWithContext,
@@ -12,11 +11,9 @@ import {
 import {
   lagosDateStringsInRange,
   lagosDayBoundsFromDateStr,
-  lagosWeekend,
   resolveLagosReportRange,
   timestampToLagosDateKey,
 } from '@/lib/attendance/lagos-dates';
-import { isCountableSchoolDay } from '@/lib/attendance/school-days';
 import {
   buildStaffDailyReport,
   buildStaffMonthlyReport,
@@ -143,27 +140,41 @@ export async function GET(request: NextRequest) {
 
     if (studentIds.length === 0 && includeStaff && !caps.canStudentReports) {
       const dayStrings = lagosDateStringsInRange(startDateStr, endDateStr);
-      const nonSchoolDays = await fetchNonSchoolDaysInRange(
-        supabase,
-        resolvedSchoolId,
-        startDateStr,
-        endDateStr
-      );
       const monthCalendarDays =
-        reportType === 'monthly' || reportType === 'weekly' ? dayStrings : dayStrings.filter(
-            (d) => !lagosWeekend(d) && !nonSchoolDays.has(d)
-          );
+        reportType === 'monthly' || reportType === 'weekly'
+          ? dayStrings
+          : dayStrings.filter(isCountableDay);
 
       if (reportType === 'daily') {
         const { startIso: dayStartIso, endIso: dayEndIso } = lagosDayBoundsFromDateStr(dateParam);
+        const dayExcluded = !isCountableDay(dateParam);
         const staffReport = await buildStaffDailyReport(
           supabase,
           resolvedSchoolId,
           dateParam,
           dayStartIso,
           dayEndIso,
-          { staffUserIds: caps.staffUserIds, excluded: nonSchoolDays.has(dateParam), lateThreshold }
+          { staffUserIds: caps.staffUserIds, excluded: dayExcluded, lateThreshold }
         );
+        if (dayExcluded) {
+          return NextResponse.json({
+            type: 'daily',
+            date: dateParam,
+            excluded: true,
+            excluded_title:
+              calendarCtx.nonSchoolDays.get(dateParam)?.title ||
+              (isWeekendDay(dateParam, calendarCtx.weekendDays) ? 'Weekend' : 'Non-school day'),
+            summary: { total: 0, present: 0, late: 0, absent: 0 },
+            report: [],
+            staff_report: staffReport,
+            staff_summary: {
+              total: staffReport.length,
+              present: 0,
+              late: 0,
+              absent: 0,
+            },
+          });
+        }
         return NextResponse.json({
           type: 'daily',
           date: dateParam,
@@ -193,7 +204,7 @@ export async function GET(request: NextRequest) {
         range: { start: rangeStartIso, end: rangeEndIso, start_date: startDateStr, end_date: endDateStr },
         summary: {
           total_students: 0,
-          total_days: monthCalendarDays.filter((d) => !lagosWeekend(d) && !nonSchoolDays.has(d)).length,
+          total_days: monthCalendarDays.filter(isCountableDay).length,
           total_staff: staffReport.length,
         },
         staff_report: staffReport,

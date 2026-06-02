@@ -4,11 +4,14 @@ import { getSessionFromRequest } from '@/lib/session';
 import { todayInLagos } from '@/lib/timezone';
 import {
   lagosDateStringsInRange,
-  lagosWeekend,
   resolveLagosReportRange,
   timestampToLagosDateKey,
 } from '@/lib/attendance/lagos-dates';
-import { fetchNonSchoolDaysInRange } from '@/lib/attendance/non-school-days';
+import {
+  fetchSchoolCalendarContext,
+  isCountableSchoolDayWithContext,
+  isWeekendDay,
+} from '@/lib/attendance/school-calendar';
 import { isCountableSchoolDay } from '@/lib/attendance/school-days';
 import { dayStatusColor, resolveCalendarDayStatus } from '@/lib/attendance/status';
 
@@ -92,24 +95,35 @@ export async function GET(request: NextRequest) {
 
     const today = todayInLagos();
 
-    const nonSchoolDays =
-      studentSchoolId && type !== 'daily'
-        ? await fetchNonSchoolDaysInRange(supabase, studentSchoolId, startDateStr, endDateStr)
-        : studentSchoolId
-          ? await fetchNonSchoolDaysInRange(supabase, studentSchoolId, dateParam, dateParam)
-          : new Map();
+    const calendarCtx =
+      studentSchoolId
+        ? await fetchSchoolCalendarContext(
+            supabase,
+            studentSchoolId,
+            type === 'daily' ? dateParam : startDateStr,
+            type === 'daily' ? dateParam : endDateStr
+          )
+        : null;
+
+    const nonSchoolDays = calendarCtx?.nonSchoolDays ?? new Map();
+    const isSchoolDay = (dayKey: string) =>
+      calendarCtx ? isCountableSchoolDayWithContext(dayKey, calendarCtx) : isCountableSchoolDay(dayKey, nonSchoolDays);
 
     if (type === 'daily') {
       const dayKey = dateParam;
       const arrival = arrivalByDay[dayKey];
       const departure = departureByDay[dayKey];
+      const isWeekend = calendarCtx
+        ? isWeekendDay(dayKey, calendarCtx.weekendDays)
+        : false;
+      const isExcluded = !isSchoolDay(dayKey);
       const status =
         dayKey > today
           ? 'upcoming'
           : resolveCalendarDayStatus(dayKey, arrival, {
-              isWeekend: lagosWeekend(dayKey),
+              isWeekend,
               todayLagos: today,
-              isExcluded: nonSchoolDays.has(dayKey),
+              isExcluded,
             });
       return NextResponse.json({
         type: 'daily',
@@ -125,8 +139,10 @@ export async function GET(request: NextRequest) {
     const calendar = dayStrings.map((dayKey) => {
       const arrival = arrivalByDay[dayKey];
       const departure = departureByDay[dayKey];
-      const isWeekend = lagosWeekend(dayKey);
-      const isExcluded = nonSchoolDays.has(dayKey);
+      const isWeekend = calendarCtx
+        ? isWeekendDay(dayKey, calendarCtx.weekendDays)
+        : false;
+      const isExcluded = !isSchoolDay(dayKey);
       const status = resolveCalendarDayStatus(dayKey, arrival, {
         isWeekend,
         todayLagos: today,
@@ -135,7 +151,7 @@ export async function GET(request: NextRequest) {
       return {
         date: dayKey,
         is_weekend: isWeekend,
-        is_school_day: isCountableSchoolDay(dayKey, nonSchoolDays),
+        is_school_day: isSchoolDay(dayKey),
         status,
         check_in_time: arrival?.timestamp || null,
         check_out_time: departure || null,

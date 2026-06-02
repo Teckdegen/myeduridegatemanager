@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { RoleSwitcher } from '@/components/shared/RoleSwitcher';
 import { ChangePasswordCard } from '@/components/shared/ChangePasswordCard';
+import { SessionIdleGuard } from '@/components/shared/SessionIdleGuard';
 import { logout } from '@/lib/api';
 import { KeyRound, LogOut, X } from 'lucide-react';
 
@@ -15,6 +16,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-screen bg-transparent">
+      <SessionIdleGuard />
       <div className="fixed top-3 right-3 z-30 flex items-center gap-1">
         <RoleSwitcher showLogout={false} />
         <button

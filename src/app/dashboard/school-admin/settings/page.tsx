@@ -233,7 +233,10 @@ export default function SchoolSettingsPage() {
                   />
                 </label>
               </div>
-              <p className="text-xs text-gray-400 mt-1">Shown on student ID cards. If empty, card uses placeholder text.</p>
+              <p className="text-xs text-gray-500 mt-2 leading-relaxed">
+                Upload saves immediately (no need to click Save Settings). The image is stored in Supabase Storage and appears on the <strong>back</strong> of printed student ID cards when super admin generates PDFs.
+                If no signature is uploaded, cards show &quot;Authorized by School&quot; instead.
+              </p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Welcome Message (optional)</label>

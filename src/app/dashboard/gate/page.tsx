@@ -18,7 +18,7 @@ import {
   Bell,
 } from 'lucide-react';
 import NotificationsInbox from '@/components/notifications/NotificationsInbox';
-import AttendanceSignLog from '@/components/attendance/AttendanceSignLog';
+import GateActivitiesReport from '@/components/gate/GateActivitiesReport';
 import TodayScanStatusBanner from '@/components/gate/TodayScanStatusBanner';
 import { applyScanHints, isActionBlocked } from '@/lib/gate/scan-hints-client';
 import { toast } from 'sonner';
@@ -125,6 +125,8 @@ export default function GateOfficerDashboard() {
   const [pickupRequestsByStudent, setPickupRequestsByStudent] = useState({});
   const [schoolInfo, setSchoolInfo] = useState({ name: '', logo_url: '', primary_color: '#1B4D3E' });
   const [studentSearch, setStudentSearch] = useState('');
+  const [readyPickupSearch, setReadyPickupSearch] = useState('');
+  const [gateDay, setGateDay] = useState({ gate_open: true, label: null, has_override: false });
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const scanIntervalRef = useRef(null);
@@ -183,6 +185,7 @@ export default function GateOfficerDashboard() {
           primary_color: data.school.primary_color || '#1B4D3E',
         });
       }
+      if (data.gate_day) setGateDay(data.gate_day);
     } catch (e) {
       console.error(e);
       toast.error('Could not load gate data');
@@ -331,6 +334,12 @@ export default function GateOfficerDashboard() {
         body: JSON.stringify({ scan_data: scanData, school_id: schoolId }),
       });
       const data = await res.json();
+      if (data.code === 'gate_closed') {
+        toast.error(data.error || 'Gate is closed today');
+        startQrScanning();
+        setScanning(false);
+        return;
+      }
       if (data.person) {
         stopCamera();
         const enriched = { ...data };
@@ -418,6 +427,16 @@ export default function GateOfficerDashboard() {
         body.student_id = scannedPerson.person.id;
         if (scanActionMode === 'departure') {
           body.from_ready_queue = !!scannedPerson.from_queue;
+          const notice =
+            scannedPerson.pickup_notice ||
+            pickupNotices.find((n) => n.student_id === scannedPerson.person.id);
+          if (notice?.pickup_person_name) {
+            body.pickup_person_name = notice.pickup_person_name;
+            body.pickup_person_phone = notice.pickup_person_phone;
+          } else if (scannedPerson.pickup_request?.pickup_person_name) {
+            body.pickup_person_name = scannedPerson.pickup_request.pickup_person_name;
+            body.pickup_person_phone = scannedPerson.pickup_request.pickup_person_phone;
+          }
         }
       }
       const res = await fetch('/api/gate/accept', {
@@ -509,6 +528,14 @@ export default function GateOfficerDashboard() {
     return `${s.first_name} ${s.last_name} ${s.student_id_number} ${s.class?.name || ''}`.toLowerCase().includes(q);
   });
 
+  const filteredPickupQueue = pickupQueue.filter((item) => {
+    const s = item.student;
+    if (!s) return false;
+    const q = readyPickupSearch.toLowerCase();
+    if (!q) return true;
+    return `${s.first_name} ${s.last_name} ${s.student_id_number} ${s.class?.name || ''}`.toLowerCase().includes(q);
+  });
+
   const scanActionMode = gateMode === 'arrival' ? 'arrival' : 'departure';
 
   const gateBlock = isActionBlocked(
@@ -516,7 +543,8 @@ export default function GateOfficerDashboard() {
     scanActionMode,
     scannedPerson?.type === 'staff'
   );
-  const gateBlockReason = gateBlock.blocked ? gateBlock.message : null;
+  const gateClosedReason = !gateDay.gate_open ? gateDay.label || 'School closed today' : null;
+  const gateBlockReason = gateClosedReason || (gateBlock.blocked ? gateBlock.message : null);
   const fullyComplete = scannedPerson?.scan_hints?.already_complete ||
     (scannedPerson?.today_status &&
       ((scannedPerson.type === 'staff' &&
@@ -751,6 +779,13 @@ export default function GateOfficerDashboard() {
         </div>
       </header>
 
+      {!gateDay.gate_open && (
+        <div className="mx-4 max-w-lg mb-3 rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-bold">Gate closed today</p>
+          <p className="mt-0.5">{gateDay.label || 'Non-school day'} — check-in, release, and scans are blocked. School admin can add a gate override on the calendar.</p>
+        </div>
+      )}
+
       <div className="px-4 max-w-lg mx-auto w-full">
         <div className="pill-tabs mb-3">
           <button type="button" onClick={() => { setGateTab('scan'); setScannedPerson(null); }} className={gateTab === 'scan' ? 'pill-tab-active' : 'pill-tab-inactive'}>
@@ -795,10 +830,24 @@ export default function GateOfficerDashboard() {
           <div className="space-y-2 pb-4">
             <h2 className="text-sm font-bold text-slate-800">Ready for Pickup – Awaiting Release</h2>
             <p className="text-xs text-slate-500 mb-2">Only students marked ready by teachers. Release is recorded at server time (WAT).</p>
+            {pickupQueue.length > 0 && (
+              <div className="relative mb-2">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <input
+                  type="search"
+                  value={readyPickupSearch}
+                  onChange={(e) => setReadyPickupSearch(e.target.value)}
+                  placeholder="Search name, class, or ID…"
+                  className="input pl-9 min-h-[44px]"
+                />
+              </div>
+            )}
             {pickupQueue.length === 0 ? (
               <div className="card text-center py-10 text-slate-400 text-sm">No students waiting for pickup</div>
+            ) : filteredPickupQueue.length === 0 ? (
+              <div className="card text-center py-8 text-slate-400 text-sm">No matches for your search</div>
             ) : (
-              pickupQueue.map((item) => {
+              filteredPickupQueue.map((item) => {
                 const s = item.student;
                 if (!s) return null;
                 const notice = noticeForStudent(s.id);
@@ -806,8 +855,10 @@ export default function GateOfficerDashboard() {
                   <div key={item.id} className="card-elevated p-3 flex items-center gap-3">
                     <StudentAvatar photoUrl={s.photo_url} firstName={s.first_name} lastName={s.last_name} size="sm" />
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm truncate">{s.first_name} {s.last_name}</p>
-                      <p className="text-xs text-slate-500">{s.class?.name} · Ready {formatTimeLagos(item.created_at)}</p>
+                      <p className="font-semibold text-base truncate">{s.first_name} {s.last_name}</p>
+                      <p className="text-sm font-medium text-primary-700">{s.class?.name || 'No class'}</p>
+                      <p className="text-xs text-slate-500 font-mono">{s.student_id_number}</p>
+                      <p className="text-xs text-slate-400">Ready {formatTimeLagos(item.created_at)}</p>
                       {notice && (
                         <p className="text-[10px] text-blue-700 mt-0.5">Pickup: {notice.pickup_person_name}</p>
                       )}
@@ -824,7 +875,7 @@ export default function GateOfficerDashboard() {
 
         {gateTab === 'log' && !scannedPerson && schoolId && (
           <div className="pb-4">
-            <AttendanceSignLog schoolId={schoolId} title="Sign in / out" />
+            <GateActivitiesReport schoolId={schoolId} title="Release & gate log" />
           </div>
         )}
 

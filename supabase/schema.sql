@@ -532,6 +532,7 @@ ALTER TABLE gate_activity_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE auth_security_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE password_reset_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE otp_codes ENABLE ROW LEVEL SECURITY;
 
 -- ============ RLS POLICIES ============
 
@@ -599,10 +600,14 @@ CREATE POLICY "Admins manage teacher assignments" ON teacher_class_assignments
     teacher_profile_id IN (SELECT id FROM teacher_profiles WHERE school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid() AND role IN ('school_admin', 'super_admin')))
   );
 
--- Students
+-- Students (staff only — parents use "Parents see linked students" below)
 CREATE POLICY "Staff see students" ON students
   FOR SELECT USING (
-    school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid())
+    school_id IN (
+      SELECT school_id FROM user_school_roles
+      WHERE user_id = auth.uid() AND is_active = true
+      AND role IN ('school_admin', 'teacher', 'gate_officer', 'staff')
+    )
   );
 CREATE POLICY "Admins manage students" ON students
   FOR ALL USING (
@@ -627,10 +632,14 @@ CREATE POLICY "Gate staff manage sessions" ON gate_sessions
     school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid() AND role IN ('gate_officer', 'school_admin'))
   );
 
--- Attendance
+-- Attendance (staff only — parents use "Parents see children attendance" below)
 CREATE POLICY "Staff see attendance" ON attendance_records
   FOR SELECT USING (
-    school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid())
+    school_id IN (
+      SELECT school_id FROM user_school_roles
+      WHERE user_id = auth.uid() AND is_active = true
+      AND role IN ('school_admin', 'teacher', 'gate_officer', 'staff')
+    )
   );
 CREATE POLICY "Gate officers create attendance" ON attendance_records
   FOR INSERT WITH CHECK (
@@ -648,10 +657,14 @@ CREATE POLICY "Gate officers log staff attendance" ON staff_attendance
     school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid() AND role IN ('gate_officer', 'school_admin'))
   );
 
--- Dismissals
+-- Dismissals (staff only)
 CREATE POLICY "Staff see dismissals" ON dismissal_requests
   FOR SELECT USING (
-    school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid())
+    school_id IN (
+      SELECT school_id FROM user_school_roles
+      WHERE user_id = auth.uid() AND is_active = true
+      AND role IN ('school_admin', 'teacher', 'gate_officer', 'staff')
+    )
   );
 CREATE POLICY "Teachers create dismissals" ON dismissal_requests
   FOR INSERT WITH CHECK (
@@ -664,15 +677,30 @@ CREATE POLICY "Gate officers update dismissals" ON dismissal_requests
 
 -- Extra lessons
 CREATE POLICY "Staff see extra lessons" ON extra_lessons
+  FOR SELECT USING (
+    school_id IN (
+      SELECT school_id FROM user_school_roles
+      WHERE user_id = auth.uid() AND is_active = true
+      AND role IN ('school_admin', 'teacher', 'gate_officer', 'staff')
+    )
+  );
+CREATE POLICY "Teachers manage extra lessons" ON extra_lessons
   FOR ALL USING (
-    school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid())
+    school_id IN (
+      SELECT school_id FROM user_school_roles
+      WHERE user_id = auth.uid() AND is_active = true
+      AND role IN ('teacher', 'school_admin')
+    )
   );
 
 -- Pickup notices
 CREATE POLICY "Parents see own pickup notices" ON pickup_notices
   FOR SELECT USING (parent_user_id = auth.uid());
 CREATE POLICY "Parents create pickup notices" ON pickup_notices
-  FOR INSERT WITH CHECK (parent_user_id = auth.uid());
+  FOR INSERT WITH CHECK (
+    parent_user_id = auth.uid() AND
+    student_id IN (SELECT student_id FROM student_parents WHERE parent_user_id = auth.uid())
+  );
 CREATE POLICY "Staff see school pickup notices" ON pickup_notices
   FOR SELECT USING (
     school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid())
@@ -720,7 +748,10 @@ CREATE POLICY "Staff see pickup requests" ON pickup_requests
     school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid())
   );
 CREATE POLICY "Parents create pickup requests" ON pickup_requests
-  FOR INSERT WITH CHECK (parent_user_id = auth.uid());
+  FOR INSERT WITH CHECK (
+    parent_user_id = auth.uid() AND
+    student_id IN (SELECT student_id FROM student_parents WHERE parent_user_id = auth.uid())
+  );
 CREATE POLICY "Staff update pickup requests" ON pickup_requests
   FOR UPDATE USING (
     school_id IN (SELECT school_id FROM user_school_roles WHERE user_id = auth.uid() AND role IN ('school_admin', 'super_admin', 'gate_officer'))
@@ -809,16 +840,9 @@ CREATE POLICY "Gate staff write gate activity logs" ON gate_activity_logs
     )
   );
 
--- Auth security events
+-- Auth security events (own rows only)
 CREATE POLICY "Users see own auth events" ON auth_security_events
-  FOR SELECT USING (
-    user_id = auth.uid() OR
-    user_id IS NULL OR
-    EXISTS (
-      SELECT 1 FROM user_school_roles usr
-      WHERE usr.user_id = auth.uid() AND usr.role IN ('super_admin')
-    )
-  );
+  FOR SELECT USING (user_id = auth.uid());
 
 -- Password reset requests
 CREATE POLICY "Users see own password resets" ON password_reset_requests

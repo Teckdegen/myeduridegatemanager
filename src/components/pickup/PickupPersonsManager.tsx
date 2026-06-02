@@ -2,7 +2,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Trash2, Camera, User } from 'lucide-react';
+import { Plus, Trash2, Camera, User, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import { photoSrc } from '@/lib/photo';
 
@@ -18,6 +18,7 @@ export default function PickupPersonsManager({
   const [persons, setPersons] = useState([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
+  const [editingPerson, setEditingPerson] = useState(null);
   const [saving, setSaving] = useState(false);
   const [photoPreview, setPhotoPreview] = useState('');
   const [form, setForm] = useState({
@@ -115,29 +116,47 @@ export default function PickupPersonsManager({
       toast.error('Select at least one child');
       return;
     }
+    if (mode === 'parent' && !form.photo_url) {
+      toast.error('Please add a photo so the gate officer can verify this person at release');
+      return;
+    }
     setSaving(true);
     try {
       const resolvedSchoolId =
         schoolId || students.find((s) => form.student_ids.includes(s.id))?.school_id;
       if (!resolvedSchoolId) throw new Error('School not found');
 
+      const isEdit = !!editingPerson;
       const res = await fetch('/api/pickup-persons', {
-        method: 'POST',
+        method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          school_id: resolvedSchoolId,
-          name: form.name,
-          relationship: form.relationship,
-          phone: form.phone,
-          photo_url: form.photo_url,
-          student_ids: form.student_ids,
-        }),
+        body: JSON.stringify(
+          isEdit
+            ? {
+                id: editingPerson.id,
+                school_id: resolvedSchoolId,
+                name: form.name,
+                relationship: form.relationship,
+                phone: form.phone,
+                photo_url: form.photo_url,
+                student_ids: form.student_ids,
+              }
+            : {
+                school_id: resolvedSchoolId,
+                name: form.name,
+                relationship: form.relationship,
+                phone: form.phone,
+                photo_url: form.photo_url,
+                student_ids: form.student_ids,
+              }
+        ),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
-      toast.success('Pickup person added — gate and admin notified');
+      toast.success(isEdit ? 'Pickup person updated' : 'Pickup person added — gate and admin notified');
       setFormOpen(false);
+      setEditingPerson(null);
       setForm({ name: '', relationship: '', phone: '', student_ids: [], photo_url: '' });
       setPhotoPreview('');
       load();
@@ -145,6 +164,26 @@ export default function PickupPersonsManager({
       toast.error(e.message || 'Save failed');
     }
     setSaving(false);
+  };
+
+  const openEdit = (person) => {
+    const linkIds = (person.students || [])
+      .map((l) => {
+        const st = l.student;
+        const s = Array.isArray(st) ? st[0] : st;
+        return s?.id;
+      })
+      .filter(Boolean);
+    setEditingPerson(person);
+    setForm({
+      name: person.name,
+      relationship: person.relationship,
+      phone: person.phone || '',
+      student_ids: linkIds.length ? linkIds : students.map((s) => s.id),
+      photo_url: person.photo_url || '',
+    });
+    setPhotoPreview(person.photo_url ? photoSrc(person.photo_url) : '');
+    setFormOpen(true);
   };
 
   const remove = async (person) => {
@@ -215,9 +254,14 @@ export default function PickupPersonsManager({
               </p>
             </div>
             {mode === 'admin' ? (
-              <button type="button" onClick={() => remove(p)} className="btn-danger p-2 shrink-0" aria-label="Delete">
-                <Trash2 size={16} />
-              </button>
+              <div className="flex gap-1 shrink-0">
+                <button type="button" onClick={() => openEdit(p)} className="btn-secondary p-2 min-h-[44px] min-w-[44px]" aria-label="Edit">
+                  <Pencil size={16} />
+                </button>
+                <button type="button" onClick={() => remove(p)} className="btn-danger p-2 min-h-[44px] min-w-[44px]" aria-label="Delete">
+                  <Trash2 size={16} />
+                </button>
+              </div>
             ) : (
               <span className="text-[10px] text-slate-400 shrink-0 text-right">
                 Removal by school only
@@ -230,8 +274,10 @@ export default function PickupPersonsManager({
       {formOpen && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-5 w-full max-w-md max-h-[90vh] overflow-y-auto shadow-xl">
-            <h3 className="font-bold text-lg mb-3">Add pickup person</h3>
-            <label className="text-xs font-medium text-slate-500 block mb-1">Photo (for gate verification)</label>
+            <h3 className="font-bold text-lg mb-3">{editingPerson ? 'Edit pickup person' : 'Add pickup person'}</h3>
+            <label className="text-xs font-medium text-slate-500 block mb-1">
+              Photo {mode === 'parent' ? '(required for gate verification)' : '(recommended)'}
+            </label>
             <div className="flex items-center gap-3 mb-3">
               {photoPreview || form.photo_url ? (
                 <img src={photoPreview || photoSrc(form.photo_url)} alt="" className="w-16 h-16 rounded-xl object-cover" />
@@ -283,7 +329,7 @@ export default function PickupPersonsManager({
               ))}
             </div>
             <div className="flex gap-2">
-              <button type="button" onClick={() => setFormOpen(false)} className="btn-secondary flex-1">Cancel</button>
+              <button type="button" onClick={() => { setFormOpen(false); setEditingPerson(null); }} className="btn-secondary flex-1">Cancel</button>
               <button type="button" onClick={save} disabled={saving} className="btn-primary flex-1">
                 {saving ? 'Saving…' : 'Save'}
               </button>
