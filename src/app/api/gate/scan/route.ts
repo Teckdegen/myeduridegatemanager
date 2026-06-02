@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
+import { getSessionFromRequest } from '@/lib/session';
+import { canAccessGateOperations } from '@/lib/gate/access';
 import { resolveStudentId } from '@/lib/attendance/resolve-student';
 import { resolveStaffProfile, resolveStaffRoleLabel } from '@/lib/attendance/resolve-staff';
 import {
@@ -17,9 +19,18 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(request: NextRequest) {
   try {
+    const session = getSessionFromRequest(request);
+    if (!session) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
     const { scan_data, school_id } = await request.json();
     if (!scan_data) return NextResponse.json({ error: 'No scan data' }, { status: 400 });
     if (!school_id) return NextResponse.json({ error: 'school_id required' }, { status: 400 });
+
+    if (!canAccessGateOperations(session, school_id)) {
+      return NextResponse.json({ error: 'Gate access required' }, { status: 403 });
+    }
 
     const supabase = getAdminClient();
     const scan = String(scan_data).trim();

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest } from '@/lib/session';
+import { canManageGateSession } from '@/lib/gate/access';
 
 /** Start or end a gate officer scanning session (links attendance to gate_sessions). */
 export async function POST(request: NextRequest) {
@@ -34,6 +35,10 @@ export async function POST(request: NextRequest) {
 
     if (!school_id) {
       return NextResponse.json({ error: 'school_id required' }, { status: 400 });
+    }
+
+    if (!canManageGateSession(session, school_id)) {
+      return NextResponse.json({ error: 'Gate officer access required' }, { status: 403 });
     }
 
     if (!['arrival', 'dismissal'].includes(mode)) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
-import { getSessionFromRequest } from '@/lib/session';
+import { getSessionFromRequest, sessionHasRole } from '@/lib/session';
+import { assertTeacherStudentAccess } from '@/lib/attendance/teacher-access';
 import { todayInLagos } from '@/lib/timezone';
 
 export const dynamic = 'force-dynamic';

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
-import { getSessionFromRequest } from '@/lib/session';
+import { getSessionFromRequest, sessionHasRole } from '@/lib/session';
+import { canAccessGateOperations } from '@/lib/gate/access';
 import { notifyParentsOfAttendance } from '@/lib/notifications/parent-notify';
 import {
   isLateAtTimestamp,
@@ -20,6 +21,10 @@ import {
 export async function POST(request: NextRequest) {
   try {
     const session = getSessionFromRequest(request);
+    if (!session) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
     const body = await request.json();
     const {
       student_id,
@@ -30,7 +35,6 @@ export async function POST(request: NextRequest) {
       staff_profile_id,
       user_id,
       gate_session_id,
-      from_ready_queue,
     } = body;
 
     const supabase = getAdminClient();
@@ -48,22 +52,30 @@ export async function POST(request: NextRequest) {
     const isLate = type === 'arrival' && isLateByThreshold(lateThreshold);
     const minutesLate = isLate ? minutesAfterThreshold(lateThreshold) : null;
 
-    const verifiedBy = session?.user_id || null;
-    const isAdminScan = session?.roles.some((r) => r.role === 'school_admin') ?? false;
+    const verifiedBy = session.user_id;
+    const isAdminScan = session.roles.some(
+      (r) => r.role === 'school_admin' || r.role === 'super_admin'
+    );
 
     // Staff clock-in/out
     if (person_type === 'staff' && staff_profile_id && user_id) {
-      let schoolId = bodySchoolId;
-      if (!schoolId) {
-        const { data: profile } = await supabase
-          .from('teacher_profiles')
-          .select('school_id')
-          .eq('id', staff_profile_id)
-          .single();
-        schoolId = profile?.school_id;
-      }
+      const { data: profile } = await supabase
+        .from('teacher_profiles')
+        .select('school_id, user_id')
+        .eq('id', staff_profile_id)
+        .single();
+
+      const schoolId = bodySchoolId || profile?.school_id;
       if (!schoolId) {
         return NextResponse.json({ error: 'school_id required for staff attendance' }, { status: 400 });
+      }
+
+      if (!canAccessGateOperations(session, schoolId)) {
+        return NextResponse.json({ error: 'Gate access required' }, { status: 403 });
+      }
+
+      if (!profile || profile.user_id !== user_id || profile.school_id !== schoolId) {
+        return NextResponse.json({ error: 'Invalid staff profile for this school' }, { status: 403 });
       }
 
       const staffType = type === 'departure' ? 'clock_out' : 'clock_in';
@@ -171,6 +183,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Student does not belong to this school' }, { status: 400 });
     }
 
+    if (!canAccessGateOperations(session, schoolId)) {
+      return NextResponse.json({ error: 'Gate access required' }, { status: 403 });
+    }
+
     const studentToday = await getStudentTodayStatus(supabase, schoolId, student_id);
     const validation = validateStudentGateAction(studentToday, type);
     if (!validation.allowed) {
@@ -189,22 +205,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (type === 'departure' && !from_ready_queue) {
-      const today = todayInLagos();
-      const { data: readyReq } = await supabase
-        .from('dismissal_requests')
-        .select('id')
-        .eq('student_id', student_id)
-        .eq('school_id', schoolId)
-        .eq('dismissal_date', today)
-        .in('status', ['pending', 'approved'])
-        .maybeSingle();
-
-      if (!readyReq) {
-        return NextResponse.json(
-          { error: 'Release only from Ready for Pickup list — teacher must mark student ready first' },
-          { status: 403 }
+    if (type === 'departure') {
+      const isAdminBypass =
+        sessionHasRole(session, 'super_admin') ||
+        session.roles.some(
+          (r) => r.school_id === schoolId && r.role === 'school_admin'
         );
+
+      if (!isAdminBypass) {
+        const today = todayInLagos();
+        const { data: readyReq } = await supabase
+          .from('dismissal_requests')
+          .select('id')
+          .eq('student_id', student_id)
+          .eq('school_id', schoolId)
+          .eq('dismissal_date', today)
+          .in('status', ['pending', 'approved'])
+          .maybeSingle();
+
+        if (!readyReq) {
+          return NextResponse.json(
+            { error: 'Release only from Ready for Pickup list — teacher must mark student ready first' },
+            { status: 403 }
+          );
+        }
       }
     }
 

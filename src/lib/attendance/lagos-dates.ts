@@ -17,7 +17,7 @@ export function addDaysToLagosDate(dateStr: string, days: number): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: APP_TIMEZONE }).format(d);
 }
 
-function getLagosWeekday(dateStr: string): number {
+export function getLagosWeekday(dateStr: string): number {
   const d = new Date(`${dateStr}T12:00:00+01:00`);
   const wd = new Intl.DateTimeFormat('en-US', { timeZone: APP_TIMEZONE, weekday: 'short' }).format(d);
   const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
@@ -117,7 +117,14 @@ export function resolveLagosReportRange(
 }
 
 /** Weekday 0=Sun … 6=Sat for a Lagos calendar date string. */
+export function isLagosWeekend(
+  dateStr: string,
+  weekendDays: ReadonlySet<number> = new Set([0, 6])
+): boolean {
+  return weekendDays.has(getLagosWeekday(dateStr));
+}
+
+/** Default Sat/Sun weekend check (Lagos). */
 export function lagosWeekend(dateStr: string): boolean {
-  const wd = getLagosWeekday(dateStr);
-  return wd === 0 || wd === 6;
+  return isLagosWeekend(dateStr);
 }
