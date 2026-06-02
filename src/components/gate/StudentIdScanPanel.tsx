@@ -6,6 +6,7 @@ import { Camera, ScanLine } from 'lucide-react';
 import { toast } from 'sonner';
 import StudentAvatar from '@/components/shared/StudentAvatar';
 import TodayScanStatusBanner from '@/components/gate/TodayScanStatusBanner';
+import StudentPickupVerify from '@/components/pickup/StudentPickupVerify';
 import { applyScanHints, isActionBlocked } from '@/lib/gate/scan-hints-client';
 
 function splitName(fullName) {
@@ -13,13 +14,30 @@ function splitName(fullName) {
   return { first: parts[0] || '', last: parts.slice(1).join(' ') || '' };
 }
 
+function pickupFromScan(data) {
+  return {
+    pickupNotice: data.pickup_notice || data.pickup_context?.pickup_notice || null,
+    pickupRequest: data.pickup_request || data.pickup_context?.pickup_request || null,
+    pickupPersons: data.pickup_persons || data.pickup_context?.pickup_persons || [],
+    readyForPickup: !!data.ready_for_pickup,
+  };
+}
+
 /** Student check-in/out via ID card (admin or gate — same API as gate manager). */
-export default function StudentIdScanPanel({ schoolId, mode = 'arrival', onModeChange, onSuccess }) {
+export default function StudentIdScanPanel({
+  schoolId,
+  mode = 'arrival',
+  onModeChange,
+  onSuccess,
+  initialStudent = null,
+  fromReadyQueue = false,
+}) {
   const [manualCode, setManualCode] = useState('');
   const [scanned, setScanned] = useState(null);
   const [saving, setSaving] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [facingMode, setFacingMode] = useState('environment');
+  const [releaseFromQueue, setReleaseFromQueue] = useState(fromReadyQueue);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const scanIntervalRef = useRef(null);
@@ -79,9 +97,21 @@ export default function StudentIdScanPanel({ schoolId, mode = 'arrival', onModeC
   };
 
   useEffect(() => {
-    if (!scanned) startCamera();
+    if (initialStudent?.id && schoolId) {
+      const code = initialStudent.qr_code_data || initialStudent.student_id_number;
+      if (code) {
+        onModeChange?.('departure');
+        setReleaseFromQueue(!!fromReadyQueue);
+        lookupScan(code);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialStudent?.id, schoolId]);
+
+  useEffect(() => {
+    if (!scanned && !initialStudent) startCamera();
     return () => stopCamera();
-  }, [scanned, schoolId]);
+  }, [scanned, schoolId, initialStudent]);
 
   const lookupScan = async (code) => {
     const value = (code || manualCode).trim();
@@ -118,23 +148,42 @@ export default function StudentIdScanPanel({ schoolId, mode = 'arrival', onModeC
   const gateAction = mode === 'arrival' ? 'arrival' : 'departure';
   const block = isActionBlocked(scanned?.today_status, gateAction, false);
   const fullyComplete = scanned?.scan_hints?.already_complete;
+  const pickup = scanned ? pickupFromScan(scanned) : null;
 
   const confirmScan = async () => {
     if (!scanned?.person || saving || block.blocked || fullyComplete) return;
 
     setSaving(true);
     try {
+      const body = {
+        school_id: schoolId,
+        student_id: scanned.person.id,
+        type: mode === 'arrival' ? 'arrival' : 'departure',
+        verification_method: 'id_card_scan',
+        person_type: 'student',
+      };
+
+      if (mode === 'departure') {
+        body.from_ready_queue = releaseFromQueue || pickup?.readyForPickup;
+        const notice = pickup?.pickupNotice;
+        const request = pickup?.pickupRequest;
+        if (notice?.pickup_person_name) {
+          body.pickup_person_name = notice.pickup_person_name;
+          body.pickup_person_phone = notice.pickup_person_phone;
+        } else if (request?.pickup_person_name) {
+          body.pickup_person_name = request.pickup_person_name;
+          body.pickup_person_phone = request.pickup_person_phone;
+        } else if (pickup?.pickupPersons?.[0]?.name) {
+          body.pickup_person_name = pickup.pickupPersons[0].name;
+          body.pickup_person_phone = pickup.pickupPersons[0].phone;
+        }
+      }
+
       const res = await fetch('/api/gate/accept', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          school_id: schoolId,
-          student_id: scanned.person.id,
-          type: mode === 'arrival' ? 'arrival' : 'departure',
-          verification_method: 'id_card_scan',
-          person_type: 'student',
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -154,10 +203,11 @@ export default function StudentIdScanPanel({ schoolId, mode = 'arrival', onModeC
         throw new Error(data.error || 'Could not save');
       }
       toast.success(
-        `${scanned.person.name} — ${mode === 'arrival' ? 'checked in' : 'checked out'} (ID scan)`
+        `${scanned.person.name} — ${mode === 'arrival' ? 'checked in' : 'released'} (ID scan)`
       );
       setScanned(null);
       setManualCode('');
+      setReleaseFromQueue(false);
       onSuccess?.();
       startCamera();
     } catch (e) {
@@ -184,52 +234,66 @@ export default function StudentIdScanPanel({ schoolId, mode = 'arrival', onModeC
             {scanned.person.class_name && (
               <p className="text-xs text-slate-400">{scanned.person.class_name}</p>
             )}
+          </div>
         </div>
-      </div>
-      <TodayScanStatusBanner todayStatus={scanned.today_status} />
-      {block.message && (
-        <p className="text-sm font-semibold text-red-700 bg-red-50 border border-red-100 rounded-xl px-3 py-2 text-center">
-          {block.message}
-        </p>
-      )}
-      <p className="text-center text-sm font-bold py-2 rounded-xl bg-emerald-50 text-emerald-800">
-        {mode === 'arrival' ? 'STUDENT CHECK IN' : 'STUDENT CHECK OUT'}
-      </p>
-      <div className="flex gap-2">
-        <button
-          type="button"
-          className="btn-secondary flex-1"
-          onClick={() => {
-            setScanned(null);
-            setManualCode('');
-            startCamera();
-          }}
+        <TodayScanStatusBanner todayStatus={scanned.today_status} />
+        {block.message && (
+          <p className="text-sm font-semibold text-red-700 bg-red-50 border border-red-100 rounded-xl px-3 py-2 text-center">
+            {block.message}
+          </p>
+        )}
+        {mode === 'departure' && pickup && (
+          <StudentPickupVerify
+            pickupNotice={pickup.pickupNotice}
+            pickupRequest={pickup.pickupRequest}
+            pickupPersons={pickup.pickupPersons}
+            readyForPickup={pickup.readyForPickup || releaseFromQueue}
+          />
+        )}
+        <p
+          className={`text-center text-sm font-bold py-2 rounded-xl ${
+            mode === 'arrival' ? 'bg-emerald-50 text-emerald-800' : 'bg-orange-50 text-orange-800'
+          }`}
         >
-          Cancel
-        </button>
-        {!fullyComplete ? (
+          {mode === 'arrival' ? 'STUDENT CHECK IN' : 'STUDENT CHECK OUT / RELEASE'}
+        </p>
+        <div className="flex gap-2">
           <button
             type="button"
-            className="btn-primary flex-1"
-            disabled={saving || block.blocked}
-            onClick={confirmScan}
-          >
-            {saving ? 'Saving…' : 'Confirm scan'}
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="btn-primary flex-1"
+            className="btn-secondary flex-1"
             onClick={() => {
               setScanned(null);
               setManualCode('');
+              setReleaseFromQueue(false);
               startCamera();
             }}
           >
-            Done
+            Cancel
           </button>
-        )}
-      </div>
+          {!fullyComplete ? (
+            <button
+              type="button"
+              className="btn-primary flex-1"
+              disabled={saving || block.blocked}
+              onClick={confirmScan}
+            >
+              {saving ? 'Saving…' : mode === 'departure' ? 'Confirm release' : 'Confirm scan'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn-primary flex-1"
+              onClick={() => {
+                setScanned(null);
+                setManualCode('');
+                setReleaseFromQueue(false);
+                startCamera();
+              }}
+            >
+              Done
+            </button>
+          )}
+        </div>
       </div>
     );
   }

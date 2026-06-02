@@ -22,93 +22,13 @@ import GateActivitiesReport from '@/components/gate/GateActivitiesReport';
 import TodayScanStatusBanner from '@/components/gate/TodayScanStatusBanner';
 import { applyScanHints, isActionBlocked } from '@/lib/gate/scan-hints-client';
 import { toast } from 'sonner';
-import { formatTimeLagos } from '@/lib/timezone';
 import { photoSrc } from '@/lib/photo';
-import PickupPersonBadge from '@/components/pickup/PickupPersonBadge';
-
-function queueStudent(item) {
-  const s = item?.student;
-  if (!s) return null;
-  return Array.isArray(s) ? s[0] : s;
-}
+import ReadyForPickupList from '@/components/gate/ReadyForPickupList';
+import StudentPickupVerify from '@/components/pickup/StudentPickupVerify';
 
 function splitName(fullName) {
   const parts = (fullName || '').trim().split(/\s+/).filter(Boolean);
   return { first: parts[0] || '', last: parts.slice(1).join(' ') || '' };
-}
-
-/** Parent daily pickup notice — matches parent app card (name, phone, notes). */
-function ParentPickupNoticeBox({ notice, photoUrl }) {
-  if (!notice?.pickup_person_name) return null;
-  const src = photoUrl ? photoSrc(photoUrl) : null;
-  const noteText = notice.notes?.trim() || notice.message?.trim() || '';
-
-  return (
-    <div className="mb-3 rounded-xl border-2 border-blue-200 bg-blue-50 p-3">
-      <p className="text-sm font-bold text-blue-900 mb-2">Parent pickup notice</p>
-      <div className="flex gap-3 items-start">
-        {src ? (
-          <img src={src} alt="" className="w-14 h-14 rounded-lg object-cover shrink-0 border border-blue-100" />
-        ) : null}
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold text-blue-800">
-            {notice.pickup_person_name}
-            {notice.pickup_person_phone ? (
-              <span className="font-bold"> · {notice.pickup_person_phone}</span>
-            ) : null}
-          </p>
-          {noteText && <p className="text-sm text-blue-700 mt-1">{noteText}</p>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PickupPersonCard({ name, phone, photoUrl, relationship, highlight }) {
-  const src = photoSrc(photoUrl);
-  return (
-    <div
-      className={`flex items-center gap-3 p-3 rounded-xl ${
-        highlight ? 'bg-white/15' : 'bg-white border border-slate-200'
-      }`}
-    >
-      {src ? (
-        <img
-          src={src}
-          alt={name}
-          className="w-20 h-20 rounded-xl object-cover border-2 border-white shrink-0 shadow-sm"
-        />
-      ) : (
-        <div
-          className={`w-20 h-20 rounded-xl shrink-0 flex flex-col items-center justify-center text-[10px] font-bold ${
-            highlight ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
-          }`}
-        >
-          No photo
-        </div>
-      )}
-      <div className="min-w-0 flex-1">
-        <p className={`font-bold truncate ${highlight ? 'text-white text-lg' : 'text-slate-900'}`}>
-          {name || 'Unknown'}
-        </p>
-        {phone && (
-          <p className={`text-sm font-mono ${highlight ? 'text-white/90' : 'text-slate-600'}`}>
-            {phone}
-          </p>
-        )}
-        {!phone && (
-          <p className={`text-xs ${highlight ? 'text-white/80' : 'text-amber-700'}`}>
-            No phone on file — verify identity carefully
-          </p>
-        )}
-        {relationship && (
-          <p className={`text-[10px] mt-0.5 ${highlight ? 'text-white/70' : 'text-slate-500'}`}>
-            {relationship}
-          </p>
-        )}
-      </div>
-    </div>
-  );
 }
 
 export default function GateOfficerDashboard() {
@@ -132,7 +52,6 @@ export default function GateOfficerDashboard() {
   const [pickupRequestsByStudent, setPickupRequestsByStudent] = useState({});
   const [schoolInfo, setSchoolInfo] = useState({ name: '', logo_url: '', primary_color: '#1B4D3E' });
   const [studentSearch, setStudentSearch] = useState('');
-  const [readyPickupSearch, setReadyPickupSearch] = useState('');
   const [gateDay, setGateDay] = useState({ gate_open: true, label: null, has_override: false });
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -210,12 +129,11 @@ export default function GateOfficerDashboard() {
   }, []);
 
   useEffect(() => {
-    if (!schoolId) return;
+    if (!schoolId) return undefined;
     loadGateData();
-    if (!sessionActive) return undefined;
     const poll = setInterval(loadGateData, 15000);
     return () => clearInterval(poll);
-  }, [sessionActive, schoolId, loadGateData]);
+  }, [schoolId, loadGateData]);
 
   useEffect(() => {
     if (sessionActive && gateTab === 'scan' && !scannedPerson) {
@@ -353,6 +271,10 @@ export default function GateOfficerDashboard() {
         const enriched = { ...data };
         if (data.type === 'student') {
           Object.assign(enriched, attachPickupContext(data.person.id));
+          if (data.pickup_notice) enriched.pickup_notice = data.pickup_notice;
+          if (data.pickup_request) enriched.pickup_request = data.pickup_request;
+          if (data.pickup_persons?.length) enriched.pickup_persons = data.pickup_persons;
+          if (data.ready_for_pickup) enriched.from_queue = true;
         }
         applyScanHints(data, { toast, setMode: setGateMode });
         setScannedPerson(enriched);
@@ -536,17 +458,6 @@ export default function GateOfficerDashboard() {
     return `${s.first_name} ${s.last_name} ${s.student_id_number} ${s.class?.name || ''}`.toLowerCase().includes(q);
   });
 
-  const filteredPickupQueue = pickupQueue.filter((item) => {
-    const s = queueStudent(item);
-    if (!s) return false;
-    const q = readyPickupSearch.toLowerCase();
-    if (!q) return true;
-    const pickupName = item.pickup_person_name || '';
-    return `${s.first_name} ${s.last_name} ${s.student_id_number} ${s.class?.name || ''} ${pickupName}`
-      .toLowerCase()
-      .includes(q);
-  });
-
   const scanActionMode = gateMode === 'arrival' ? 'arrival' : 'departure';
 
   const gateBlock = isActionBlocked(
@@ -655,45 +566,12 @@ export default function GateOfficerDashboard() {
         </p>
       )}
       {isStudentCheckout && (
-        <div className="mb-4 p-4 rounded-2xl border-2 border-orange-200 bg-orange-50/80">
-          <p className="text-xs font-bold text-orange-900 uppercase tracking-wide mb-3">
-            Verify pickup person before release
-          </p>
-          {scannedPerson.pickup_notice && (
-            <ParentPickupNoticeBox
-              notice={scannedPerson.pickup_notice}
-              photoUrl={scannedPerson.pickup_notice.pickup_person_photo}
-            />
-          )}
-          {scannedPerson.pickup_request && !scannedPerson.pickup_notice && (
-            <div className="mb-3">
-              <ParentPickupNoticeBox
-                notice={{
-                  pickup_person_name: scannedPerson.pickup_request.pickup_person_name,
-                  pickup_person_phone: scannedPerson.pickup_request.pickup_person_phone,
-                  notes: scannedPerson.pickup_request.message,
-                }}
-                photoUrl={scannedPerson.pickup_request.pickup_person_photo}
-              />
-            </div>
-          )}
-          {scannedPerson.pickup_persons?.length > 0 ? (
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-slate-700">Authorised on file</p>
-              {scannedPerson.pickup_persons.map((pp) => (
-                <PickupPersonCard
-                  key={pp.id}
-                  name={pp.name}
-                  phone={pp.phone}
-                  photoUrl={pp.photo_url}
-                  relationship={pp.relationship}
-                />
-              ))}
-            </div>
-          ) : !scannedPerson.pickup_notice && !scannedPerson.pickup_request && (
-            <p className="text-sm text-orange-800">No parent pickup notice today — confirm with parent or office.</p>
-          )}
-        </div>
+        <StudentPickupVerify
+          pickupNotice={scannedPerson.pickup_notice}
+          pickupRequest={scannedPerson.pickup_request}
+          pickupPersons={scannedPerson.pickup_persons || []}
+          readyForPickup={!!scannedPerson.from_queue}
+        />
       )}
       {scannedPerson.from_queue && !fullyComplete && (
         <p className="text-xs font-semibold text-orange-700 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2 mb-4">
@@ -737,35 +615,6 @@ export default function GateOfficerDashboard() {
     </div>
   );
 
-  if (!sessionActive) {
-    return (
-      <div className="min-h-screen flex items-center justify-center px-4 pt-14 pb-8">
-        <div className="w-full max-w-sm">
-          <div className="hero-banner text-center mb-6">
-            <ScanLine className="mx-auto mb-2 opacity-90" size={32} />
-            <h1 className="text-2xl font-bold">Gate Manager</h1>
-            <p className="text-white/80 font-mono text-lg mt-1">{currentTime ? currentTime.toLocaleTimeString() : '--:--'}</p>
-          </div>
-          <div className="card-elevated p-5 space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <button type="button" onClick={() => setGateMode('arrival')} className={`p-4 rounded-2xl border-2 ${gateMode === 'arrival' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}`}>
-                <LogIn className="mx-auto mb-2 text-emerald-600" size={26} />
-                <span className="block text-sm font-semibold">Arrival</span>
-              </button>
-              <button type="button" onClick={() => setGateMode('dismissal')} className={`p-4 rounded-2xl border-2 ${gateMode === 'dismissal' ? 'border-orange-500 bg-orange-50' : 'border-slate-200'}`}>
-                <LogOut className="mx-auto mb-2 text-orange-600" size={26} />
-                <span className="block text-sm font-semibold">Dismissal</span>
-              </button>
-            </div>
-            <button type="button" onClick={handleStartSession} disabled={!schoolReady} className="btn-primary w-full py-3.5 disabled:opacity-50">
-              {schoolReady ? 'Start gate session' : 'Loading…'}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen flex flex-col pt-12 pb-6">
       <header className="px-4 py-2 max-w-lg mx-auto w-full flex items-center justify-between gap-2">
@@ -785,10 +634,25 @@ export default function GateOfficerDashboard() {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-sm font-bold">{todayCount} scans</span>
-          <button type="button" onClick={handleEndSession} className="btn-danger text-xs px-3 py-2">End</button>
+          {sessionActive && <span className="text-sm font-bold">{todayCount} scans</span>}
+          {sessionActive ? (
+            <button type="button" onClick={handleEndSession} className="btn-danger text-xs px-3 py-2">End</button>
+          ) : (
+            <button type="button" onClick={handleStartSession} disabled={!schoolReady} className="btn-primary text-xs px-3 py-2">
+              Start scan
+            </button>
+          )}
         </div>
       </header>
+
+      {!sessionActive && (
+        <div className="mx-4 max-w-lg mx-auto w-full mb-3 rounded-xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-900">
+          <p className="font-semibold">Ready-for-pickup list is live</p>
+          <p className="text-xs mt-0.5 text-primary-800">
+            View the Ready tab anytime. Start a scan session when you are ready to check in/out at the gate.
+          </p>
+        </div>
+      )}
 
       {!gateDay.gate_open && (
         <div className="mx-4 max-w-lg mb-3 rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -820,7 +684,26 @@ export default function GateOfficerDashboard() {
       <main className="flex-1 px-4 max-w-lg mx-auto w-full overflow-y-auto">
         {scannedPerson && gateTab === 'scan' && renderAcceptCard()}
 
-        {gateTab === 'scan' && !scannedPerson && (
+        {gateTab === 'scan' && !scannedPerson && !sessionActive && (
+          <div className="card-elevated p-5 space-y-4 mb-4">
+            <p className="text-sm font-semibold text-slate-800 text-center">Start gate session to scan</p>
+            <div className="grid grid-cols-2 gap-3">
+              <button type="button" onClick={() => setGateMode('arrival')} className={`p-4 rounded-2xl border-2 ${gateMode === 'arrival' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}`}>
+                <LogIn className="mx-auto mb-2 text-emerald-600" size={26} />
+                <span className="block text-sm font-semibold">Arrival</span>
+              </button>
+              <button type="button" onClick={() => setGateMode('dismissal')} className={`p-4 rounded-2xl border-2 ${gateMode === 'dismissal' ? 'border-orange-500 bg-orange-50' : 'border-slate-200'}`}>
+                <LogOut className="mx-auto mb-2 text-orange-600" size={26} />
+                <span className="block text-sm font-semibold">Dismissal</span>
+              </button>
+            </div>
+            <button type="button" onClick={handleStartSession} disabled={!schoolReady} className="btn-primary w-full py-3.5 disabled:opacity-50">
+              {schoolReady ? 'Start gate session' : 'Loading…'}
+            </button>
+          </div>
+        )}
+
+        {gateTab === 'scan' && !scannedPerson && sessionActive && (
           <>
             <div className="aspect-[4/3] bg-slate-900 rounded-3xl overflow-hidden relative mb-3 shadow-lg">
               <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />
@@ -837,50 +720,13 @@ export default function GateOfficerDashboard() {
           </>
         )}
 
-        {gateTab === 'pickup' && !scannedPerson && (
-          <div className="space-y-2 pb-4">
-            <h2 className="text-sm font-bold text-slate-800">Ready for Pickup – Awaiting Release</h2>
-            <p className="text-xs text-slate-500 mb-2">Only students marked ready by teachers. Release is recorded at server time (WAT).</p>
-            <div className="relative mb-2">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-              <input
-                type="search"
-                value={readyPickupSearch}
-                onChange={(e) => setReadyPickupSearch(e.target.value)}
-                placeholder="Search name, class, or ID…"
-                className="input pl-9 min-h-[44px]"
-              />
-            </div>
-            {pickupQueue.length === 0 ? (
-              <div className="card text-center py-10 text-slate-400 text-sm">No students waiting for pickup</div>
-            ) : filteredPickupQueue.length === 0 ? (
-              <div className="card text-center py-8 text-slate-400 text-sm">No matches for your search</div>
-            ) : (
-              filteredPickupQueue.map((item) => {
-                const s = queueStudent(item);
-                if (!s) return null;
-                return (
-                  <div key={item.id} className="card-elevated p-3 flex items-center gap-3">
-                    <StudentAvatar photoUrl={s.photo_url} firstName={s.first_name} lastName={s.last_name} size="sm" />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-base truncate">{s.first_name} {s.last_name}</p>
-                      <p className="text-sm font-medium text-primary-700">{s.class?.name || 'No class'}</p>
-                      <p className="text-xs text-slate-500 font-mono">{s.student_id_number}</p>
-                      <p className="text-xs text-slate-400">Ready {formatTimeLagos(item.created_at)}</p>
-                      <PickupPersonBadge
-                        name={item.pickup_person_name}
-                        phone={item.pickup_person_phone}
-                        source={item.pickup_source}
-                        persons={item.authorised_pickup_persons || []}
-                      />
-                    </div>
-                    <button type="button" onClick={() => openStudentForRelease(s, true)} className="btn-primary text-xs px-3 py-2 shrink-0">
-                      Release
-                    </button>
-                  </div>
-                );
-              })
-            )}
+        {gateTab === 'pickup' && !scannedPerson && schoolId && (
+          <div className="pb-4">
+            <ReadyForPickupList
+              schoolId={schoolId}
+              onRelease={(student) => openStudentForRelease(student, true)}
+              showReleaseButton
+            />
           </div>
         )}
 

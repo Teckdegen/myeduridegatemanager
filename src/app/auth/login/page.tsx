@@ -158,7 +158,7 @@ export default function LoginPage() {
 
         <p className="text-center text-sm text-white/80 mt-4">
           <a href="/auth/register-school" className="underline hover:text-white">
-            Register your school
+            Register your school — instant setup
           </a>
         </p>
         <p className="text-center text-xs text-white/60 mt-2">MyEduRide — The Student Safety Platform</p>

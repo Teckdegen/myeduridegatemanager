@@ -11,6 +11,7 @@ const LOGO_URL = 'https://www.image2url.com/r2/default/images/1779230378321-292c
 export default function RegisterSchoolPage() {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [registeredUsername, setRegisteredUsername] = useState('');
   const [form, setForm] = useState({
     name: '',
     address: '',
@@ -40,8 +41,9 @@ export default function RegisterSchoolPage() {
         toast.error(data.error || 'Registration failed');
         return;
       }
+      setRegisteredUsername(data.admin_username || form.admin_username);
       setSubmitted(true);
-      toast.success(data.message || 'Registration submitted');
+      toast.success(data.message || 'School registered');
     } catch {
       toast.error('Registration failed');
     }
@@ -53,12 +55,22 @@ export default function RegisterSchoolPage() {
       <div className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-primary-900 to-primary-700">
         <div className="bg-white rounded-2xl p-8 max-w-md w-full text-center shadow-xl">
           <CheckCircle size={48} className="text-green-600 mx-auto mb-4" />
-          <h1 className="text-xl font-bold text-slate-900 mb-2">Registration received</h1>
-          <p className="text-sm text-slate-600 mb-6">
-            We will review your school details. You can sign in after a platform administrator approves your account.
+          <h1 className="text-xl font-bold text-slate-900 mb-2">Your school is ready</h1>
+          <p className="text-sm text-slate-600 mb-2">
+            Account created and activated — no waiting for approval.
           </p>
-          <Link href="/auth/login" className="btn-primary inline-block">
-            Back to sign in
+          {registeredUsername && (
+            <p className="text-sm text-slate-700 mb-4">
+              Sign in with username <strong className="font-mono">{registeredUsername}</strong> and the password you set.
+            </p>
+          )}
+          {form.admin_email && (
+            <p className="text-xs text-slate-500 mb-4">
+              A confirmation was sent to {form.admin_email}.
+            </p>
+          )}
+          <Link href="/auth/login" className="btn-primary inline-block w-full py-3">
+            Sign in now
           </Link>
         </div>
       </div>
@@ -72,7 +84,7 @@ export default function RegisterSchoolPage() {
           <img src={LOGO_URL} alt="MyEduRide" className="h-10 mx-auto mb-3" />
           <h1 className="text-2xl font-bold text-white">Register your school</h1>
           <p className="text-sm text-white/70 mt-1">
-            Create your account — we will approve and activate your school
+            Fill in your details — your school is activated instantly, like adding a student
           </p>
         </div>
 
@@ -135,6 +147,7 @@ export default function RegisterSchoolPage() {
                   className="input"
                   value={form.admin_email}
                   onChange={(e) => setForm((f) => ({ ...f, admin_email: e.target.value }))}
+                  placeholder="Optional — we send setup confirmation here"
                 />
               </div>
               <div>
@@ -156,7 +169,7 @@ export default function RegisterSchoolPage() {
           </div>
 
           <button type="submit" disabled={loading} className="btn-primary w-full py-3">
-            {loading ? 'Submitting…' : 'Submit for approval'}
+            {loading ? 'Creating your school…' : 'Create school account'}
           </button>
 
           <p className="text-center text-xs text-slate-500">

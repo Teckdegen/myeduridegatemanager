@@ -13,6 +13,7 @@ import {
 import { fetchStudentPickupContext } from '@/lib/gate/student-pickup-context';
 import { getGateDayStatus } from '@/lib/gate/school-day-gate';
 import { sessionHasRole } from '@/lib/session';
+import { todayInLagos } from '@/lib/timezone';
 
 export const dynamic = 'force-dynamic';
 
@@ -78,6 +79,16 @@ export async function POST(request: NextRequest) {
       const checkIn = validateStudentGateAction(today, 'arrival');
       const checkOut = validateStudentGateAction(today, 'departure');
       const pickup_context = await fetchStudentPickupContext(supabase, school_id, studentId);
+      const day = todayInLagos();
+
+      const { data: readyReq } = await supabase
+        .from('dismissal_requests')
+        .select('id')
+        .eq('student_id', studentId)
+        .eq('school_id', school_id)
+        .eq('dismissal_date', day)
+        .in('status', ['pending', 'approved'])
+        .maybeSingle();
 
       return NextResponse.json({
         type: 'student',
@@ -90,6 +101,10 @@ export async function POST(request: NextRequest) {
         },
         today_status: today,
         pickup_context,
+        pickup_notice: pickup_context.pickup_notice,
+        pickup_request: pickup_context.pickup_request,
+        pickup_persons: pickup_context.pickup_persons,
+        ready_for_pickup: !!readyReq,
         scan_hints: {
           can_check_in: checkIn.allowed,
           can_check_out: checkOut.allowed,

@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-/** Public — school self-registration (pending approval). */
+/** Public — school self-registration (auto-approved, same as super-admin create). */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
       admin_phone: admin_phone || null,
       admin_email: admin_email || null,
       admin_password,
-      approval_status: 'pending',
+      approval_status: 'approved',
     });
 
     if (!result.ok) {
@@ -56,18 +56,21 @@ export async function POST(request: NextRequest) {
       ? admin_email.toLowerCase().trim()
       : null;
 
-    if (normalizedEmail) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || '';
+
+    if (normalizedEmail && process.env.RESEND_API_KEY) {
       try {
         await resend.emails.send({
           from: 'MyEduRide <noreply@assetid.site>',
           to: normalizedEmail,
-          subject: `Registration received — ${name.trim()}`,
+          subject: `Welcome — ${name.trim()} is ready on MyEduRide`,
           html: `
           <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
             <p>Hello ${admin_name},</p>
-            <p>Thank you for registering <strong>${name.trim()}</strong> on MyEduRide.</p>
-            <p>Your application is <strong>pending approval</strong>. You will receive another email when you can sign in and complete setup.</p>
+            <p>Your school <strong>${name.trim()}</strong> is registered and active on MyEduRide.</p>
             <p><strong>Username:</strong> ${result.admin_username}</p>
+            <p>Sign in with the password you chose and complete the setup wizard (classes, staff, students).</p>
+            ${appUrl ? `<p><a href="${appUrl}/auth/login">Sign in to MyEduRide</a></p>` : ''}
             <p style="color:#666;font-size:12px;">MyEduRide — The Student Safety Platform</p>
           </div>
         `,
@@ -79,11 +82,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      pending: true,
+      approved: true,
       school_id: result.school.id,
       admin_username: result.admin_username,
-      message:
-        'Registration submitted. A platform administrator will review your school. You can sign in after approval.',
+      message: 'Your school is registered. Sign in now to complete setup.',
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Registration failed';
