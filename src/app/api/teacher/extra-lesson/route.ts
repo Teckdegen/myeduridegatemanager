@@ -25,7 +25,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'student_id, school_id, action required' }, { status: 400 });
     }
 
+    const isTeacher = session.roles.some(
+      (r) => r.school_id === school_id && ['teacher', 'school_admin'].includes(r.role)
+    );
+    if (!isTeacher && !sessionHasRole(session, 'super_admin')) {
+      return NextResponse.json({ error: 'Teacher access required' }, { status: 403 });
+    }
+
     const supabase = getAdminClient();
+    const access = await assertTeacherStudentAccess(supabase, session, school_id, student_id);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
+    }
+
     const today = todayInLagos();
 
     if (action === 'add') {
@@ -56,6 +68,7 @@ export async function POST(request: NextRequest) {
         .from('extra_lessons')
         .update({ is_released: true, released_at: new Date().toISOString() })
         .eq('student_id', student_id)
+        .eq('school_id', school_id)
         .eq('date', today);
 
       if (error) {

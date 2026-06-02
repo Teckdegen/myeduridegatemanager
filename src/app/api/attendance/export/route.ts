@@ -5,7 +5,8 @@ import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest } from '@/lib/session';
 import { resolveAttendanceAccess } from '@/lib/attendance/access';
 import { attendanceRecordsToCsv } from '@/lib/attendance/csv';
-import { formatDateKey, getCalendarDayBounds } from '@/lib/attendance/window';
+import { lagosDayBoundsFromDateStr } from '@/lib/attendance/lagos-dates';
+import { todayInLagos } from '@/lib/timezone';
 
 const PAGE_SIZE = 1000;
 
@@ -38,9 +39,8 @@ async function fetchAllAttendance(
     if (opts.studentIds?.length) q = q.in('student_id', opts.studentIds);
 
     if (opts.day) {
-      const d = new Date(`${opts.day}T12:00:00`);
-      const { start, end } = getCalendarDayBounds(d);
-      q = q.gte('timestamp', start.toISOString()).lte('timestamp', end.toISOString());
+      const { startIso, endIso } = lagosDayBoundsFromDateStr(opts.day);
+      q = q.gte('timestamp', startIso).lte('timestamp', endIso);
     } else {
       if (opts.from) q = q.gte('timestamp', opts.from);
       if (opts.to) q = q.lte('timestamp', opts.to);
@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
     };
 
     if (scope === 'day') {
-      fetchOpts.day = day || formatDateKey(new Date());
+      fetchOpts.day = day || todayInLagos();
     } else {
       if (from) fetchOpts.from = from;
       if (to) fetchOpts.to = to;

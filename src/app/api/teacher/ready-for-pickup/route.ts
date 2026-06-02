@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { getSessionFromRequest, sessionHasRole } from '@/lib/session';
+import { assertTeacherStudentAccess } from '@/lib/attendance/teacher-access';
 import { Resend } from 'resend';
 import { sendPushToUser } from '@/lib/push/send';
 import { todayInLagos } from '@/lib/timezone';
@@ -36,6 +37,11 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getAdminClient();
+    const access = await assertTeacherStudentAccess(supabase, session, school_id, student_id);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
+    }
+
     const today = todayInLagos();
 
     // Check if already marked ready today (prevent double-tap)
