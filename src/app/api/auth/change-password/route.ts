@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getAdminClient } from '@/lib/supabase/admin';
+import { resolveAuthUserForProfile, setAuthPasswordForProfile } from '@/lib/auth/update-password';
 import { getSessionFromRequest } from '@/lib/session';
 import { authEmailFromUsername } from '@/lib/auth/username';
 
@@ -70,28 +71,20 @@ export async function POST(request: NextRequest) {
 
     await authClient.auth.signOut();
 
-    const { data: userData } = await supabase.auth.admin.getUserById(session.user_id);
-    const currentMeta = userData.user?.user_metadata || {};
-
-    const { error: updateErr } = await supabase.auth.admin.updateUserById(session.user_id, {
-      password: newPassword,
-      user_metadata: {
-        ...currentMeta,
-        login_password: newPassword,
-      },
-    });
-
-    if (updateErr) {
-      return NextResponse.json({ error: updateErr.message }, { status: 500 });
+    const resolved = await resolveAuthUserForProfile(supabase, session.user_id);
+    if ('error' in resolved) {
+      return NextResponse.json({ error: resolved.error }, { status: 404 });
     }
 
-    await supabase
-      .from('user_profiles')
-      .update({
-        last_password_change_at: new Date().toISOString(),
-        auth_preference: 'password',
-      })
-      .eq('id', session.user_id);
+    const { error: updateErr } = await setAuthPasswordForProfile(
+      supabase,
+      session.user_id,
+      newPassword
+    );
+
+    if (updateErr) {
+      return NextResponse.json({ error: updateErr }, { status: 500 });
+    }
 
     return NextResponse.json({ success: true });
   } catch (err: any) {

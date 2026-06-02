@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
+import { setAuthPasswordForProfile } from '@/lib/auth/update-password';
 import { getSessionFromRequest, sessionHasRole } from '@/lib/session';
 
 export async function POST(request: NextRequest) {
@@ -22,31 +23,14 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = getAdminClient();
-    const { data: userData, error: getErr } = await supabase.auth.admin.getUserById(userId);
-    if (getErr || !userData.user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    const currentMeta = userData.user.user_metadata || {};
-    const { error } = await supabase.auth.admin.updateUserById(userId, {
-      password,
-      user_metadata: {
-        ...currentMeta,
-        login_password: password,
-      },
+    const { error } = await setAuthPasswordForProfile(supabase, userId, password, {
+      createAuthIfMissing: true,
     });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      const status = error === 'User not found' ? 404 : 500;
+      return NextResponse.json({ error }, { status });
     }
-
-    await supabase
-      .from('user_profiles')
-      .update({
-        last_password_change_at: new Date().toISOString(),
-        auth_preference: 'password',
-      })
-      .eq('id', userId);
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
