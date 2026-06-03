@@ -98,33 +98,55 @@ export async function fetchStudentParentCredentials(
 
   if (opts?.repairMissingParents) {
     for (const student of students) {
-      const hasLink = parentLinks.some((l) => l.student_id === student.id);
-      if (hasLink) continue;
-
       const onFile = parentInfoFromCustomFields(
         student.custom_fields as Record<string, string> | null
       );
-      if (!onFile.parent_name) continue;
+      const existingLinks = parentLinks.filter((l) => l.student_id === student.id);
+      const primaryLink =
+        existingLinks.find((l) => l.is_primary) || existingLinks[0] || null;
+
+      let needsProvision = !primaryLink && !!onFile.parent_name;
+      if (primaryLink) {
+        let profile = profileById.get(primaryLink.parent_user_id);
+        if (!profile) {
+          const fetched = await fetchProfilesByIds(supabase, [primaryLink.parent_user_id]);
+          profile = fetched.get(primaryLink.parent_user_id);
+          if (profile) profileById.set(primaryLink.parent_user_id, profile);
+        }
+        if (!profile?.username?.trim()) {
+          needsProvision = true;
+        }
+      }
+
+      if (!needsProvision) continue;
+
+      const parentName =
+        onFile.parent_name ||
+        profileById.get(primaryLink?.parent_user_id || '')?.full_name ||
+        '';
+      if (!parentName) continue;
 
       const result = await provisionParentForStudent(supabase, {
         student_id: student.id,
         school_id: schoolId,
-        parent_name: onFile.parent_name,
+        parent_name: parentName,
         parent_email: onFile.parent_email,
         parent_phone: onFile.parent_phone,
         relationship: onFile.relationship,
       });
 
       if ('parent_user_id' in result) {
-        parentLinks.push({
-          student_id: student.id,
-          parent_user_id: result.parent_user_id,
-          is_primary: true,
-        });
+        if (!existingLinks.some((l) => l.parent_user_id === result.parent_user_id)) {
+          parentLinks.push({
+            student_id: student.id,
+            parent_user_id: result.parent_user_id,
+            is_primary: true,
+          });
+        }
         profileById.set(result.parent_user_id, {
           id: result.parent_user_id,
           username: result.parent_username,
-          full_name: onFile.parent_name,
+          full_name: parentName,
         });
         authById.set(result.parent_user_id, result.password);
       }
@@ -170,7 +192,7 @@ export async function fetchStudentParentCredentials(
       parentUserId = primary.parent_user_id;
       const profile = profileById.get(parentUserId);
       parentName = profile?.full_name || onFile.parent_name;
-      parentUsername = profile?.username || '';
+      parentUsername = profile?.username?.trim() || '';
       password = authById.get(parentUserId) || '';
     }
 
@@ -187,7 +209,9 @@ export async function fetchStudentParentCredentials(
       parent_phone: onFile.parent_phone,
       authorised_pickup_persons: authorised,
       primary_pickup_person: authorised[0]?.name || null,
-      needs_parent_account: !parentUserId && !!onFile.parent_name,
+      needs_parent_account:
+        (!parentUserId && !!onFile.parent_name) ||
+        (!!parentUserId && !parentUsername),
     });
   }
 

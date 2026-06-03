@@ -110,6 +110,9 @@ export function StudentParentCredentialRows({
                   {!hasParent && row.needs_parent_account && (
                     <p className="text-xs text-amber-700 mt-0.5">Login not created yet</p>
                   )}
+                  {hasParent && !row.parent_username && (
+                    <p className="text-xs text-amber-700 mt-0.5">Username missing — click Create login</p>
+                  )}
                 </div>
               ) : (
                 <span className="text-amber-700 text-xs">No parent on file</span>
@@ -119,7 +122,15 @@ export function StudentParentCredentialRows({
               <PickupCell persons={persons} primary={row.primary_pickup_person || null} />
             </td>
             <td className="py-3 pr-4 font-mono text-xs">
-              {hasParent ? row.parent_username || '—' : '—'}
+              {hasParent ? (
+                row.parent_username ? (
+                  <span className="font-semibold text-gray-900">{row.parent_username}</span>
+                ) : (
+                  <span className="text-amber-700">Missing — use Create login</span>
+                )
+              ) : (
+                '—'
+              )}
             </td>
             <td className="py-3 pr-3 min-w-[160px]">
               <input
@@ -160,7 +171,7 @@ export function StudentParentCredentialRows({
                 >
                   <Copy size={14} />
                 </button>
-                {hasParent ? (
+                {hasParent && row.parent_username ? (
                   <button
                     type="button"
                     onClick={() => onSave(row.parent_user_id!)}

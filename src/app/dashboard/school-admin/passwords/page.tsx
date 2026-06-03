@@ -44,6 +44,139 @@ function formatRole(role: string) {
   return role.replace(/_/g, ' ');
 }
 
+type AccountTab = 'staff' | 'parents' | 'students';
+
+function AccountTabBar({
+  active,
+  onChange,
+  staffCount,
+  parentCount,
+  studentCount,
+}: {
+  active: AccountTab;
+  onChange: (tab: AccountTab) => void;
+  staffCount: number;
+  parentCount: number;
+  studentCount: number;
+}) {
+  const tabs: { id: AccountTab; label: string; count: number }[] = [
+    { id: 'staff', label: 'Staff', count: staffCount },
+    { id: 'parents', label: 'Parents', count: parentCount },
+    { id: 'students', label: 'Students', count: studentCount },
+  ];
+
+  return (
+    <div className="pill-tabs mb-4">
+      {tabs.map((tab) => (
+        <button
+          key={tab.id}
+          type="button"
+          onClick={() => onChange(tab.id)}
+          className={active === tab.id ? 'pill-tab-active' : 'pill-tab-inactive'}
+        >
+          {tab.label}
+          <span className="ml-1.5 text-[10px] opacity-80">({tab.count})</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SchoolAccountPanels({
+  school,
+  activeTab,
+  draftPasswords,
+  draftConfirmPasswords,
+  setDraftPasswords,
+  setDraftConfirmPasswords,
+  onSave,
+  onSaveParent,
+  onProvisionParent,
+  savingId,
+  provisioningId,
+  showPasswords,
+}: {
+  school: SchoolBlock;
+  activeTab: AccountTab;
+  draftPasswords: Record<string, string>;
+  draftConfirmPasswords: Record<string, string>;
+  setDraftPasswords: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  setDraftConfirmPasswords: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  onSave: (userId: string) => void;
+  onSaveParent: (parentUserId: string) => void;
+  onProvisionParent: (studentId: string, password: string, confirmPassword: string) => Promise<void>;
+  savingId: string | null;
+  provisioningId: string | null;
+  showPasswords: boolean;
+}) {
+  if (activeTab === 'staff') {
+    if (school.staff.length === 0) {
+      return (
+        <div className="px-5 py-8 text-center text-sm text-gray-400">No staff accounts yet</div>
+      );
+    }
+    return (
+      <UserSection
+        title="Staff accounts"
+        icon={<GraduationCap size={14} className="text-blue-600" />}
+        users={school.staff}
+        draftPasswords={draftPasswords}
+        draftConfirmPasswords={draftConfirmPasswords}
+        setDraftPasswords={setDraftPasswords}
+        setDraftConfirmPasswords={setDraftConfirmPasswords}
+        onSave={onSave}
+        savingId={savingId}
+        showPasswords={showPasswords}
+      />
+    );
+  }
+
+  if (activeTab === 'parents') {
+    if (school.parents.length === 0) {
+      return (
+        <div className="px-5 py-8 text-center text-sm text-gray-400">
+          No parent logins yet — add students with a parent name, or use the Students tab to create logins
+        </div>
+      );
+    }
+    return (
+      <UserSection
+        title={`Parent accounts (${school.parents.length})`}
+        icon={<User size={14} className="text-orange-600" />}
+        users={school.parents}
+        draftPasswords={draftPasswords}
+        draftConfirmPasswords={draftConfirmPasswords}
+        setDraftPasswords={setDraftPasswords}
+        setDraftConfirmPasswords={setDraftConfirmPasswords}
+        onSave={onSave}
+        savingId={savingId}
+        showPasswords={showPasswords}
+      />
+    );
+  }
+
+  if (school.students.length === 0) {
+    return (
+      <div className="px-5 py-8 text-center text-sm text-gray-400">No students yet</div>
+    );
+  }
+
+  return (
+    <StudentSection
+      students={school.students}
+      draftPasswords={draftPasswords}
+      draftConfirmPasswords={draftConfirmPasswords}
+      setDraftPasswords={setDraftPasswords}
+      setDraftConfirmPasswords={setDraftConfirmPasswords}
+      onSave={onSaveParent}
+      onProvision={onProvisionParent}
+      savingId={savingId}
+      provisioningId={provisioningId}
+      showPasswords={showPasswords}
+    />
+  );
+}
+
 function StudentSection({
   students,
   draftPasswords,
@@ -167,6 +300,7 @@ function SchoolPasswordBlock({
   savingId,
   provisioningId,
   showPasswords,
+  activeTab,
   defaultExpanded,
 }: {
   school: SchoolBlock;
@@ -180,6 +314,7 @@ function SchoolPasswordBlock({
   savingId: string | null;
   provisioningId: string | null;
   showPasswords: boolean;
+  activeTab: AccountTab;
   defaultExpanded?: boolean;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded ?? true);
@@ -189,56 +324,20 @@ function SchoolPasswordBlock({
       {school.total_users === 0 && school.students.length === 0 ? (
         <div className="px-5 py-8 text-center text-sm text-gray-400">No users at this school yet</div>
       ) : (
-        <>
-          <StudentSection
-            students={school.students}
-            draftPasswords={draftPasswords}
-            draftConfirmPasswords={draftConfirmPasswords}
-            setDraftPasswords={setDraftPasswords}
-            setDraftConfirmPasswords={setDraftConfirmPasswords}
-            onSave={onSaveParent}
-            onProvision={onProvisionParent}
-            savingId={savingId}
-            provisioningId={provisioningId}
-            showPasswords={showPasswords}
-          />
-          <UserSection
-            title="Staff (admin, teachers, gate, general)"
-            icon={<GraduationCap size={14} className="text-blue-600" />}
-            users={school.staff}
-            draftPasswords={draftPasswords}
-            draftConfirmPasswords={draftConfirmPasswords}
-            setDraftPasswords={setDraftPasswords}
-            setDraftConfirmPasswords={setDraftConfirmPasswords}
-            onSave={onSave}
-            savingId={savingId}
-            showPasswords={showPasswords}
-          />
-          <UserSection
-            title="Parents"
-            icon={<User size={14} className="text-orange-600" />}
-            users={school.parents}
-            draftPasswords={draftPasswords}
-            draftConfirmPasswords={draftConfirmPasswords}
-            setDraftPasswords={setDraftPasswords}
-            setDraftConfirmPasswords={setDraftConfirmPasswords}
-            onSave={onSave}
-            savingId={savingId}
-            showPasswords={showPasswords}
-          />
-          <UserSection
-            title="Other"
-            icon={<Users size={14} className="text-gray-600" />}
-            users={school.other}
-            draftPasswords={draftPasswords}
-            draftConfirmPasswords={draftConfirmPasswords}
-            setDraftPasswords={setDraftPasswords}
-            setDraftConfirmPasswords={setDraftConfirmPasswords}
-            onSave={onSave}
-            savingId={savingId}
-            showPasswords={showPasswords}
-          />
-        </>
+        <SchoolAccountPanels
+          school={school}
+          activeTab={activeTab}
+          draftPasswords={draftPasswords}
+          draftConfirmPasswords={draftConfirmPasswords}
+          setDraftPasswords={setDraftPasswords}
+          setDraftConfirmPasswords={setDraftConfirmPasswords}
+          onSave={onSave}
+          onSaveParent={onSaveParent}
+          onProvisionParent={onProvisionParent}
+          savingId={savingId}
+          provisioningId={provisioningId}
+          showPasswords={showPasswords}
+        />
       )}
     </div>
   );
@@ -285,6 +384,9 @@ export default function SchoolAdminPasswordsPage() {
   const [showPasswords, setShowPasswords] = useState(true);
   const [totalUsers, setTotalUsers] = useState(0);
   const [totalStudents, setTotalStudents] = useState(0);
+  const [totalParents, setTotalParents] = useState(0);
+  const [totalStaff, setTotalStaff] = useState(0);
+  const [activeTab, setActiveTab] = useState<AccountTab>('parents');
 
   const fetchCredentials = useCallback(async () => {
     setLoading(true);
@@ -303,6 +405,8 @@ export default function SchoolAdminPasswordsPage() {
       setSchools(loadedSchools);
       setTotalUsers(data.total_users || 0);
       setTotalStudents(data.total_students || 0);
+      setTotalParents(data.total_parents || 0);
+      setTotalStaff(data.total_staff || 0);
 
       const passwordMap: Record<string, string> = {};
       const confirmMap: Record<string, string> = {};
@@ -477,9 +581,9 @@ export default function SchoolAdminPasswordsPage() {
     }
   };
 
-  const staffCount = schools.reduce((n, s) => n + s.staff.length, 0);
-  const parentCount = schools.reduce((n, s) => n + s.parents.length, 0);
-  const studentCount = schools.reduce((n, s) => n + s.students.length, 0);
+  const staffCount = totalStaff || schools.reduce((n, s) => n + s.staff.length, 0);
+  const parentCount = totalParents || schools.reduce((n, s) => n + s.parents.length, 0);
+  const studentCount = totalStudents || schools.reduce((n, s) => n + s.students.length, 0);
   const singleSchool = filteredSchools.length === 1 ? filteredSchools[0] : null;
 
   return (
@@ -491,7 +595,7 @@ export default function SchoolAdminPasswordsPage() {
             Passwords
           </h1>
           <p className="text-sm text-gray-500">
-            Staff, students (parent logins), and parents — view and reset passwords
+            Staff, parents, and student logins — same layout as attendance reports
           </p>
         </div>
         <div className="flex flex-wrap gap-2 self-start">
@@ -510,24 +614,32 @@ export default function SchoolAdminPasswordsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <div className="card py-3">
-          <p className="text-2xl font-bold">{totalUsers}</p>
-          <p className="text-xs text-gray-500">Total accounts</p>
-        </div>
-        <div className="card py-3">
-          <p className="text-2xl font-bold">{studentCount || totalStudents}</p>
-          <p className="text-xs text-gray-500">Students</p>
-        </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
         <div className="card py-3">
           <p className="text-2xl font-bold">{staffCount}</p>
           <p className="text-xs text-gray-500">Staff</p>
         </div>
         <div className="card py-3">
           <p className="text-2xl font-bold">{parentCount}</p>
-          <p className="text-xs text-gray-500">Other parents</p>
+          <p className="text-xs text-gray-500">Parents</p>
+        </div>
+        <div className="card py-3">
+          <p className="text-2xl font-bold">{studentCount}</p>
+          <p className="text-xs text-gray-500">Students</p>
+        </div>
+        <div className="card py-3">
+          <p className="text-2xl font-bold">{totalUsers}</p>
+          <p className="text-xs text-gray-500">Total accounts</p>
         </div>
       </div>
+
+      <AccountTabBar
+        active={activeTab}
+        onChange={setActiveTab}
+        staffCount={staffCount}
+        parentCount={parentCount}
+        studentCount={studentCount}
+      />
 
       <div className="relative mb-6">
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -552,63 +664,27 @@ export default function SchoolAdminPasswordsPage() {
               <p className="text-xs text-gray-500">{singleSchool.address}</p>
             )}
             <p className="text-xs text-gray-400 mt-1">
-              {singleSchool.students.length} students · {singleSchool.staff.length} staff ·{' '}
-              {singleSchool.total_users} accounts
+              {singleSchool.students.length} students · {singleSchool.parents.length} parents ·{' '}
+              {singleSchool.staff.length} staff
             </p>
           </div>
           {singleSchool.total_users === 0 && singleSchool.students.length === 0 ? (
             <div className="px-5 py-8 text-center text-sm text-gray-400">No users at this school yet</div>
           ) : (
-            <>
-              <StudentSection
-                students={singleSchool.students}
-                draftPasswords={draftPasswords}
-                draftConfirmPasswords={draftConfirmPasswords}
-                setDraftPasswords={setDraftPasswords}
-                setDraftConfirmPasswords={setDraftConfirmPasswords}
-                onSave={savePassword}
-                onProvision={provisionParent}
-                savingId={savingId}
-                provisioningId={provisioningId}
-                showPasswords={showPasswords}
-              />
-              <UserSection
-                title="Staff (admin, teachers, gate, general)"
-                icon={<GraduationCap size={14} className="text-blue-600" />}
-                users={singleSchool.staff}
-                draftPasswords={draftPasswords}
-                draftConfirmPasswords={draftConfirmPasswords}
-                setDraftPasswords={setDraftPasswords}
-                setDraftConfirmPasswords={setDraftConfirmPasswords}
-                onSave={savePassword}
-                savingId={savingId}
-                showPasswords={showPasswords}
-              />
-              <UserSection
-                title="Parents"
-                icon={<User size={14} className="text-orange-600" />}
-                users={singleSchool.parents}
-                draftPasswords={draftPasswords}
-                draftConfirmPasswords={draftConfirmPasswords}
-                setDraftPasswords={setDraftPasswords}
-                setDraftConfirmPasswords={setDraftConfirmPasswords}
-                onSave={savePassword}
-                savingId={savingId}
-                showPasswords={showPasswords}
-              />
-              <UserSection
-                title="Other"
-                icon={<Users size={14} className="text-gray-600" />}
-                users={singleSchool.other}
-                draftPasswords={draftPasswords}
-                draftConfirmPasswords={draftConfirmPasswords}
-                setDraftPasswords={setDraftPasswords}
-                setDraftConfirmPasswords={setDraftConfirmPasswords}
-                onSave={savePassword}
-                savingId={savingId}
-                showPasswords={showPasswords}
-              />
-            </>
+            <SchoolAccountPanels
+              school={singleSchool}
+              activeTab={activeTab}
+              draftPasswords={draftPasswords}
+              draftConfirmPasswords={draftConfirmPasswords}
+              setDraftPasswords={setDraftPasswords}
+              setDraftConfirmPasswords={setDraftConfirmPasswords}
+              onSave={savePassword}
+              onSaveParent={savePassword}
+              onProvisionParent={provisionParent}
+              savingId={savingId}
+              provisioningId={provisioningId}
+              showPasswords={showPasswords}
+            />
           )}
         </div>
       ) : (
@@ -617,6 +693,7 @@ export default function SchoolAdminPasswordsPage() {
             <SchoolPasswordBlock
               key={school.id}
               school={school}
+              activeTab={activeTab}
               draftPasswords={draftPasswords}
               draftConfirmPasswords={draftConfirmPasswords}
               setDraftPasswords={setDraftPasswords}

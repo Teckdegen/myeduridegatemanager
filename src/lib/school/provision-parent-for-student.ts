@@ -1,6 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { ensureAuthUser, ensureUserProfile } from '@/lib/auth/ensure-user';
-import { generateRandomPassword, suggestUniqueUsername } from '@/lib/auth/username';
+import {
+  ensureAuthUser,
+  ensureUserProfile,
+  findAuthUserIdByEmail,
+  reserveUsernameForProfile,
+} from '@/lib/auth/ensure-user';
+import { authEmailFromUsername, generateRandomPassword, suggestUniqueUsername } from '@/lib/auth/username';
 import { resolveInitialPassword } from '@/lib/auth/password-policy';
 import { setAuthPasswordForProfile } from '@/lib/auth/update-password';
 
@@ -101,28 +106,40 @@ export async function provisionParentForStudent(
   }
 
   if (!parentUserId) {
-    parentUsername = await suggestUniqueUsername(supabase, parentName);
-    const { data: existingUser } = await supabase
+    const desiredUsername = await suggestUniqueUsername(supabase, parentName);
+
+    const { data: profileByUsername } = await supabase
       .from('user_profiles')
       .select('id, username')
-      .eq('username', parentUsername)
+      .eq('username', desiredUsername)
       .maybeSingle();
 
-    if (existingUser?.id) {
-      parentUserId = existingUser.id;
-      parentUsername = existingUser.username || parentUsername;
+    if (profileByUsername?.id) {
+      parentUserId = profileByUsername.id;
+      parentUsername = profileByUsername.username || desiredUsername;
     } else {
-      const { userId, password, error: authErr } = await ensureAuthUser(supabase, {
-        username: parentUsername,
-        full_name: parentName,
-        password: resolvedPassword,
-      });
-      if (!userId) {
-        return { error: authErr || 'Could not create parent auth account' };
+      const existingAuthId = await findAuthUserIdByEmail(
+        supabase,
+        authEmailFromUsername(desiredUsername)
+      );
+
+      if (existingAuthId) {
+        parentUserId = existingAuthId;
+        parentUsername = desiredUsername;
+      } else {
+        const { userId, password, error: authErr } = await ensureAuthUser(supabase, {
+          username: desiredUsername,
+          full_name: parentName,
+          password: resolvedPassword,
+        });
+        if (!userId) {
+          return { error: authErr || 'Could not create parent auth account' };
+        }
+        parentUserId = userId;
+        parentUsername = desiredUsername;
+        generatedPassword = password || resolvedPassword;
+        created = true;
       }
-      parentUserId = userId;
-      generatedPassword = password || resolvedPassword;
-      created = true;
     }
   }
 
@@ -139,9 +156,11 @@ export async function provisionParentForStudent(
     parentUsername = profile?.username || (await suggestUniqueUsername(supabase, parentName));
   }
 
-  if (!parentUsername) {
-    return { error: 'Could not resolve parent username' };
-  }
+  parentUsername = await reserveUsernameForProfile(
+    supabase,
+    parentUserId,
+    parentUsername || parentName
+  );
 
   const { error: profileErr } = await ensureUserProfile(supabase, {
     id: parentUserId,

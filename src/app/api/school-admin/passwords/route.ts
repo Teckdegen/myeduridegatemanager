@@ -23,6 +23,7 @@ type CredentialUser = {
   roles: string[];
   password: string;
   staff_id_number?: string | null;
+  linked_students?: string[];
 };
 
 type SchoolCredentials = {
@@ -121,7 +122,6 @@ export async function GET(request: NextRequest) {
       const staff: CredentialUser[] = [];
       const parents: CredentialUser[] = [];
       const other: CredentialUser[] = [];
-      const studentParentIds = new Set<string>();
 
       const students = await fetchStudentParentCredentials(
         supabase,
@@ -130,8 +130,12 @@ export async function GET(request: NextRequest) {
         authById,
         { repairMissingParents: true }
       );
+      const linkedStudentsByParent = new Map<string, string[]>();
       for (const s of students) {
-        if (s.parent_user_id) studentParentIds.add(s.parent_user_id);
+        if (!s.parent_user_id) continue;
+        const list = linkedStudentsByParent.get(s.parent_user_id) || [];
+        list.push(s.student_name);
+        linkedStudentsByParent.set(s.parent_user_id, list);
       }
 
       if (userMap) {
@@ -142,14 +146,16 @@ export async function GET(request: NextRequest) {
           const password = authById.get(userId) || '';
           const staffId = staffIdByUserSchool.get(`${userId}:${school.id}`) ?? null;
           const row = toUserRow(profile, roles, password, staffId);
+          if (linkedStudentsByParent.has(userId)) {
+            row.linked_students = linkedStudentsByParent.get(userId);
+          }
 
           const isParentOnly = roles.every((r) => r === 'parent');
           const isStaff = roles.some((r) => STAFF_ROLES.has(r));
 
           if (isStaff) staff.push(row);
-          else if (isParentOnly) {
-            if (!studentParentIds.has(userId)) parents.push(row);
-          } else other.push(row);
+          else if (isParentOnly) parents.push(row);
+          else other.push(row);
         }
       }
 
@@ -173,11 +179,15 @@ export async function GET(request: NextRequest) {
 
     const totalUsers = schoolCredentials.reduce((n, s) => n + s.total_users, 0);
     const totalStudents = schoolCredentials.reduce((n, s) => n + s.students.length, 0);
+    const totalParents = schoolCredentials.reduce((n, s) => n + s.parents.length, 0);
+    const totalStaff = schoolCredentials.reduce((n, s) => n + s.staff.length, 0);
 
     return NextResponse.json({
       schools: schoolCredentials,
       total_users: totalUsers,
       total_students: totalStudents,
+      total_parents: totalParents,
+      total_staff: totalStaff,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to load credentials';

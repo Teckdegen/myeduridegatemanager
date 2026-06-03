@@ -1,5 +1,5 @@
 import type { SupabaseClient, User } from '@supabase/supabase-js';
-import { ensureAuthUser, findAuthUserIdByEmail } from '@/lib/auth/ensure-user';
+import { ensureAuthUser, ensureUserProfile, findAuthUserIdByEmail, reserveUsernameForProfile } from '@/lib/auth/ensure-user';
 import { authEmailFromUsername, normalizeUsername } from '@/lib/auth/username';
 
 export type ResolveAuthResult =
@@ -46,20 +46,33 @@ async function createAuthAccountForProfile(
   profileUserId: string,
   password: string
 ): Promise<ResolveAuthResult> {
-  const { data: profile } = await supabase
+  const { data: profileRow } = await supabase
     .from('user_profiles')
     .select('username, full_name')
     .eq('id', profileUserId)
     .maybeSingle();
 
-  if (!profile?.username) {
+  if (!profileRow) {
     return { error: 'User not found' };
   }
 
-  const username = normalizeUsername(profile.username);
+  let username = profileRow.username ? normalizeUsername(profileRow.username) : '';
+  if (!username) {
+    username = await reserveUsernameForProfile(
+      supabase,
+      profileUserId,
+      profileRow.full_name || 'parent'
+    );
+    await ensureUserProfile(supabase, {
+      id: profileUserId,
+      username,
+      full_name: profileRow.full_name || 'Parent',
+    });
+  }
+
   const { userId, error: authErr } = await ensureAuthUser(supabase, {
     username,
-    full_name: profile.full_name || '',
+    full_name: profileRow.full_name || '',
     password,
   });
 

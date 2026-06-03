@@ -41,6 +41,28 @@ export async function findProfileByUsername(supabase: SupabaseClient, username: 
     .maybeSingle();
 }
 
+/** Pick a username that is free, or already owned by profileId. */
+export async function reserveUsernameForProfile(
+  supabase: SupabaseClient,
+  profileId: string,
+  desiredUsername: string
+): Promise<string> {
+  let candidate = normalizeUsername(desiredUsername) || 'user';
+  if (candidate.length < 3) candidate = `${candidate}user`.slice(0, 32);
+
+  for (let i = 0; i < 60; i++) {
+    const tryName = i === 0 ? candidate : `${candidate}${i}`.slice(0, 32);
+    const { data } = await supabase
+      .from('user_profiles')
+      .select('id')
+      .eq('username', tryName)
+      .maybeSingle();
+    if (!data || data.id === profileId) return tryName;
+  }
+
+  return `${candidate}${Date.now().toString(36)}`.slice(0, 32);
+}
+
 type EnsureAuthParams = {
   username?: string;
   email?: string | null;
@@ -65,6 +87,15 @@ export async function ensureAuthUser(
   }
   if (!username) {
     return { userId: null, error: 'Username is required' };
+  }
+
+  const { data: existingProfile } = await supabase
+    .from('user_profiles')
+    .select('id, username')
+    .eq('username', username)
+    .maybeSingle();
+  if (existingProfile?.id) {
+    return { userId: existingProfile.id, username: existingProfile.username || username };
   }
 
   const generatedPassword = input.password || generateRandomPassword(10);
@@ -103,15 +134,42 @@ export async function ensureUserProfile(
     phone?: string | null;
   }
 ) {
-  return supabase.from('user_profiles').upsert(
-    {
-      id: params.id,
-      username: normalizeUsername(params.username),
-      email: params.email?.toLowerCase().trim() || null,
-      full_name: params.full_name,
-      phone: params.phone || null,
-      auth_preference: 'password',
-    },
-    { onConflict: 'id' }
-  );
+  const username = await reserveUsernameForProfile(supabase, params.id, params.username);
+
+  let phone = params.phone?.trim() || null;
+  if (phone) {
+    const { data: phoneOwner } = await supabase
+      .from('user_profiles')
+      .select('id')
+      .eq('phone', phone)
+      .maybeSingle();
+    if (phoneOwner && phoneOwner.id !== params.id) {
+      phone = null;
+    }
+  }
+
+  const row = {
+    id: params.id,
+    username,
+    email: params.email?.toLowerCase().trim() || null,
+    full_name: params.full_name,
+    phone,
+    auth_preference: 'password' as const,
+  };
+
+  let result = await supabase.from('user_profiles').upsert(row, { onConflict: 'id' });
+
+  if (result.error && /unique|duplicate/i.test(result.error.message)) {
+    const fallbackUsername = await reserveUsernameForProfile(
+      supabase,
+      params.id,
+      `${username}${Date.now().toString(36)}`
+    );
+    result = await supabase.from('user_profiles').upsert(
+      { ...row, username: fallbackUsername },
+      { onConflict: 'id' }
+    );
+  }
+
+  return result;
 }

@@ -10,6 +10,7 @@ export type CredentialUser = {
   roles: string[];
   password: string;
   staff_id_number?: string | null;
+  linked_students?: string[];
 };
 
 function formatRole(role: string) {
@@ -48,15 +49,26 @@ export function CredentialPasswordRows({
             {user.staff_id_number && (
               <p className="text-xs font-mono text-gray-500">{user.staff_id_number}</p>
             )}
+            {user.linked_students?.length ? (
+              <p className="text-xs text-gray-500 mt-0.5">
+                Child: {user.linked_students.join(', ')}
+              </p>
+            ) : null}
           </td>
-          <td className="py-3 pr-4 font-mono text-xs">{user.username || '—'}</td>
+          <td className="py-3 pr-4 font-mono text-xs">
+            {user.username ? (
+              user.username
+            ) : (
+              <span className="text-amber-700">No username — refresh page</span>
+            )}
+          </td>
           <td className="py-3 pr-4 capitalize text-xs">
             {user.roles.length ? user.roles.map(formatRole).join(', ') : '—'}
           </td>
           <td className="py-3 pr-3 min-w-[160px]">
             <input
               type={showPasswords ? 'text' : 'password'}
-              value={draftPasswords[user.id] ?? ''}
+              value={draftPasswords[user.id] ?? user.password ?? ''}
               onChange={(e) =>
                 setDraftPasswords((prev) => ({ ...prev, [user.id]: e.target.value }))
               }
@@ -67,7 +79,7 @@ export function CredentialPasswordRows({
           <td className="py-3 pr-4 min-w-[160px]">
             <input
               type={showPasswords ? 'text' : 'password'}
-              value={draftConfirmPasswords[user.id] ?? ''}
+              value={draftConfirmPasswords[user.id] ?? user.password ?? ''}
               onChange={(e) =>
                 setDraftConfirmPasswords((prev) => ({ ...prev, [user.id]: e.target.value }))
               }
