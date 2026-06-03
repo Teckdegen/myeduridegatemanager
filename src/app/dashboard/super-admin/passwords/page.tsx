@@ -75,7 +75,7 @@ function StudentSection({
         Each student&apos;s parent app login (username &amp; password set when the student was added)
       </p>
       <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[900px]">
+        <table className="w-full text-sm min-w-[1100px]">
           <thead>
             <StudentParentCredentialTableHead />
           </thead>
@@ -87,6 +87,7 @@ function StudentSection({
             setDraftConfirmPasswords={setDraftConfirmPasswords}
             onSave={onSave}
             savingId={savingId}
+            provisioningId={null}
             showPasswords={showPasswords}
           />
         </table>
@@ -248,7 +249,14 @@ export default function SuperAdminPasswordsPage() {
               s.student_id_number.toLowerCase().includes(q) ||
               (s.class_name || '').toLowerCase().includes(q) ||
               s.parent_name.toLowerCase().includes(q) ||
-              s.parent_username.toLowerCase().includes(q)
+              (s.parent_on_file_name || '').toLowerCase().includes(q) ||
+              s.parent_username.toLowerCase().includes(q) ||
+              (s.primary_pickup_person || '').toLowerCase().includes(q) ||
+              (s.authorised_pickup_persons || []).some(
+                (p) =>
+                  p.name.toLowerCase().includes(q) ||
+                  (p.phone || '').toLowerCase().includes(q)
+              )
           );
 
         const staff = filterList(school.staff);

@@ -4,6 +4,17 @@ import {
   fetchProfilesByIds,
   loadAuthPasswordsForUsers,
 } from '@/lib/db/fetch-all';
+import {
+  parentInfoFromCustomFields,
+  provisionParentForStudent,
+} from '@/lib/school/provision-parent-for-student';
+
+export type AuthorisedPickupPerson = {
+  id: string;
+  name: string;
+  phone: string | null;
+  relationship: string | null;
+};
 
 export type StudentParentCredential = {
   student_id: string;
@@ -14,17 +25,37 @@ export type StudentParentCredential = {
   parent_name: string;
   parent_username: string;
   password: string;
+  parent_on_file_name: string;
+  parent_phone: string | null;
+  authorised_pickup_persons: AuthorisedPickupPerson[];
+  primary_pickup_person: string | null;
+  needs_parent_account: boolean;
 };
+
+function normalizePickupPerson(raw: unknown): AuthorisedPickupPerson | null {
+  if (!raw) return null;
+  const p = Array.isArray(raw) ? raw[0] : raw;
+  if (!p || typeof p !== 'object') return null;
+  const row = p as { id?: string; name?: string; phone?: string | null; relationship?: string | null };
+  if (!row.id || !row.name?.trim()) return null;
+  return {
+    id: row.id,
+    name: row.name.trim(),
+    phone: row.phone || null,
+    relationship: row.relationship || null,
+  };
+}
 
 export async function fetchStudentParentCredentials(
   supabase: SupabaseClient,
   schoolId: string,
   profileById: Map<string, { id: string; username: string | null; full_name: string | null }>,
-  authById: Map<string, string>
+  authById: Map<string, string>,
+  opts?: { repairMissingParents?: boolean }
 ): Promise<StudentParentCredential[]> {
   const { data: students, error: studErr } = await supabase
     .from('students')
-    .select('id, first_name, last_name, student_id_number, class:school_classes(name)')
+    .select('id, first_name, last_name, student_id_number, custom_fields, class:school_classes(name)')
     .eq('school_id', schoolId)
     .eq('is_active', true)
     .order('last_name');
@@ -44,6 +75,60 @@ export async function fetchStudentParentCredentials(
       .select('student_id, parent_user_id, is_primary')
       .in('student_id', batch);
     if (links?.length) parentLinks.push(...links);
+  }
+
+  const pickupByStudent = new Map<string, AuthorisedPickupPerson[]>();
+  for (const batch of chunkArray(studentIds)) {
+    const { data: ppLinks } = await supabase
+      .from('pickup_person_students')
+      .select(`
+        student_id,
+        pickup_person:pickup_persons(id, name, phone, relationship)
+      `)
+      .eq('school_id', schoolId)
+      .in('student_id', batch);
+
+    for (const link of ppLinks || []) {
+      const person = normalizePickupPerson(link.pickup_person);
+      if (!person) continue;
+      if (!pickupByStudent.has(link.student_id)) pickupByStudent.set(link.student_id, []);
+      pickupByStudent.get(link.student_id)!.push(person);
+    }
+  }
+
+  if (opts?.repairMissingParents) {
+    for (const student of students) {
+      const hasLink = parentLinks.some((l) => l.student_id === student.id);
+      if (hasLink) continue;
+
+      const onFile = parentInfoFromCustomFields(
+        student.custom_fields as Record<string, string> | null
+      );
+      if (!onFile.parent_name) continue;
+
+      const result = await provisionParentForStudent(supabase, {
+        student_id: student.id,
+        school_id: schoolId,
+        parent_name: onFile.parent_name,
+        parent_email: onFile.parent_email,
+        parent_phone: onFile.parent_phone,
+        relationship: onFile.relationship,
+      });
+
+      if ('parent_user_id' in result) {
+        parentLinks.push({
+          student_id: student.id,
+          parent_user_id: result.parent_user_id,
+          is_primary: true,
+        });
+        profileById.set(result.parent_user_id, {
+          id: result.parent_user_id,
+          username: result.parent_username,
+          full_name: onFile.parent_name,
+        });
+        authById.set(result.parent_user_id, result.password);
+      }
+    }
   }
 
   const parentIdsToLoad = [
@@ -69,18 +154,22 @@ export async function fetchStudentParentCredentials(
   for (const student of students) {
     const cls = student.class as { name?: string } | { name?: string }[] | null;
     const className = Array.isArray(cls) ? cls[0]?.name : cls?.name;
+    const onFile = parentInfoFromCustomFields(
+      student.custom_fields as Record<string, string> | null
+    );
+    const authorised = pickupByStudent.get(student.id) || [];
     const links = linksByStudent.get(student.id) || [];
     const primary = links.find((l) => l.is_primary) || links[0] || null;
 
     let parentUserId: string | null = null;
-    let parentName = '';
+    let parentName = onFile.parent_name;
     let parentUsername = '';
     let password = '';
 
     if (primary?.parent_user_id) {
       parentUserId = primary.parent_user_id;
       const profile = profileById.get(parentUserId);
-      parentName = profile?.full_name || '';
+      parentName = profile?.full_name || onFile.parent_name;
       parentUsername = profile?.username || '';
       password = authById.get(parentUserId) || '';
     }
@@ -94,6 +183,11 @@ export async function fetchStudentParentCredentials(
       parent_name: parentName,
       parent_username: parentUsername,
       password,
+      parent_on_file_name: onFile.parent_name,
+      parent_phone: onFile.parent_phone,
+      authorised_pickup_persons: authorised,
+      primary_pickup_person: authorised[0]?.name || null,
+      needs_parent_account: !parentUserId && !!onFile.parent_name,
     });
   }
 

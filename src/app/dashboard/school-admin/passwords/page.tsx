@@ -51,7 +51,9 @@ function StudentSection({
   setDraftPasswords,
   setDraftConfirmPasswords,
   onSave,
+  onProvision,
   savingId,
+  provisioningId,
   showPasswords,
 }: {
   students: StudentParentCredential[];
@@ -60,7 +62,9 @@ function StudentSection({
   setDraftPasswords: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   setDraftConfirmPasswords: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   onSave: (parentUserId: string) => void;
+  onProvision?: (studentId: string, password: string, confirmPassword: string) => Promise<void>;
   savingId: string | null;
+  provisioningId: string | null;
   showPasswords: boolean;
 }) {
   if (students.length === 0) return null;
@@ -76,7 +80,7 @@ function StudentSection({
         Each student&apos;s parent app login (username &amp; password set when the student was added)
       </p>
       <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[900px]">
+        <table className="w-full text-sm min-w-[1100px]">
           <thead>
             <StudentParentCredentialTableHead />
           </thead>
@@ -87,7 +91,9 @@ function StudentSection({
             setDraftPasswords={setDraftPasswords}
             setDraftConfirmPasswords={setDraftConfirmPasswords}
             onSave={onSave}
+            onProvision={onProvision}
             savingId={savingId}
+            provisioningId={provisioningId}
             showPasswords={showPasswords}
           />
         </table>
@@ -157,7 +163,9 @@ function SchoolPasswordBlock({
   setDraftConfirmPasswords,
   onSave,
   onSaveParent,
+  onProvisionParent,
   savingId,
+  provisioningId,
   showPasswords,
   defaultExpanded,
 }: {
@@ -168,7 +176,9 @@ function SchoolPasswordBlock({
   setDraftConfirmPasswords: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   onSave: (userId: string) => void;
   onSaveParent: (parentUserId: string) => void;
+  onProvisionParent: (studentId: string, password: string, confirmPassword: string) => Promise<void>;
   savingId: string | null;
+  provisioningId: string | null;
   showPasswords: boolean;
   defaultExpanded?: boolean;
 }) {
@@ -187,7 +197,9 @@ function SchoolPasswordBlock({
             setDraftPasswords={setDraftPasswords}
             setDraftConfirmPasswords={setDraftConfirmPasswords}
             onSave={onSaveParent}
+            onProvision={onProvisionParent}
             savingId={savingId}
+            provisioningId={provisioningId}
             showPasswords={showPasswords}
           />
           <UserSection
@@ -269,6 +281,7 @@ export default function SchoolAdminPasswordsPage() {
   const [draftPasswords, setDraftPasswords] = useState<Record<string, string>>({});
   const [draftConfirmPasswords, setDraftConfirmPasswords] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [provisioningId, setProvisioningId] = useState<string | null>(null);
   const [showPasswords, setShowPasswords] = useState(true);
   const [totalUsers, setTotalUsers] = useState(0);
   const [totalStudents, setTotalStudents] = useState(0);
@@ -344,7 +357,14 @@ export default function SchoolAdminPasswordsPage() {
               s.student_id_number.toLowerCase().includes(q) ||
               (s.class_name || '').toLowerCase().includes(q) ||
               s.parent_name.toLowerCase().includes(q) ||
-              s.parent_username.toLowerCase().includes(q)
+              (s.parent_on_file_name || '').toLowerCase().includes(q) ||
+              s.parent_username.toLowerCase().includes(q) ||
+              (s.primary_pickup_person || '').toLowerCase().includes(q) ||
+              (s.authorised_pickup_persons || []).some(
+                (p) =>
+                  p.name.toLowerCase().includes(q) ||
+                  (p.phone || '').toLowerCase().includes(q)
+              )
           );
 
         const staff = filterList(school.staff);
@@ -368,6 +388,46 @@ export default function SchoolAdminPasswordsPage() {
       })
       .filter(Boolean) as SchoolBlock[];
   }, [schools, searchQuery]);
+
+  const provisionParent = async (
+    studentId: string,
+    password: string,
+    confirmPassword: string
+  ) => {
+    if (!password) {
+      toast.error('Enter a password for the parent login');
+      return;
+    }
+    if (password !== confirmPassword) {
+      toast.error('Password and confirmation do not match');
+      return;
+    }
+
+    setProvisioningId(studentId);
+    try {
+      const res = await fetch('/api/school-admin/students/provision-parent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          student_id: studentId,
+          password,
+          confirm_password: confirmPassword,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Could not create parent login');
+        return;
+      }
+      toast.success(`Parent login created — username: ${data.parent_username}`);
+      await fetchCredentials();
+    } catch {
+      toast.error('Could not create parent login');
+    } finally {
+      setProvisioningId(null);
+    }
+  };
 
   const savePassword = async (userId: string) => {
     const password = (draftPasswords[userId] || '').trim();
@@ -507,7 +567,9 @@ export default function SchoolAdminPasswordsPage() {
                 setDraftPasswords={setDraftPasswords}
                 setDraftConfirmPasswords={setDraftConfirmPasswords}
                 onSave={savePassword}
+                onProvision={provisionParent}
                 savingId={savingId}
+                provisioningId={provisioningId}
                 showPasswords={showPasswords}
               />
               <UserSection
@@ -561,7 +623,9 @@ export default function SchoolAdminPasswordsPage() {
               setDraftConfirmPasswords={setDraftConfirmPasswords}
               onSave={savePassword}
               onSaveParent={savePassword}
+              onProvisionParent={provisionParent}
               savingId={savingId}
+              provisioningId={provisioningId}
               showPasswords={showPasswords}
               defaultExpanded
             />

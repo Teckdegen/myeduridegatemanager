@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
-import { ensureAuthUser, ensureUserProfile } from '@/lib/auth/ensure-user';
 import { resolveInitialPassword, validatePasswordPair } from '@/lib/auth/password-policy';
-import { setAuthPasswordForProfile } from '@/lib/auth/update-password';
-import { suggestUniqueUsername } from '@/lib/auth/username';
+import {
+  parentInfoFromCustomFields,
+  provisionParentForStudent,
+} from '@/lib/school/provision-parent-for-student';
 import { uploadBase64Photo } from '@/lib/storage/upload-photo';
 
 export async function POST(request: NextRequest) {
@@ -99,85 +100,33 @@ export async function POST(request: NextRequest) {
 
     if (parentName?.trim() && data) {
       try {
-        console.log('[PARENT] Registering parent:', parentName);
+        const onFile = parentInfoFromCustomFields(custom_fields);
+        const result = await provisionParentForStudent(supabase, {
+          student_id: data.id,
+          school_id,
+          parent_name: onFile.parent_name || parentName.trim(),
+          parent_email: onFile.parent_email,
+          parent_phone: onFile.parent_phone,
+          relationship: onFile.relationship,
+          password: parentPassword || undefined,
+        });
 
-        const email = parentEmail?.includes('@') ? parentEmail.toLowerCase().trim() : null;
-        let parentUserId: string | undefined;
-        let parentUsername: string | undefined;
-        let generatedPassword: string | undefined;
+        if ('error' in result) {
+          console.error('[PARENT] Error:', result.error);
+        } else {
+          const parentUsername = result.parent_username;
+          const generatedPassword = result.password;
 
-        if (email) {
-          const { data: byEmail } = await supabase
-            .from('user_profiles')
-            .select('id, username')
-            .eq('email', email)
-            .maybeSingle();
-          if (byEmail) {
-            parentUserId = byEmail.id;
-            parentUsername = byEmail.username || undefined;
-          }
-        }
-
-        if (!parentUserId) {
-          parentUsername = await suggestUniqueUsername(supabase, parentName);
-          const { data: existingUser } = await supabase
-            .from('user_profiles')
-            .select('id, username')
-            .eq('username', parentUsername)
-            .maybeSingle();
-
-          if (existingUser) {
-            parentUserId = existingUser.id;
-            parentUsername = existingUser.username || parentUsername;
-            if (parentPassword && parentUserId) {
-              await setAuthPasswordForProfile(supabase, parentUserId, parentPassword, {
-                createAuthIfMissing: true,
-              });
-              generatedPassword = parentPassword;
-            }
-          } else {
-            const { userId, password } = await ensureAuthUser(supabase, {
-              username: parentUsername,
-              full_name: parentName || 'Parent',
-              password: parentPassword || undefined,
-            });
-            parentUserId = userId || undefined;
-            generatedPassword = password;
-          }
-        }
-
-        if (parentUserId && parentUsername) {
-          await ensureUserProfile(supabase, {
-            id: parentUserId,
-            username: parentUsername,
-            full_name: parentName || 'Parent',
-            phone: custom_fields?.parent_phone || null,
-            email,
-          });
-        }
-
-        if (parentUserId) {
-          const { error: roleErr } = await supabase.from('user_school_roles').upsert({
-            user_id: parentUserId, school_id, role: 'parent', is_active: true
-          }, { onConflict: 'user_id,school_id,role' });
-          console.log('[PARENT] Role assigned, error:', roleErr?.message);
-
-          const { error: linkErr } = await supabase.from('student_parents').upsert({
-            student_id: data.id, parent_user_id: parentUserId, relationship: custom_fields?.relationship || 'parent', is_primary: true
-          }, { onConflict: 'student_id,parent_user_id' });
-          console.log('[PARENT] Linked to student, error:', linkErr?.message);
-
-          if (email) {
+          if (parentEmail) {
             try {
               const { Resend } = require('resend');
               const resend = new Resend(process.env.RESEND_API_KEY);
               await resend.emails.send({
                 from: 'MyEduRide <noreply@assetid.site>',
-                to: email,
+                to: parentEmail,
                 subject: `Your child ${first_name} has been registered`,
                 html: `<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:20px;"><h2>Welcome to MyEduRide</h2><p>Hello ${parentName || 'Parent'},</p><p>Your child <strong>${first_name} ${last_name}</strong> has been registered at school.</p><p><strong>Username:</strong> ${parentUsername}</p>${generatedPassword ? `<p><strong>Password:</strong> ${generatedPassword}</p>` : ''}<p>Visit the app and sign in with your username and password.</p><p style="color:#666;font-size:12px;">MyEduRide — The Student Safety Platform</p></div>`,
               });
-              console.log('[PARENT] Welcome email sent');
             } catch (emailErr) {
               console.error('[PARENT] Email failed:', emailErr);
             }

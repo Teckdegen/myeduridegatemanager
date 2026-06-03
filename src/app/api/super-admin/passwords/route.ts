@@ -111,7 +111,8 @@ export async function GET(request: NextRequest) {
         supabase,
         school.id,
         profileById,
-        authById
+        authById,
+        { repairMissingParents: true }
       );
       for (const s of students) {
         if (s.parent_user_id) studentParentIds.add(s.parent_user_id);
