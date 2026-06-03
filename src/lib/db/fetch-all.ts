@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { resolveAuthUserForProfile } from '@/lib/auth/update-password';
 
 export const DB_PAGE_SIZE = 1000;
 const IN_QUERY_BATCH_SIZE = 150;
@@ -109,20 +110,22 @@ export async function loadAuthPasswordsForUsers(
   userIds: string[]
 ): Promise<Map<string, string>> {
   const authById = new Map<string, string>();
-  const idSet = new Set(userIds.filter(Boolean));
-  if (idSet.size === 0) return authById;
+  const uniqueIds = [...new Set(userIds.filter(Boolean))];
+  if (uniqueIds.length === 0) return authById;
 
-  let page = 1;
-  const perPage = 1000;
-  while (page <= 50) {
-    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage });
-    if (error) throw error;
-    for (const user of data.users) {
-      if (!idSet.has(user.id)) continue;
-      authById.set(user.id, (user.user_metadata?.login_password as string) || '');
-    }
-    if (data.users.length < perPage) break;
-    page += 1;
+  for (const batch of chunkArray(uniqueIds, 25)) {
+    await Promise.all(
+      batch.map(async (userId) => {
+        try {
+          const resolved = await resolveAuthUserForProfile(supabase, userId);
+          if ('error' in resolved) return;
+          const pw = (resolved.user.user_metadata?.login_password as string) || '';
+          authById.set(userId, pw);
+        } catch {
+          /* skip */
+        }
+      })
+    );
   }
 
   return authById;
