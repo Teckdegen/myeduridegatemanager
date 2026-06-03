@@ -51,7 +51,22 @@ export async function POST(request: NextRequest) {
     }
 
     const belongsToAdminSchool = (targetRoles || []).some((r) => schoolIds.includes(r.school_id));
-    if (!belongsToAdminSchool) {
+
+    let allowed = belongsToAdminSchool;
+    if (!allowed) {
+      const { data: parentLinks } = await supabase
+        .from('student_parents')
+        .select('student_id, students!inner(school_id)')
+        .eq('parent_user_id', userId);
+
+      allowed = (parentLinks || []).some((link) => {
+        const st = link.students as { school_id?: string } | { school_id?: string }[];
+        const schoolId = Array.isArray(st) ? st[0]?.school_id : st?.school_id;
+        return schoolId && schoolIds.includes(schoolId);
+      });
+    }
+
+    if (!allowed) {
       return NextResponse.json({ error: 'You can only manage users in your school' }, { status: 403 });
     }
 

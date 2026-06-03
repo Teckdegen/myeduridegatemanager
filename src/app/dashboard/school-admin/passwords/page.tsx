@@ -371,7 +371,7 @@ export default function SchoolAdminPasswordsPage() {
 
   const savePassword = async (userId: string) => {
     const password = (draftPasswords[userId] || '').trim();
-    const confirmPassword = (draftConfirmPasswords[userId] || '').trim();
+    const confirmPassword = (draftConfirmPasswords[userId] || password).trim();
     if (!password) {
       toast.error('Enter a new password');
       return;

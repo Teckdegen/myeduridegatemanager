@@ -5,6 +5,10 @@ import { todayInLagos } from '@/lib/timezone';
 import { lagosDayBoundsFromDateStr } from '@/lib/attendance/lagos-dates';
 import { formatTimeLagos } from '@/lib/timezone';
 import { fetchStaffSignLogRows } from '@/lib/attendance/staff-sign-log';
+import {
+  loadDeparturePickupMaps,
+  resolveDeparturePickupPerson,
+} from '@/lib/gate/departure-pickup-display';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +52,11 @@ export async function GET(request: NextRequest) {
       timestamp: string;
       time_display: string;
       status?: string;
+      pickup_person?: {
+        pickup_person_name: string;
+        pickup_person_phone?: string | null;
+        pickup_source: 'release' | 'notice' | 'request' | 'authorised';
+      } | null;
       pickup_notice?: {
         pickup_person_name: string;
         pickup_person_phone?: string | null;
@@ -55,28 +64,15 @@ export async function GET(request: NextRequest) {
       } | null;
     }[] = [];
 
-    const noticeByStudent = new Map<
-      string,
-      { pickup_person_name: string; pickup_person_phone?: string | null; notes?: string | null }
-    >();
+    const pickupMaps = await loadDeparturePickupMaps(
+      supabase,
+      schoolId,
+      dateParam,
+      startIso,
+      endIso
+    );
 
     if (entity === 'all' || entity === 'student') {
-      const { data: notices } = await supabase
-        .from('pickup_notices')
-        .select('student_id, pickup_person_name, pickup_person_phone, notes')
-        .eq('school_id', schoolId)
-        .eq('notice_date', dateParam);
-
-      for (const n of notices || []) {
-        if (n.student_id) {
-          noticeByStudent.set(n.student_id, {
-            pickup_person_name: n.pickup_person_name,
-            pickup_person_phone: n.pickup_person_phone,
-            notes: n.notes,
-          });
-        }
-      }
-
       const { data: records } = await supabase
         .from('attendance_records')
         .select(
@@ -93,8 +89,18 @@ export async function GET(request: NextRequest) {
           ? `${(st as { first_name: string }).first_name} ${(st as { last_name: string }).last_name}`
           : 'Student';
         const studentIdNumber = (st as { student_id_number?: string })?.student_id_number || '';
+        const pickupPerson =
+          r.type === 'departure' && r.student_id
+            ? resolveDeparturePickupPerson(pickupMaps, r.id, r.student_id)
+            : null;
         const pickupNotice =
-          r.type === 'departure' && r.student_id ? noticeByStudent.get(r.student_id) ?? null : null;
+          pickupPerson?.pickup_source === 'notice'
+            ? {
+                pickup_person_name: pickupPerson.pickup_person_name,
+                pickup_person_phone: pickupPerson.pickup_person_phone,
+                notes: pickupPerson.notes,
+              }
+            : null;
         entries.push({
           id: r.id,
           entity: 'student',
@@ -105,6 +111,7 @@ export async function GET(request: NextRequest) {
           timestamp: r.timestamp,
           time_display: formatTimeLagos(r.timestamp),
           status: r.status || undefined,
+          pickup_person: pickupPerson,
           pickup_notice: pickupNotice,
         });
       }

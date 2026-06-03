@@ -366,6 +366,9 @@ export default function GateOfficerDashboard() {
           } else if (scannedPerson.pickup_request?.pickup_person_name) {
             body.pickup_person_name = scannedPerson.pickup_request.pickup_person_name;
             body.pickup_person_phone = scannedPerson.pickup_request.pickup_person_phone;
+          } else if (scannedPerson.pickup_persons?.[0]?.name) {
+            body.pickup_person_name = scannedPerson.pickup_persons[0].name;
+            body.pickup_person_phone = scannedPerson.pickup_persons[0].phone;
           }
         }
       }

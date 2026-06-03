@@ -11,33 +11,34 @@ export async function resolveAuthUserForProfile(
   supabase: SupabaseClient,
   profileUserId: string
 ): Promise<ResolveAuthResult> {
-  const { data: byId, error: byIdErr } = await supabase.auth.admin.getUserById(profileUserId);
-  if (!byIdErr && byId?.user) {
-    return { authUserId: byId.user.id, user: byId.user };
-  }
-
   const { data: profile, error: profileErr } = await supabase
     .from('user_profiles')
     .select('id, username, full_name')
     .eq('id', profileUserId)
     .maybeSingle();
 
-  if (profileErr || !profile?.username) {
+  if (profileErr || !profile) {
     return { error: 'User not found' };
   }
 
-  const authEmail = authEmailFromUsername(profile.username);
-  const authUserId = await findAuthUserIdByEmail(supabase, authEmail);
-  if (!authUserId) {
-    return { error: 'Auth account not found for this user' };
+  // Login always uses authEmailFromUsername — resolve that auth account first.
+  if (profile.username) {
+    const authEmail = authEmailFromUsername(profile.username);
+    const authUserId = await findAuthUserIdByEmail(supabase, authEmail);
+    if (authUserId) {
+      const { data: authUser, error: authErr } = await supabase.auth.admin.getUserById(authUserId);
+      if (!authErr && authUser?.user) {
+        return { authUserId: authUser.user.id, user: authUser.user };
+      }
+    }
   }
 
-  const { data: authUser, error: authErr } = await supabase.auth.admin.getUserById(authUserId);
-  if (authErr || !authUser?.user) {
-    return { error: 'User not found' };
+  const { data: byId, error: byIdErr } = await supabase.auth.admin.getUserById(profileUserId);
+  if (!byIdErr && byId?.user) {
+    return { authUserId: byId.user.id, user: byId.user };
   }
 
-  return { authUserId: authUser.user.id, user: authUser.user };
+  return { error: 'Auth account not found for this user' };
 }
 
 async function createAuthAccountForProfile(
@@ -94,13 +95,31 @@ export async function setAuthPasswordForProfile(
   const { authUserId, user } = resolved;
   const currentMeta = user.user_metadata || {};
 
-  const { error: updateErr } = await supabase.auth.admin.updateUserById(authUserId, {
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('username')
+    .eq('id', profileUserId)
+    .maybeSingle();
+
+  const expectedEmail = profile?.username ? authEmailFromUsername(profile.username) : null;
+  const updatePayload: {
+    password: string;
+    user_metadata: Record<string, unknown>;
+    email?: string;
+  } = {
     password,
     user_metadata: {
       ...currentMeta,
       login_password: password,
+      username: profile?.username || currentMeta.username,
     },
-  });
+  };
+
+  if (expectedEmail && user.email?.toLowerCase() !== expectedEmail.toLowerCase()) {
+    updatePayload.email = expectedEmail;
+  }
+
+  const { error: updateErr } = await supabase.auth.admin.updateUserById(authUserId, updatePayload);
 
   if (updateErr) {
     return { error: updateErr.message };

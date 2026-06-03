@@ -41,7 +41,7 @@ export default function AttendanceSignLog({
   const filteredEntries = searchable && searchQuery.trim()
     ? entries.filter((e) => {
         const q = searchQuery.toLowerCase();
-        const hay = `${e.name} ${e.type_label} ${e.detail || ''} ${e.time_display || ''} ${e.pickup_notice?.pickup_person_name || ''}`.toLowerCase();
+        const hay = `${e.name} ${e.type_label} ${e.detail || ''} ${e.time_display || ''} ${e.pickup_person?.pickup_person_name || ''} ${e.pickup_notice?.pickup_person_name || ''}`.toLowerCase();
         return hay.includes(q);
       })
     : entries;
@@ -107,18 +107,24 @@ export default function AttendanceSignLog({
                   {e.type_label}
                   {e.detail ? ` · ${e.detail}` : ''}
                 </p>
-                {e.pickup_notice?.pickup_person_name && (
+                {(e.pickup_person?.pickup_person_name || e.pickup_notice?.pickup_person_name) && (
                   <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-2">
                     <p className="text-[10px] font-bold text-blue-900 uppercase tracking-wide">
-                      Parent pickup notice
+                      {e.pickup_person?.pickup_source === 'release'
+                        ? 'Released to'
+                        : e.pickup_person?.pickup_source === 'request'
+                          ? 'Pickup request'
+                          : e.pickup_person?.pickup_source === 'authorised'
+                            ? 'Authorised pickup'
+                            : 'Parent pickup notice'}
                     </p>
                     <p className="text-xs font-bold text-blue-800">
-                      {e.pickup_notice.pickup_person_name}
-                      {e.pickup_notice.pickup_person_phone
-                        ? ` · ${e.pickup_notice.pickup_person_phone}`
+                      {e.pickup_person?.pickup_person_name || e.pickup_notice?.pickup_person_name}
+                      {(e.pickup_person?.pickup_person_phone || e.pickup_notice?.pickup_person_phone)
+                        ? ` · ${e.pickup_person?.pickup_person_phone || e.pickup_notice?.pickup_person_phone}`
                         : ''}
                     </p>
-                    {e.pickup_notice.notes?.trim() && (
+                    {e.pickup_notice?.notes?.trim() && (
                       <p className="text-xs text-blue-700 mt-0.5">{e.pickup_notice.notes.trim()}</p>
                     )}
                   </div>

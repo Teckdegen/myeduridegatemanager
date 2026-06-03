@@ -5,7 +5,6 @@ import {
   Building2,
   ChevronDown,
   ChevronRight,
-  Copy,
   Eye,
   EyeOff,
   GraduationCap,
@@ -14,6 +13,7 @@ import {
   Search,
   User,
   Users,
+  BookUser,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -21,6 +21,11 @@ import {
   CredentialPasswordTableHead,
   type CredentialUser,
 } from '@/components/shared/CredentialPasswordRows';
+import {
+  StudentParentCredentialRows,
+  StudentParentCredentialTableHead,
+  type StudentParentCredential,
+} from '@/components/shared/StudentParentCredentialRows';
 
 type SchoolBlock = {
   id: string;
@@ -28,6 +33,7 @@ type SchoolBlock = {
   address: string | null;
   staff: CredentialUser[];
   parents: CredentialUser[];
+  students: StudentParentCredential[];
   other: CredentialUser[];
   users: CredentialUser[];
   total_users: number;
@@ -35,6 +41,58 @@ type SchoolBlock = {
 
 function formatRole(role: string) {
   return role.replace(/_/g, ' ');
+}
+
+function StudentSection({
+  students,
+  draftPasswords,
+  draftConfirmPasswords,
+  setDraftPasswords,
+  setDraftConfirmPasswords,
+  onSave,
+  savingId,
+  showPasswords,
+}: {
+  students: StudentParentCredential[];
+  draftPasswords: Record<string, string>;
+  draftConfirmPasswords: Record<string, string>;
+  setDraftPasswords: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  setDraftConfirmPasswords: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  onSave: (parentUserId: string) => void;
+  savingId: string | null;
+  showPasswords: boolean;
+}) {
+  if (students.length === 0) return null;
+
+  return (
+    <div className="border-t first:border-t-0">
+      <div className="px-5 py-2.5 bg-emerald-50/90 flex items-center gap-2 text-xs font-bold text-emerald-900 uppercase tracking-wide">
+        <BookUser size={14} className="text-emerald-700" />
+        Students — parent login
+        <span className="text-emerald-600/70 font-normal">({students.length})</span>
+      </div>
+      <p className="px-5 py-2 text-xs text-gray-500 border-b bg-white">
+        Each student&apos;s parent app login (username &amp; password set when the student was added)
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[900px]">
+          <thead>
+            <StudentParentCredentialTableHead />
+          </thead>
+          <StudentParentCredentialRows
+            rows={students}
+            draftPasswords={draftPasswords}
+            draftConfirmPasswords={draftConfirmPasswords}
+            setDraftPasswords={setDraftPasswords}
+            setDraftConfirmPasswords={setDraftConfirmPasswords}
+            onSave={onSave}
+            savingId={savingId}
+            showPasswords={showPasswords}
+          />
+        </table>
+      </div>
+    </div>
+  );
 }
 
 function UserSection({
@@ -102,6 +160,7 @@ export default function SuperAdminPasswordsPage() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [showPasswords, setShowPasswords] = useState(true);
   const [totalUsers, setTotalUsers] = useState(0);
+  const [totalStudents, setTotalStudents] = useState(0);
 
   const fetchCredentials = useCallback(async () => {
     setLoading(true);
@@ -116,12 +175,21 @@ export default function SuperAdminPasswordsPage() {
         return;
       }
 
-      const loadedSchools: SchoolBlock[] = data.schools || [];
+      const loadedSchools: SchoolBlock[] = (data.schools || []).map(
+        (s: SchoolBlock) => ({ ...s, students: s.students || [] })
+      );
       const supers: CredentialUser[] = data.super_admins || [];
       setSchools(loadedSchools);
       setSuperAdmins(supers);
       setTotalUsers(data.total_users || 0);
-      setExpandedSchools(new Set(loadedSchools.filter((s) => s.total_users > 0).map((s) => s.id)));
+      setTotalStudents(data.total_students || 0);
+      setExpandedSchools(
+        new Set(
+          loadedSchools
+            .filter((s) => s.total_users > 0 || s.students.length > 0)
+            .map((s) => s.id)
+        )
+      );
 
       const passwordMap: Record<string, string> = {};
       const confirmMap: Record<string, string> = {};
@@ -133,6 +201,12 @@ export default function SuperAdminPasswordsPage() {
         for (const user of school.users) {
           passwordMap[user.id] = user.password || '';
           confirmMap[user.id] = user.password || '';
+        }
+        for (const row of school.students) {
+          if (row.parent_user_id) {
+            passwordMap[row.parent_user_id] = row.password || '';
+            confirmMap[row.parent_user_id] = row.password || '';
+          }
         }
       }
       setDraftPasswords(passwordMap);
@@ -167,15 +241,34 @@ export default function SuperAdminPasswordsPage() {
               (u.staff_id_number || '').toLowerCase().includes(q)
           );
 
+        const filterStudents = (list: StudentParentCredential[]) =>
+          list.filter(
+            (s) =>
+              s.student_name.toLowerCase().includes(q) ||
+              s.student_id_number.toLowerCase().includes(q) ||
+              (s.class_name || '').toLowerCase().includes(q) ||
+              s.parent_name.toLowerCase().includes(q) ||
+              s.parent_username.toLowerCase().includes(q)
+          );
+
         const staff = filterList(school.staff);
         const parents = filterList(school.parents);
         const other = filterList(school.other);
+        const students = filterStudents(school.students);
 
         if (schoolMatch) return school;
-        if (staff.length + parents.length + other.length === 0) return null;
+        if (staff.length + parents.length + other.length + students.length === 0) return null;
 
         const users = [...staff, ...parents, ...other];
-        return { ...school, staff, parents, other, users, total_users: users.length };
+        return {
+          ...school,
+          staff,
+          parents,
+          other,
+          students,
+          users,
+          total_users: users.length + students.filter((s) => s.parent_user_id).length,
+        };
       })
       .filter(Boolean) as SchoolBlock[];
   }, [schools, searchQuery]);
@@ -193,7 +286,7 @@ export default function SuperAdminPasswordsPage() {
 
   const savePassword = async (userId: string) => {
     const password = (draftPasswords[userId] || '').trim();
-    const confirmPassword = (draftConfirmPasswords[userId] || '').trim();
+    const confirmPassword = (draftConfirmPasswords[userId] || password).trim();
     if (!password) {
       toast.error('Enter a new password');
       return;
@@ -220,6 +313,8 @@ export default function SuperAdminPasswordsPage() {
       toast.success('Password updated');
       setDraftConfirmPasswords((prev) => ({ ...prev, [userId]: password }));
       const patch = (u: CredentialUser) => (u.id === userId ? { ...u, password } : u);
+      const patchStudent = (s: StudentParentCredential) =>
+        s.parent_user_id === userId ? { ...s, password } : s;
       setSuperAdmins((prev) => prev.map(patch));
       setSchools((prev) =>
         prev.map((s) => ({
@@ -228,6 +323,7 @@ export default function SuperAdminPasswordsPage() {
           parents: s.parents.map(patch),
           other: s.other.map(patch),
           users: s.users.map(patch),
+          students: s.students.map(patchStudent),
         }))
       );
     } catch {
@@ -246,6 +342,10 @@ export default function SuperAdminPasswordsPage() {
     });
   };
 
+  const studentCount = schools.reduce((n, s) => n + s.students.length, 0);
+  const staffCount = schools.reduce((n, s) => n + s.staff.length, 0);
+  const parentCount = schools.reduce((n, s) => n + s.parents.length, 0);
+
   return (
     <div className="min-h-screen bg-gray-50">
       <main className="p-4 sm:p-6 max-w-7xl mx-auto pb-12">
@@ -256,7 +356,7 @@ export default function SuperAdminPasswordsPage() {
               Passwords
             </h1>
             <p className="text-sm text-gray-500">
-              All schools, staff, parents — every username and stored password
+              Every school — staff, students (parent logins), parents, super admins
             </p>
           </div>
           <div className="flex flex-wrap gap-2 self-start">
@@ -275,7 +375,7 @@ export default function SuperAdminPasswordsPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
           <div className="card py-3">
             <p className="text-2xl font-bold">{schools.length}</p>
             <p className="text-xs text-gray-500">Schools</p>
@@ -285,16 +385,16 @@ export default function SuperAdminPasswordsPage() {
             <p className="text-xs text-gray-500">Total accounts</p>
           </div>
           <div className="card py-3">
-            <p className="text-2xl font-bold">
-              {schools.reduce((n, s) => n + s.staff.length, 0)}
-            </p>
+            <p className="text-2xl font-bold">{studentCount || totalStudents}</p>
+            <p className="text-xs text-gray-500">Students</p>
+          </div>
+          <div className="card py-3">
+            <p className="text-2xl font-bold">{staffCount}</p>
             <p className="text-xs text-gray-500">Staff</p>
           </div>
           <div className="card py-3">
-            <p className="text-2xl font-bold">
-              {schools.reduce((n, s) => n + s.parents.length, 0)}
-            </p>
-            <p className="text-xs text-gray-500">Parents</p>
+            <p className="text-2xl font-bold">{parentCount}</p>
+            <p className="text-xs text-gray-500">Other parents</p>
           </div>
         </div>
 
@@ -304,7 +404,7 @@ export default function SuperAdminPasswordsPage() {
             type="search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search schools, staff names, usernames, roles…"
+            placeholder="Search schools, students, parents, staff, usernames…"
             className="input pl-9 min-h-[44px] w-full"
           />
         </div>
@@ -363,6 +463,7 @@ export default function SuperAdminPasswordsPage() {
             ) : (
               filteredSchools.map((school) => {
                 const isExpanded = expandedSchools.has(school.id);
+                const hasContent = school.total_users > 0 || school.students.length > 0;
                 return (
                   <div key={school.id} className="card p-0 overflow-hidden">
                     <button
@@ -384,20 +485,31 @@ export default function SuperAdminPasswordsPage() {
                           <p className="text-xs text-gray-500 truncate">{school.address}</p>
                         )}
                         <p className="text-xs text-gray-400 mt-0.5">
-                          {school.staff.length} staff · {school.parents.length} parents
+                          {school.students.length} students · {school.staff.length} staff ·{' '}
+                          {school.parents.length} other parents
                         </p>
                       </div>
                       <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 shrink-0">
-                        {school.total_users} users
+                        {school.total_users} accounts
                       </span>
                     </button>
 
                     {isExpanded && (
                       <div>
-                        {school.total_users === 0 ? (
+                        {!hasContent ? (
                           <div className="px-5 py-8 text-center text-sm text-gray-400">No users yet</div>
                         ) : (
                           <>
+                            <StudentSection
+                              students={school.students}
+                              draftPasswords={draftPasswords}
+                              draftConfirmPasswords={draftConfirmPasswords}
+                              setDraftPasswords={setDraftPasswords}
+                              setDraftConfirmPasswords={setDraftConfirmPasswords}
+                              onSave={savePassword}
+                              savingId={savingId}
+                              showPasswords={showPasswords}
+                            />
                             <UserSection
                               title="Staff (admin, teachers, gate, general)"
                               icon={<GraduationCap size={14} className="text-blue-600" />}
@@ -411,7 +523,7 @@ export default function SuperAdminPasswordsPage() {
                               showPasswords={showPasswords}
                             />
                             <UserSection
-                              title="Parents"
+                              title="Other parents"
                               icon={<User size={14} className="text-orange-600" />}
                               users={school.parents}
                               draftPasswords={draftPasswords}
