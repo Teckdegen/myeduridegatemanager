@@ -19,8 +19,10 @@ export type ProvisionParentResult =
   | {
       parent_user_id: string;
       parent_username: string;
+      /** Set only when a new account was created or an explicit password was provided */
       password: string;
       created: boolean;
+      linked: boolean;
     }
   | { error: string };
 
@@ -77,11 +79,11 @@ export async function provisionParentForStudent(
 
   const email = opts.parent_email?.includes('@') ? opts.parent_email.toLowerCase().trim() : null;
   const explicitPassword = opts.password?.trim() || '';
-  const resolvedPassword = resolveInitialPassword(explicitPassword || undefined, generateRandomPassword(10));
   let parentUserId: string | undefined;
   let parentUsername: string | undefined;
-  let generatedPassword = resolvedPassword;
+  let generatedPassword = '';
   let created = false;
+  let linkedExisting = false;
   let explicitUsernameForCreate: string | null = null;
 
   if (opts.parent_username?.trim()) {
@@ -99,6 +101,7 @@ export async function provisionParentForStudent(
     if (byUsername?.id) {
       parentUserId = byUsername.id;
       parentUsername = byUsername.username || normalized;
+      linkedExisting = true;
     } else {
       explicitUsernameForCreate = normalized;
       parentUsername = normalized;
@@ -114,6 +117,7 @@ export async function provisionParentForStudent(
     if (byEmail?.id) {
       parentUserId = byEmail.id;
       parentUsername = byEmail.username || undefined;
+      linkedExisting = true;
     }
   }
 
@@ -134,6 +138,7 @@ export async function provisionParentForStudent(
       if (profile?.id) {
         parentUserId = profile.id;
         parentUsername = profile.username || undefined;
+        linkedExisting = true;
       }
     }
   }
@@ -151,6 +156,7 @@ export async function provisionParentForStudent(
     if (profileByUsername?.id) {
       parentUserId = profileByUsername.id;
       parentUsername = profileByUsername.username || desiredUsername;
+      linkedExisting = true;
     } else {
       const existingAuthId = await findAuthUserIdByEmail(
         supabase,
@@ -160,18 +166,23 @@ export async function provisionParentForStudent(
       if (existingAuthId) {
         parentUserId = existingAuthId;
         parentUsername = desiredUsername;
+        linkedExisting = true;
       } else {
+        const newPassword = resolveInitialPassword(
+          explicitPassword || undefined,
+          generateRandomPassword(10)
+        );
         const { userId, password, error: authErr } = await ensureAuthUser(supabase, {
           username: desiredUsername,
           full_name: parentName || parentUsername || desiredUsername,
-          password: explicitPassword || resolvedPassword,
+          password: newPassword,
         });
         if (!userId) {
           return { error: authErr || 'Could not create parent auth account' };
         }
         parentUserId = userId;
         parentUsername = desiredUsername;
-        generatedPassword = password || resolvedPassword;
+        generatedPassword = password || newPassword;
         created = true;
       }
     }
@@ -196,25 +207,33 @@ export async function provisionParentForStudent(
     parentUsername || parentName || 'parent'
   );
 
-  const profileName = parentName || parentUsername || 'Parent';
+  const profileName = linkedExisting
+    ? (parentName || parentUsername || 'Parent')
+    : (parentName || parentUsername || 'Parent');
 
-  const { error: profileErr } = await ensureUserProfile(supabase, {
-    id: parentUserId,
-    username: parentUsername,
-    full_name: profileName,
-    phone: opts.parent_phone || null,
-    email,
-  });
-  if (profileErr) {
-    return { error: profileErr.message };
+  if (!linkedExisting) {
+    const { error: profileErr } = await ensureUserProfile(supabase, {
+      id: parentUserId,
+      username: parentUsername,
+      full_name: profileName,
+      phone: opts.parent_phone || null,
+      email,
+    });
+    if (profileErr) {
+      return { error: profileErr.message };
+    }
   }
 
   if (created || explicitPassword) {
-    const { error: pwErr } = await setAuthPasswordForProfile(supabase, parentUserId, generatedPassword, {
+    const passwordToSet = explicitPassword || generatedPassword;
+    const { error: pwErr } = await setAuthPasswordForProfile(supabase, parentUserId, passwordToSet, {
       createAuthIfMissing: true,
     });
     if (pwErr) {
       return { error: pwErr };
+    }
+    if (explicitPassword) {
+      generatedPassword = explicitPassword;
     }
   }
 
@@ -241,7 +260,8 @@ export async function provisionParentForStudent(
   return {
     parent_user_id: parentUserId,
     parent_username: parentUsername,
-    password: generatedPassword,
+    password: created || explicitPassword ? generatedPassword : '',
     created,
+    linked: linkedExisting && !created,
   };
 }

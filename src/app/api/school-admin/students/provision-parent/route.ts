@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { validatePasswordPair } from '@/lib/auth/password-policy';
+import { lookupUserByUsername } from '@/lib/auth/lookup-user-by-username';
 import {
   parentInfoFromCustomFields,
   provisionParentForStudent,
@@ -36,11 +37,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'student_id is required' }, { status: 400 });
     }
 
-    const pwErr = validatePasswordPair(password, confirmPassword);
-    if (pwErr) {
-      return NextResponse.json({ error: pwErr }, { status: 400 });
-    }
-
     const supabase = getAdminClient();
     const { data: student, error: studErr } = await supabase
       .from('students')
@@ -62,20 +58,31 @@ export async function POST(request: NextRequest) {
     const parentUsername = (body.parent_username || onFile.parent_username || '').trim() || null;
     if (!onFile.parent_name && !parentUsername) {
       return NextResponse.json(
-        { error: 'Add parent name or username on the student record first' },
+        { error: 'Add parent username or name on the student record first' },
         { status: 400 }
       );
+    }
+
+    const existingParentAccount = parentUsername
+      ? await lookupUserByUsername(supabase, parentUsername)
+      : null;
+
+    if (!existingParentAccount) {
+      const pwErr = validatePasswordPair(password, confirmPassword);
+      if (pwErr) {
+        return NextResponse.json({ error: pwErr }, { status: 400 });
+      }
     }
 
     const result = await provisionParentForStudent(supabase, {
       student_id: studentId,
       school_id: student.school_id,
-      parent_name: onFile.parent_name,
+      parent_name: onFile.parent_name || existingParentAccount?.full_name || '',
       parent_username: parentUsername,
       parent_email: onFile.parent_email,
       parent_phone: onFile.parent_phone,
       relationship: onFile.relationship,
-      password,
+      password: existingParentAccount ? undefined : password,
     });
 
     if ('error' in result) {
@@ -86,7 +93,9 @@ export async function POST(request: NextRequest) {
       success: true,
       parent_user_id: result.parent_user_id,
       parent_username: result.parent_username,
-      password: result.password,
+      password: result.password || undefined,
+      created: result.created,
+      linked: result.linked,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Could not create parent login';

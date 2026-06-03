@@ -24,6 +24,7 @@ export type StudentParentCredential = {
   parent_user_id: string | null;
   parent_name: string;
   parent_username: string;
+  parent_username_on_file: string;
   password: string;
   parent_on_file_name: string;
   parent_phone: string | null;
@@ -105,7 +106,7 @@ export async function fetchStudentParentCredentials(
       const primaryLink =
         existingLinks.find((l) => l.is_primary) || existingLinks[0] || null;
 
-      let needsProvision = !primaryLink && !!onFile.parent_name;
+      let needsProvision = !primaryLink && (!!onFile.parent_name || !!onFile.parent_username);
       if (primaryLink) {
         let profile = profileById.get(primaryLink.parent_user_id);
         if (!profile) {
@@ -130,6 +131,7 @@ export async function fetchStudentParentCredentials(
         student_id: student.id,
         school_id: schoolId,
         parent_name: parentName,
+        parent_username: onFile.parent_username,
         parent_email: onFile.parent_email,
         parent_phone: onFile.parent_phone,
         relationship: onFile.relationship,
@@ -204,6 +206,7 @@ export async function fetchStudentParentCredentials(
       parent_user_id: parentUserId,
       parent_name: parentName,
       parent_username: parentUsername,
+      parent_username_on_file: onFile.parent_username || '',
       password,
       parent_on_file_name: onFile.parent_name,
       parent_phone: onFile.parent_phone,

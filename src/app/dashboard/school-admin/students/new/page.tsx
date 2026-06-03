@@ -96,10 +96,15 @@ export default function AddStudentPage() {
       if (result.success) {
         const id = result.student?.student_id_number || 'assigned';
         const hasPhoto = !!result.student?.photo_url;
+        const linkedMsg = result.parent?.linked
+          ? ` Linked to existing parent @${result.parent.username}.`
+          : result.parent?.created
+            ? ` Parent login: ${result.parent.username}.`
+            : '';
         toast.success(
           hasPhoto
-            ? `Student added with photo! ID: ${id}`
-            : `Student added (ID: ${id}) — photo was not saved; try again`
+            ? `Student added with photo! ID: ${id}.${linkedMsg}`
+            : `Student added (ID: ${id}) — photo was not saved.${linkedMsg}`
         );
         router.push('/dashboard/school-admin/students');
       }

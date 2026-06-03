@@ -18,6 +18,7 @@ export type StudentParentCredential = {
   parent_user_id: string | null;
   parent_name: string;
   parent_username: string;
+  parent_username_on_file?: string;
   password: string;
   parent_on_file_name?: string;
   parent_phone?: string | null;
@@ -90,6 +91,8 @@ export function StudentParentCredentialRows({
       {rows.map((row) => {
         const key = row.parent_user_id || row.student_id;
         const hasParent = !!row.parent_user_id;
+        const usernameOnFile = row.parent_username_on_file?.trim() || '';
+        const linkingExisting = !hasParent && !!usernameOnFile;
         const displayParentName = row.parent_name || row.parent_on_file_name || '';
         const persons = row.authorised_pickup_persons || [];
 
@@ -128,6 +131,8 @@ export function StudentParentCredentialRows({
                 ) : (
                   <span className="text-amber-700">Missing — use Create login</span>
                 )
+              ) : usernameOnFile ? (
+                <span className="font-semibold text-emerald-800">@{usernameOnFile}</span>
               ) : (
                 '—'
               )}
@@ -140,7 +145,14 @@ export function StudentParentCredentialRows({
                   setDraftPasswords((prev) => ({ ...prev, [key]: e.target.value }))
                 }
                 className="input h-9 font-mono text-xs w-full"
-                placeholder={hasParent || displayParentName ? 'Password' : 'Set parent name on student first'}
+                placeholder={
+                  linkingExisting
+                    ? 'Existing account — no password needed'
+                    : hasParent || displayParentName
+                      ? 'Password'
+                      : 'Set parent name on student first'
+                }
+                disabled={linkingExisting}
               />
             </td>
             <td className="py-3 pr-4 min-w-[160px]">
@@ -151,7 +163,8 @@ export function StudentParentCredentialRows({
                   setDraftConfirmPasswords((prev) => ({ ...prev, [key]: e.target.value }))
                 }
                 className="input h-9 font-mono text-xs w-full"
-                placeholder="Confirm"
+                placeholder={linkingExisting ? '—' : 'Confirm'}
+                disabled={linkingExisting}
               />
             </td>
             <td className="py-3 pr-5">
@@ -181,21 +194,27 @@ export function StudentParentCredentialRows({
                     <KeyRound size={14} />
                     {savingId === row.parent_user_id ? 'Saving…' : 'Update'}
                   </button>
-                ) : onProvision && displayParentName ? (
+                ) : onProvision && (displayParentName || usernameOnFile) ? (
                   <button
                     type="button"
                     onClick={() =>
                       onProvision(
                         row.student_id,
-                        (draftPasswords[key] || '').trim(),
-                        (draftConfirmPasswords[key] || draftPasswords[key] || '').trim()
+                        linkingExisting ? '' : (draftPasswords[key] || '').trim(),
+                        linkingExisting
+                          ? ''
+                          : (draftConfirmPasswords[key] || draftPasswords[key] || '').trim()
                       )
                     }
                     disabled={provisioningId === row.student_id}
                     className="btn-primary h-9 px-3 inline-flex items-center gap-1.5"
                   >
                     <UserPlus size={14} />
-                    {provisioningId === row.student_id ? 'Creating…' : 'Create login'}
+                    {provisioningId === row.student_id
+                      ? 'Working…'
+                      : linkingExisting
+                        ? 'Link parent'
+                        : 'Create login'}
                   </button>
                 ) : null}
               </div>

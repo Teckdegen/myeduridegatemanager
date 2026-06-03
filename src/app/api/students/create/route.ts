@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { resolveInitialPassword, validatePasswordPair } from '@/lib/auth/password-policy';
+import { lookupUserByUsername } from '@/lib/auth/lookup-user-by-username';
 import {
   parentInfoFromCustomFields,
   provisionParentForStudent,
@@ -91,13 +92,23 @@ export async function POST(request: NextRequest) {
     const parentEmail = custom_fields?.parent_email;
     const parentName = custom_fields?.parent_name;
     const parentUsername = custom_fields?.parent_username?.trim() || null;
-    const parentPassword = resolveInitialPassword(parent_initial_password);
-    if (parent_initial_password) {
+
+    const existingParentAccount = parentUsername
+      ? await lookupUserByUsername(supabase, parentUsername)
+      : null;
+
+    if (parent_initial_password && !existingParentAccount) {
       const pwErr = validatePasswordPair(parent_initial_password, parent_confirm_password || '');
       if (pwErr) {
         return NextResponse.json({ error: `Parent password: ${pwErr}` }, { status: 400 });
       }
     }
+
+    const parentPassword = existingParentAccount
+      ? undefined
+      : resolveInitialPassword(parent_initial_password);
+
+    let parentResult: { linked: boolean; created: boolean; username: string } | null = null;
 
     if ((parentName?.trim() || parentUsername) && data) {
       try {
@@ -105,21 +116,24 @@ export async function POST(request: NextRequest) {
         const result = await provisionParentForStudent(supabase, {
           student_id: data.id,
           school_id,
-          parent_name: onFile.parent_name || parentName?.trim() || '',
-          parent_username: parentUsername,
+          parent_name: onFile.parent_name || parentName?.trim() || existingParentAccount?.full_name || '',
+          parent_username: parentUsername || onFile.parent_username,
           parent_email: onFile.parent_email,
           parent_phone: onFile.parent_phone,
           relationship: onFile.relationship,
-          password: parentPassword || undefined,
+          password: parentPassword,
         });
 
         if ('error' in result) {
           console.error('[PARENT] Error:', result.error);
         } else {
-          const parentUsername = result.parent_username;
-          const generatedPassword = result.password;
+          parentResult = {
+            linked: result.linked,
+            created: result.created,
+            username: result.parent_username,
+          };
 
-          if (parentEmail) {
+          if (parentEmail && result.created) {
             try {
               const { Resend } = require('resend');
               const resend = new Resend(process.env.RESEND_API_KEY);
@@ -127,7 +141,20 @@ export async function POST(request: NextRequest) {
                 from: 'MyEduRide <noreply@assetid.site>',
                 to: parentEmail,
                 subject: `Your child ${first_name} has been registered`,
-                html: `<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:20px;"><h2>Welcome to MyEduRide</h2><p>Hello ${parentName || 'Parent'},</p><p>Your child <strong>${first_name} ${last_name}</strong> has been registered at school.</p><p><strong>Username:</strong> ${parentUsername}</p>${generatedPassword ? `<p><strong>Password:</strong> ${generatedPassword}</p>` : ''}<p>Visit the app and sign in with your username and password.</p><p style="color:#666;font-size:12px;">MyEduRide — The Student Safety Platform</p></div>`,
+                html: `<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:20px;"><h2>Welcome to MyEduRide</h2><p>Hello ${parentName || 'Parent'},</p><p>Your child <strong>${first_name} ${last_name}</strong> has been registered at school.</p><p><strong>Username:</strong> ${result.parent_username}</p>${result.password ? `<p><strong>Password:</strong> ${result.password}</p>` : ''}<p>Visit the app and sign in with your username and password.</p><p style="color:#666;font-size:12px;">MyEduRide — The Student Safety Platform</p></div>`,
+              });
+            } catch (emailErr) {
+              console.error('[PARENT] Email failed:', emailErr);
+            }
+          } else if (parentEmail && result.linked) {
+            try {
+              const { Resend } = require('resend');
+              const resend = new Resend(process.env.RESEND_API_KEY);
+              await resend.emails.send({
+                from: 'MyEduRide <noreply@assetid.site>',
+                to: parentEmail,
+                subject: `${first_name} ${last_name} has been linked to your account`,
+                html: `<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:20px;"><h2>MyEduRide</h2><p>Hello ${parentName || existingParentAccount?.full_name || 'Parent'},</p><p>Your child <strong>${first_name} ${last_name}</strong> has been added to your existing parent account (<strong>@${result.parent_username}</strong>).</p><p>Sign in with your usual username and password to view them.</p><p style="color:#666;font-size:12px;">MyEduRide — The Student Safety Platform</p></div>`,
               });
             } catch (emailErr) {
               console.error('[PARENT] Email failed:', emailErr);
@@ -139,7 +166,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, student: data });
+    return NextResponse.json({
+      success: true,
+      student: data,
+      parent: parentResult,
+    });
   } catch (err: any) {
     console.error('[STUDENT CREATE] Crash:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });

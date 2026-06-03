@@ -466,12 +466,12 @@ export default function SchoolAdminPasswordsPage() {
     password: string,
     confirmPassword: string
   ) => {
-    if (!password) {
-      toast.error('Enter a password for the parent login');
+    if (password && password !== confirmPassword) {
+      toast.error('Password and confirmation do not match');
       return;
     }
-    if (password !== confirmPassword) {
-      toast.error('Password and confirmation do not match');
+    if (password && !confirmPassword) {
+      toast.error('Confirm the password');
       return;
     }
 
@@ -492,7 +492,11 @@ export default function SchoolAdminPasswordsPage() {
         toast.error(data.error || 'Could not create parent login');
         return;
       }
-      toast.success(`Parent login created — username: ${data.parent_username}`);
+      if (data.linked) {
+        toast.success(`Linked to existing parent @${data.parent_username}`);
+      } else {
+        toast.success(`Parent login created — username: ${data.parent_username}`);
+      }
       await fetchCredentials();
     } catch {
       toast.error('Could not create parent login');
