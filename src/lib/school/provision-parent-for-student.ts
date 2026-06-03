@@ -5,7 +5,13 @@ import {
   findAuthUserIdByEmail,
   reserveUsernameForProfile,
 } from '@/lib/auth/ensure-user';
-import { authEmailFromUsername, generateRandomPassword, suggestUniqueUsername } from '@/lib/auth/username';
+import {
+  authEmailFromUsername,
+  generateRandomPassword,
+  isValidUsername,
+  normalizeUsername,
+  suggestUniqueUsername,
+} from '@/lib/auth/username';
 import { resolveInitialPassword } from '@/lib/auth/password-policy';
 import { setAuthPasswordForProfile } from '@/lib/auth/update-password';
 
@@ -20,6 +26,7 @@ export type ProvisionParentResult =
 
 type CustomFields = {
   parent_name?: string;
+  parent_username?: string;
   parent_email?: string;
   parent_phone?: string;
   relationship?: string;
@@ -29,6 +36,7 @@ export function parentInfoFromCustomFields(
   customFields: CustomFields | null | undefined
 ): {
   parent_name: string;
+  parent_username: string | null;
   parent_email: string | null;
   parent_phone: string | null;
   relationship: string;
@@ -41,19 +49,21 @@ export function parentInfoFromCustomFields(
     '';
   return {
     parent_name: String(parentName).trim(),
+    parent_username: cf.parent_username?.trim() || null,
     parent_email: cf.parent_email?.includes('@') ? cf.parent_email.toLowerCase().trim() : null,
     parent_phone: cf.parent_phone?.trim() || null,
     relationship: cf.relationship?.trim() || 'parent',
   };
 }
 
-/** Create or link a parent login for a student (idempotent). */
+/** Create or link a parent login for a student (idempotent). Username is the source of truth. */
 export async function provisionParentForStudent(
   supabase: SupabaseClient,
   opts: {
     student_id: string;
     school_id: string;
     parent_name: string;
+    parent_username?: string | null;
     parent_email?: string | null;
     parent_phone?: string | null;
     relationship?: string;
@@ -61,18 +71,41 @@ export async function provisionParentForStudent(
   }
 ): Promise<ProvisionParentResult> {
   const parentName = opts.parent_name?.trim();
-  if (!parentName) {
-    return { error: 'Parent name is required' };
+  if (!parentName && !opts.parent_username?.trim()) {
+    return { error: 'Parent name or username is required' };
   }
 
   const email = opts.parent_email?.includes('@') ? opts.parent_email.toLowerCase().trim() : null;
-  const resolvedPassword = resolveInitialPassword(opts.password, generateRandomPassword(10));
+  const explicitPassword = opts.password?.trim() || '';
+  const resolvedPassword = resolveInitialPassword(explicitPassword || undefined, generateRandomPassword(10));
   let parentUserId: string | undefined;
   let parentUsername: string | undefined;
   let generatedPassword = resolvedPassword;
   let created = false;
+  let explicitUsernameForCreate: string | null = null;
 
-  if (email) {
+  if (opts.parent_username?.trim()) {
+    const normalized = normalizeUsername(opts.parent_username);
+    if (!isValidUsername(normalized)) {
+      return { error: 'Parent username must be 3–30 characters (letters, numbers, underscore only)' };
+    }
+
+    const { data: byUsername } = await supabase
+      .from('user_profiles')
+      .select('id, username, full_name, email, phone')
+      .eq('username', normalized)
+      .maybeSingle();
+
+    if (byUsername?.id) {
+      parentUserId = byUsername.id;
+      parentUsername = byUsername.username || normalized;
+    } else {
+      explicitUsernameForCreate = normalized;
+      parentUsername = normalized;
+    }
+  }
+
+  if (!parentUserId && email) {
     const { data: byEmail } = await supabase
       .from('user_profiles')
       .select('id, username')
@@ -106,7 +139,8 @@ export async function provisionParentForStudent(
   }
 
   if (!parentUserId) {
-    const desiredUsername = await suggestUniqueUsername(supabase, parentName);
+    const desiredUsername =
+      explicitUsernameForCreate || (await suggestUniqueUsername(supabase, parentName || 'parent'));
 
     const { data: profileByUsername } = await supabase
       .from('user_profiles')
@@ -129,8 +163,8 @@ export async function provisionParentForStudent(
       } else {
         const { userId, password, error: authErr } = await ensureAuthUser(supabase, {
           username: desiredUsername,
-          full_name: parentName,
-          password: resolvedPassword,
+          full_name: parentName || parentUsername || desiredUsername,
+          password: explicitPassword || resolvedPassword,
         });
         if (!userId) {
           return { error: authErr || 'Could not create parent auth account' };
@@ -159,13 +193,15 @@ export async function provisionParentForStudent(
   parentUsername = await reserveUsernameForProfile(
     supabase,
     parentUserId,
-    parentUsername || parentName
+    parentUsername || parentName || 'parent'
   );
+
+  const profileName = parentName || parentUsername || 'Parent';
 
   const { error: profileErr } = await ensureUserProfile(supabase, {
     id: parentUserId,
     username: parentUsername,
-    full_name: parentName,
+    full_name: profileName,
     phone: opts.parent_phone || null,
     email,
   });
@@ -173,11 +209,13 @@ export async function provisionParentForStudent(
     return { error: profileErr.message };
   }
 
-  const { error: pwErr } = await setAuthPasswordForProfile(supabase, parentUserId, generatedPassword, {
-    createAuthIfMissing: true,
-  });
-  if (pwErr) {
-    return { error: pwErr };
+  if (created || explicitPassword) {
+    const { error: pwErr } = await setAuthPasswordForProfile(supabase, parentUserId, generatedPassword, {
+      createAuthIfMissing: true,
+    });
+    if (pwErr) {
+      return { error: pwErr };
+    }
   }
 
   await supabase.from('user_school_roles').upsert(

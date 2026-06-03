@@ -9,14 +9,16 @@ import { ArrowLeft, CheckCircle } from 'lucide-react';
 import Link from 'next/link';
 import FaceCapture from '@/components/shared/FaceCapture';
 import { InitialPasswordFields } from '@/components/shared/InitialPasswordFields';
+import { ExistingUsernameBanner } from '@/components/shared/ExistingUsernameBanner';
 import { validatePasswordPair } from '@/lib/auth/password-policy';
+import { useUsernameLookup } from '@/hooks/useUsernameLookup';
 
 export default function AddStudentPage() {
   const [classes, setClasses] = useState([]);
   const [schoolId, setSchoolId] = useState('');
   const [form, setForm] = useState({
     first_name: '', last_name: '', address: '',
-    parent_name: '', parent_phone: '', parent_email: '', class_id: '',
+    parent_username: '', parent_name: '', parent_phone: '', parent_email: '', class_id: '',
   });
   const [faceData, setFaceData] = useState({ photos: [], face_descriptor: null });
   const [parentPassword, setParentPassword] = useState('');
@@ -24,6 +26,18 @@ export default function AddStudentPage() {
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const router = useRouter();
+  const { existingUser: existingParent, checking: checkingParent } = useUsernameLookup(form.parent_username);
+
+  useEffect(() => {
+    if (!existingParent) return;
+    setForm((f) => ({
+      ...f,
+      parent_username: existingParent.username,
+      parent_name: existingParent.full_name || f.parent_name,
+      parent_phone: existingParent.phone || f.parent_phone,
+      parent_email: existingParent.email || f.parent_email,
+    }));
+  }, [existingParent]);
 
   useEffect(() => {
     loadConfig();
@@ -43,12 +57,17 @@ export default function AddStudentPage() {
   const handleSubmit = async () => {
     if (!form.first_name || !form.last_name) { toast.error('Name is required'); return; }
     if (faceData.photos.length < 3) { toast.error('Take 3 face photos of the student'); return; }
-    if (form.parent_name?.trim()) {
+    const hasParent = form.parent_username?.trim() || form.parent_name?.trim();
+    if (hasParent && !existingParent) {
       const pwErr = validatePasswordPair(parentPassword, parentConfirmPassword);
       if (pwErr) {
         toast.error(`Parent password: ${pwErr}`);
         return;
       }
+    }
+    if (hasParent && !form.parent_username?.trim() && !form.parent_name?.trim()) {
+      toast.error('Enter parent username or name');
+      return;
     }
     setLoading(true);
 
@@ -64,12 +83,13 @@ export default function AddStudentPage() {
           face_descriptor: faceData.face_descriptor,
           custom_fields: {
             address: form.address,
+            parent_username: form.parent_username,
             parent_name: form.parent_name,
             parent_phone: form.parent_phone,
             parent_email: form.parent_email,
           },
-          parent_initial_password: form.parent_name?.trim() ? parentPassword : undefined,
-          parent_confirm_password: form.parent_name?.trim() ? parentConfirmPassword : undefined,
+          parent_initial_password: hasParent && !existingParent ? parentPassword : undefined,
+          parent_confirm_password: hasParent && !existingParent ? parentConfirmPassword : undefined,
         }),
       });
       const result = await res.json();
@@ -145,12 +165,26 @@ export default function AddStudentPage() {
             {/* Parent Info */}
             <div className="card">
               <h2 className="font-semibold mb-3">Parent / Guardian</h2>
+              <p className="text-xs text-gray-500 mb-3">
+                Enter the parent username first. If they already exist, their details will auto-fill and this student will be linked — no duplicate account.
+              </p>
               <div className="grid grid-cols-2 gap-3">
-                <div className="col-span-2"><label className="block text-xs font-medium text-gray-600 mb-1">Parent Name *</label><input type="text" value={form.parent_name} onChange={e => setForm({...form, parent_name: e.target.value})} className="input" /></div>
-                <div><label className="block text-xs font-medium text-gray-600 mb-1">Parent Phone</label><input type="tel" value={form.parent_phone} onChange={e => setForm({...form, parent_phone: e.target.value})} className="input" /></div>
-                <div><label className="block text-xs font-medium text-gray-600 mb-1">Parent Email</label><input type="email" value={form.parent_email} onChange={e => setForm({...form, parent_email: e.target.value})} className="input" /></div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Parent username *</label>
+                  <input
+                    type="text"
+                    value={form.parent_username}
+                    onChange={(e) => setForm({ ...form, parent_username: e.target.value.toLowerCase().replace(/\s/g, '') })}
+                    className="input"
+                    placeholder="e.g. jsmith"
+                  />
+                  <ExistingUsernameBanner user={existingParent} checking={checkingParent} roleHint="parent" />
+                </div>
+                <div className="col-span-2"><label className="block text-xs font-medium text-gray-600 mb-1">Parent name</label><input type="text" value={form.parent_name} onChange={e => setForm({...form, parent_name: e.target.value})} className="input" /></div>
+                <div><label className="block text-xs font-medium text-gray-600 mb-1">Parent phone</label><input type="tel" value={form.parent_phone} onChange={e => setForm({...form, parent_phone: e.target.value})} className="input" /></div>
+                <div><label className="block text-xs font-medium text-gray-600 mb-1">Parent email</label><input type="email" value={form.parent_email} onChange={e => setForm({...form, parent_email: e.target.value})} className="input" /></div>
               </div>
-              {form.parent_name?.trim() && (
+              {(form.parent_username?.trim() || form.parent_name?.trim()) && !existingParent && (
                 <div className="mt-4">
                   <InitialPasswordFields
                     password={parentPassword}
@@ -161,6 +195,11 @@ export default function AddStudentPage() {
                     hint="Send username and password to the parent. They should change it after first login."
                   />
                 </div>
+              )}
+              {existingParent && (
+                <p className="text-xs text-gray-500 mt-3">
+                  This student will be linked to the existing parent login. No new password is needed.
+                </p>
               )}
             </div>
 

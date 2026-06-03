@@ -36,7 +36,7 @@ export async function findProfileByUsername(supabase: SupabaseClient, username: 
   const normalized = normalizeUsername(username);
   return supabase
     .from('user_profiles')
-    .select('id, username, email, full_name, failed_login_attempts, locked_until')
+    .select('id, username, email, full_name, phone, failed_login_attempts, locked_until')
     .eq('username', normalized)
     .maybeSingle();
 }

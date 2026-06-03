@@ -90,6 +90,7 @@ export async function POST(request: NextRequest) {
 
     const parentEmail = custom_fields?.parent_email;
     const parentName = custom_fields?.parent_name;
+    const parentUsername = custom_fields?.parent_username?.trim() || null;
     const parentPassword = resolveInitialPassword(parent_initial_password);
     if (parent_initial_password) {
       const pwErr = validatePasswordPair(parent_initial_password, parent_confirm_password || '');
@@ -98,13 +99,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (parentName?.trim() && data) {
+    if ((parentName?.trim() || parentUsername) && data) {
       try {
         const onFile = parentInfoFromCustomFields(custom_fields);
         const result = await provisionParentForStudent(supabase, {
           student_id: data.id,
           school_id,
-          parent_name: onFile.parent_name || parentName.trim(),
+          parent_name: onFile.parent_name || parentName?.trim() || '',
+          parent_username: parentUsername,
           parent_email: onFile.parent_email,
           parent_phone: onFile.parent_phone,
           relationship: onFile.relationship,

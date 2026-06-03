@@ -59,9 +59,10 @@ export async function POST(request: NextRequest) {
     const onFile = parentInfoFromCustomFields(
       student.custom_fields as Record<string, string> | null
     );
-    if (!onFile.parent_name) {
+    const parentUsername = (body.parent_username || onFile.parent_username || '').trim() || null;
+    if (!onFile.parent_name && !parentUsername) {
       return NextResponse.json(
-        { error: 'Add parent name on the student record first (Students → edit student)' },
+        { error: 'Add parent name or username on the student record first' },
         { status: 400 }
       );
     }
@@ -70,6 +71,7 @@ export async function POST(request: NextRequest) {
       student_id: studentId,
       school_id: student.school_id,
       parent_name: onFile.parent_name,
+      parent_username: parentUsername,
       parent_email: onFile.parent_email,
       parent_phone: onFile.parent_phone,
       relationship: onFile.relationship,

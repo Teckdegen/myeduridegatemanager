@@ -5,6 +5,8 @@ import type { School } from '@/lib/types';
 import { Building2, Users, Plus, Search, Settings, BarChart3, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { InitialPasswordFields } from '@/components/shared/InitialPasswordFields';
+import { ExistingUsernameBanner } from '@/components/shared/ExistingUsernameBanner';
+import { useUsernameLookup } from '@/hooks/useUsernameLookup';
 
 interface SchoolWithStats extends School {
   student_count: number;
@@ -317,6 +319,18 @@ function AddSchoolModal({
   const [logoPreview, setLogoPreview] = useState('');
   const [loading, setLoading] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
+  const { existingUser: existingAdmin, checking: checkingAdmin } = useUsernameLookup(formData.admin_username);
+
+  useEffect(() => {
+    if (!existingAdmin) return;
+    setFormData((prev) => ({
+      ...prev,
+      admin_username: existingAdmin.username,
+      admin_name: existingAdmin.full_name || prev.admin_name,
+      admin_phone: existingAdmin.phone || prev.admin_phone,
+      admin_email: existingAdmin.email || prev.admin_email,
+    }));
+  }, [existingAdmin]);
 
   const handleLogoPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     e.preventDefault();
@@ -453,11 +467,12 @@ function AddSchoolModal({
             <input
               type="text"
               value={formData.admin_username}
-              onChange={(e) => setFormData(prev => ({ ...prev, admin_username: e.target.value }))}
+              onChange={(e) => setFormData(prev => ({ ...prev, admin_username: e.target.value.toLowerCase().replace(/\s/g, '') }))}
               className="input"
               placeholder="school_admin"
               required
             />
+            <ExistingUsernameBanner user={existingAdmin} checking={checkingAdmin} roleHint="school admin" />
           </div>
 
           <div>

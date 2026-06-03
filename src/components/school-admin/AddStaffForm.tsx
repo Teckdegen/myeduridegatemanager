@@ -9,7 +9,9 @@ import { toast } from 'sonner';
 import FaceCapture from '@/components/shared/FaceCapture';
 import { InitialPasswordFields } from '@/components/shared/InitialPasswordFields';
 import StaffIdPhoto from '@/components/shared/StaffIdPhoto';
+import { ExistingUsernameBanner } from '@/components/shared/ExistingUsernameBanner';
 import { validatePasswordPair } from '@/lib/auth/password-policy';
+import { useUsernameLookup } from '@/hooks/useUsernameLookup';
 
 const ACCESS_OPTIONS = [
   { value: 'staff', label: 'Staff (sign-in + own attendance)', icon: User },
@@ -35,6 +37,18 @@ export default function AddStaffForm({ schoolId, customRoles, onSuccess, onCance
   const [classes, setClasses] = useState([]);
   const [initialPassword, setInitialPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const { existingUser, checking } = useUsernameLookup(form.username);
+
+  useEffect(() => {
+    if (!existingUser) return;
+    setForm((f) => ({
+      ...f,
+      username: existingUser.username,
+      full_name: existingUser.full_name || f.full_name,
+      phone: existingUser.phone || f.phone,
+      contact_email: existingUser.email || f.contact_email,
+    }));
+  }, [existingUser]);
 
   const selectedCustom = customRoles.find((r) => r.id === form.custom_role_id);
   const mayAssignClass =
@@ -65,10 +79,19 @@ export default function AddStaffForm({ schoolId, customRoles, onSuccess, onCance
       toast.error('Gate officers need 3 face photos');
       return;
     }
-    const pwErr = validatePasswordPair(initialPassword, confirmPassword);
-    if (pwErr) {
-      toast.error(pwErr);
-      return;
+    const needsPassword = !existingUser;
+    if (needsPassword) {
+      const pwErr = validatePasswordPair(initialPassword, confirmPassword);
+      if (pwErr) {
+        toast.error(pwErr);
+        return;
+      }
+    } else if (initialPassword || confirmPassword) {
+      const pwErr = validatePasswordPair(initialPassword, confirmPassword);
+      if (pwErr) {
+        toast.error(pwErr);
+        return;
+      }
     }
 
     setLoading(true);
@@ -88,8 +111,8 @@ export default function AddStaffForm({ schoolId, customRoles, onSuccess, onCance
         face_photos: faceData.photos,
         face_descriptor: faceData.face_descriptor,
         skip_face: form.access_role !== 'gate_officer',
-        initial_password: initialPassword,
-        confirm_password: confirmPassword,
+        initial_password: initialPassword || undefined,
+        confirm_password: confirmPassword || undefined,
       }),
     });
     const d = await res.json();
@@ -114,6 +137,17 @@ export default function AddStaffForm({ schoolId, customRoles, onSuccess, onCance
       <h2 className="text-lg font-bold mb-4">Add staff member</h2>
       <div className="space-y-3">
         <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Username *</label>
+          <input
+            type="text"
+            value={form.username}
+            onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase().replace(/\s/g, '') })}
+            className="input"
+            placeholder="e.g. jsmith"
+          />
+          <ExistingUsernameBanner user={existingUser} checking={checking} />
+        </div>
+        <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Full name *</label>
           <input
             type="text"
@@ -122,6 +156,7 @@ export default function AddStaffForm({ schoolId, customRoles, onSuccess, onCance
             className="input"
           />
         </div>
+        {!existingUser ? (
           <InitialPasswordFields
             password={initialPassword}
             confirmPassword={confirmPassword}
@@ -130,17 +165,22 @@ export default function AddStaffForm({ schoolId, customRoles, onSuccess, onCance
             label="Default login password"
             hint="Share username and password with this person. They should change it after first login."
           />
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Username *</label>
-          <input
-            type="text"
-            value={form.username}
-            onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase().replace(/\s/g, '') })}
-            className="input"
-            placeholder="e.g. jsmith"
+        ) : (
+          <p className="text-xs text-gray-500 bg-gray-50 rounded-lg p-2">
+            Existing account — leave password blank to keep their current login, or enter a new one to reset it.
+          </p>
+        )}
+        {existingUser && (initialPassword || confirmPassword) && (
+          <InitialPasswordFields
+            password={initialPassword}
+            confirmPassword={confirmPassword}
+            onPasswordChange={setInitialPassword}
+            onConfirmChange={setConfirmPassword}
+            label="New password (optional)"
+            hint="Only fill this if you want to reset their login password."
           />
-        </div>
+        )}
+
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Contact email (optional)</label>
           <input
