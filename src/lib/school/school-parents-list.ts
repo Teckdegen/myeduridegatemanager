@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { StudentParentCredential } from '@/lib/school/student-parent-credentials';
 import { fetchStudentParentCredentials } from '@/lib/school/student-parent-credentials';
+import { normalizeUsername } from '@/lib/auth/username';
 
 export type SchoolParentChild = {
   student_id: string;
@@ -31,11 +32,60 @@ function displayParentName(row: StudentParentCredential): string {
 
 function parentKey(row: StudentParentCredential): string {
   if (row.parent_user_id) return `user:${row.parent_user_id}`;
-  const name = displayParentName(row).toLowerCase();
-  const username = (row.parent_username_on_file || row.parent_username || '').toLowerCase();
+
+  const username = normalizeUsername(row.parent_username_on_file || row.parent_username || '');
+  if (username) return `username:${username}`;
+
   const email = (row.parent_email || '').toLowerCase();
+  if (email) return `email:${email}`;
+
   const phone = (row.parent_phone || '').replace(/\D/g, '');
-  return `file:${username || email || name}|${phone}`;
+  const name = displayParentName(row).toLowerCase();
+  return `name:${name}|${phone}`;
+}
+
+function mergeChildren(target: SchoolParentRow, source: SchoolParentRow) {
+  for (const child of source.children) {
+    if (!target.children.some((c) => c.student_id === child.student_id)) {
+      target.children.push(child);
+    }
+  }
+  if (source.id) {
+    target.id = source.id;
+    target.username = source.username?.trim() || target.username;
+    target.has_login = source.has_login || target.has_login;
+  }
+  if (source.phone && !target.phone) target.phone = source.phone;
+  if (!target.name && source.name) target.name = source.name;
+}
+
+/** Merge rows keyed by username/email into the logged-in parent row when usernames match. */
+function mergeLinkedParentRows(map: Map<string, SchoolParentRow>) {
+  const userKeyByUsername = new Map<string, string>();
+  for (const [key, parent] of map) {
+    if (!key.startsWith('user:') || !parent.username) continue;
+    userKeyByUsername.set(normalizeUsername(parent.username), key);
+  }
+
+  for (const [key, parent] of [...map.entries()]) {
+    if (key.startsWith('username:')) {
+      const username = key.slice('username:'.length);
+      const userKey = userKeyByUsername.get(username);
+      if (userKey) {
+        mergeChildren(map.get(userKey)!, parent);
+        map.delete(key);
+        continue;
+      }
+    }
+
+    if (key.startsWith('email:') && parent.username) {
+      const userKey = userKeyByUsername.get(normalizeUsername(parent.username));
+      if (userKey) {
+        mergeChildren(map.get(userKey)!, parent);
+        map.delete(key);
+      }
+    }
+  }
 }
 
 export function aggregateStudentParentRows(rows: StudentParentCredential[]): SchoolParentRow[] {
@@ -57,15 +107,14 @@ export function aggregateStudentParentRows(rows: StudentParentCredential[]): Sch
     const existing = map.get(key);
 
     if (existing) {
-      if (!existing.children.some((c) => c.student_id === child.student_id)) {
-        existing.children.push(child);
-      }
-      if (row.parent_user_id) {
-        existing.id = row.parent_user_id;
-        existing.username = row.parent_username?.trim() || existing.username;
-        existing.has_login = hasLogin || existing.has_login;
-      }
-      if (row.parent_phone && !existing.phone) existing.phone = row.parent_phone;
+      mergeChildren(existing, {
+        id: row.parent_user_id,
+        name: name || row.parent_username_on_file || row.parent_email || 'Parent',
+        phone: row.parent_phone,
+        username: row.parent_username?.trim() || row.parent_username_on_file?.trim() || null,
+        has_login: hasLogin,
+        children: [child],
+      });
     } else {
       map.set(key, {
         id: row.parent_user_id,
@@ -77,6 +126,8 @@ export function aggregateStudentParentRows(rows: StudentParentCredential[]): Sch
       });
     }
   }
+
+  mergeLinkedParentRows(map);
 
   for (const parent of map.values()) {
     parent.children.sort((a, b) => a.student_name.localeCompare(b.student_name));

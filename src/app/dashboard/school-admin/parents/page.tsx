@@ -129,7 +129,13 @@ export default function ParentsListPage() {
           </thead>
           <tbody className="divide-y">
             {filteredParents.map((parent) => (
-              <tr key={parent.id || `${parent.name}-${parent.phone || ''}`} className="hover:bg-gray-50 align-top">
+              <tr
+                key={
+                  parent.id ||
+                  (parent.username ? `username:${parent.username}` : `${parent.name}-${parent.phone || ''}`)
+                }
+                className="hover:bg-gray-50 align-top"
+              >
                 <td className="px-4 py-3">
                   <div className="flex items-start gap-3">
                     <div className="w-9 h-9 rounded-full bg-orange-100 flex items-center justify-center shrink-0 mt-0.5">

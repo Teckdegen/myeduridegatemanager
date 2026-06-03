@@ -6,14 +6,7 @@ import { getSessionFromRequest } from '@/lib/session';
 import { lagosDayBounds, todayInLagos } from '@/lib/timezone';
 import { getGateDayStatus } from '@/lib/gate/school-day-gate';
 import { fetchEnrichedPickupQueue } from '@/lib/gate/pickup-queue-enrich';
-
-type PickupPersonRow = {
-  id: string;
-  name: string;
-  relationship: string;
-  phone: string | null;
-  photo_url: string | null;
-};
+import { matchPickupPhoto, type PickupPersonRow } from '@/lib/gate/student-pickup-context';
 
 type EnrichedPickupNotice = Record<string, unknown> & {
   student_id: string;
@@ -26,29 +19,6 @@ type EnrichedPickupRequest = Record<string, unknown> & {
   pickup_person_photo: string | null;
   authorised_pickup_persons: PickupPersonRow[];
 };
-
-function normalizePerson(raw: unknown): PickupPersonRow | null {
-  if (!raw) return null;
-  const p = Array.isArray(raw) ? raw[0] : raw;
-  if (!p || typeof p !== 'object') return null;
-  const row = p as PickupPersonRow;
-  return row.id ? row : null;
-}
-
-function matchPickupPhoto(
-  name: string | null | undefined,
-  phone: string | null | undefined,
-  persons: PickupPersonRow[]
-): string | null {
-  if (!name && !phone) return null;
-  const n = (name || '').trim().toLowerCase();
-  const ph = (phone || '').replace(/\s/g, '');
-  for (const p of persons) {
-    if (n && p.name?.trim().toLowerCase() === n) return p.photo_url;
-    if (ph && p.phone && p.phone.replace(/\s/g, '') === ph) return p.photo_url;
-  }
-  return null;
-}
 
 /** Gate officer: pickup queue, all students, parent pickup notices for today. */
 export async function GET(request: NextRequest) {

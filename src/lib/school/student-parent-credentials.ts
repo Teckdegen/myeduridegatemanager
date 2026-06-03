@@ -8,6 +8,7 @@ import {
   parentInfoFromCustomFields,
   provisionParentForStudent,
 } from '@/lib/school/provision-parent-for-student';
+import { loadPickupPersonsByStudents } from '@/lib/gate/student-pickup-context';
 
 export type AuthorisedPickupPerson = {
   id: string;
@@ -34,18 +35,15 @@ export type StudentParentCredential = {
   needs_parent_account: boolean;
 };
 
-function normalizePickupPerson(raw: unknown): AuthorisedPickupPerson | null {
-  if (!raw) return null;
-  const p = Array.isArray(raw) ? raw[0] : raw;
-  if (!p || typeof p !== 'object') return null;
-  const row = p as { id?: string; name?: string; phone?: string | null; relationship?: string | null };
-  if (!row.id || !row.name?.trim()) return null;
-  return {
+function mapPickupRows(
+  rows: Array<{ id: string; name: string; phone: string | null; relationship: string }>
+): AuthorisedPickupPerson[] {
+  return rows.map((row) => ({
     id: row.id,
-    name: row.name.trim(),
-    phone: row.phone || null,
-    relationship: row.relationship || null,
-  };
+    name: row.name,
+    phone: row.phone,
+    relationship: row.relationship,
+  }));
 }
 
 export async function fetchStudentParentCredentials(
@@ -80,22 +78,9 @@ export async function fetchStudentParentCredentials(
   }
 
   const pickupByStudent = new Map<string, AuthorisedPickupPerson[]>();
-  for (const batch of chunkArray(studentIds)) {
-    const { data: ppLinks } = await supabase
-      .from('pickup_person_students')
-      .select(`
-        student_id,
-        pickup_person:pickup_persons(id, name, phone, relationship)
-      `)
-      .eq('school_id', schoolId)
-      .in('student_id', batch);
-
-    for (const link of ppLinks || []) {
-      const person = normalizePickupPerson(link.pickup_person);
-      if (!person) continue;
-      if (!pickupByStudent.has(link.student_id)) pickupByStudent.set(link.student_id, []);
-      pickupByStudent.get(link.student_id)!.push(person);
-    }
+  const pickupRowsByStudent = await loadPickupPersonsByStudents(supabase, schoolId, studentIds);
+  for (const [studentId, rows] of Object.entries(pickupRowsByStudent)) {
+    pickupByStudent.set(studentId, mapPickupRows(rows));
   }
 
   if (opts?.repairMissingParents) {
@@ -107,7 +92,9 @@ export async function fetchStudentParentCredentials(
       const primaryLink =
         existingLinks.find((l) => l.is_primary) || existingLinks[0] || null;
 
-      let needsProvision = !primaryLink && (!!onFile.parent_name || !!onFile.parent_username);
+      let needsProvision =
+        !primaryLink &&
+        (!!onFile.parent_name || !!onFile.parent_username || !!onFile.parent_email);
       if (primaryLink) {
         let profile = profileById.get(primaryLink.parent_user_id);
         if (!profile) {

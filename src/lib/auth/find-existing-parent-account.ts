@@ -1,11 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { lookupUserByUsername, type LookedUpUser } from '@/lib/auth/lookup-user-by-username';
 
-/** Resolve an existing parent/staff account by username (first) or email (only if no username). */
+/** Resolve an existing parent/staff account by username (first), email, or phone. */
 export async function findExistingParentAccount(
   supabase: SupabaseClient,
   username: string | null | undefined,
-  email: string | null | undefined
+  email: string | null | undefined,
+  phone?: string | null
 ): Promise<LookedUpUser | null> {
   const trimmedUsername = username?.trim();
   if (trimmedUsername) {
@@ -19,6 +20,29 @@ export async function findExistingParentAccount(
       .from('user_profiles')
       .select('id, username, full_name, phone, email')
       .eq('email', normalized)
+      .maybeSingle();
+    if (!data?.id) return null;
+
+    const byUsername = data.username
+      ? await lookupUserByUsername(supabase, data.username)
+      : null;
+    if (byUsername) return byUsername;
+
+    return {
+      id: data.id,
+      username: data.username || '',
+      full_name: data.full_name || '',
+      phone: data.phone || null,
+      email: data.email || null,
+      roles: [],
+    };
+  }
+
+  if (phone?.trim() && !trimmedUsername) {
+    const { data } = await supabase
+      .from('user_profiles')
+      .select('id, username, full_name, phone, email')
+      .eq('phone', phone.trim())
       .maybeSingle();
     if (!data?.id) return null;
 

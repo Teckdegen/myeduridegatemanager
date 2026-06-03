@@ -1,6 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { todayInLagos } from '@/lib/timezone';
-import type { PickupPersonRow } from '@/lib/gate/student-pickup-context';
+import {
+  loadPickupPersonsByStudents,
+  type PickupPersonRow,
+} from '@/lib/gate/student-pickup-context';
 
 export type PickupPersonSummary = {
   pickup_person_name: string | null;
@@ -14,11 +17,6 @@ function normalizeEmbedded<T extends Record<string, unknown>>(raw: unknown): T |
   const row = Array.isArray(raw) ? raw[0] : raw;
   if (!row || typeof row !== 'object') return null;
   return row as T;
-}
-
-function normalizePerson(raw: unknown): PickupPersonRow | null {
-  const row = normalizeEmbedded<PickupPersonRow>(raw);
-  return row?.id ? row : null;
 }
 
 export function summarizePickupPerson(
@@ -176,21 +174,7 @@ export async function fetchEnrichedPickupQueue(
   > = {};
 
   if (studentIds.length > 0) {
-    const { data: ppLinks } = await supabase
-      .from('pickup_person_students')
-      .select(`
-        student_id,
-        pickup_person:pickup_persons(id, name, relationship, phone, photo_url)
-      `)
-      .eq('school_id', schoolId)
-      .in('student_id', studentIds);
-
-    for (const link of ppLinks || []) {
-      const person = normalizePerson(link.pickup_person);
-      if (!person) continue;
-      if (!personsByStudent[link.student_id]) personsByStudent[link.student_id] = [];
-      personsByStudent[link.student_id].push(person);
-    }
+    Object.assign(personsByStudent, await loadPickupPersonsByStudents(supabase, schoolId, studentIds));
   }
 
   const { data: pickupNoticesRaw } = await supabase

@@ -100,7 +100,8 @@ export async function POST(request: NextRequest) {
     const existingParentAccount = await findExistingParentAccount(
       supabase,
       parentUsername,
-      parentEmail
+      parentEmail,
+      custom_fields?.parent_phone
     );
 
     if (parent_initial_password && !existingParentAccount) {

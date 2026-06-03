@@ -24,9 +24,25 @@ function PickupPersonCard({ name, phone, photoUrl, relationship }) {
   );
 }
 
-function NoticeBox({ notice, photoUrl }) {
+function resolvePickupPhoto(photoUrl, name, phone, persons = []) {
+  if (photoUrl) {
+    const src = photoSrc(photoUrl);
+    if (src) return src;
+  }
+  if (!persons.length) return null;
+  const n = (name || '').trim().toLowerCase();
+  const ph = (phone || '').replace(/\s/g, '');
+  for (const p of persons) {
+    if (n && p.name?.trim().toLowerCase() === n && p.photo_url) return photoSrc(p.photo_url);
+    if (ph && p.phone && p.phone.replace(/\s/g, '') === ph && p.photo_url) return photoSrc(p.photo_url);
+  }
+  if (persons[0]?.photo_url) return photoSrc(persons[0].photo_url);
+  return null;
+}
+
+function NoticeBox({ notice, photoUrl, persons = [] }) {
   if (!notice?.pickup_person_name) return null;
-  const src = photoUrl ? photoSrc(photoUrl) : null;
+  const src = resolvePickupPhoto(photoUrl, notice.pickup_person_name, notice.pickup_person_phone, persons);
   const noteText = notice.notes?.trim() || notice.message?.trim() || '';
 
   return (
@@ -93,6 +109,7 @@ export default function StudentPickupVerify({
         <NoticeBox
           notice={notice}
           photoUrl={notice.pickup_person_photo || null}
+          persons={persons}
         />
       )}
       {request && !notice && (
@@ -103,6 +120,7 @@ export default function StudentPickupVerify({
             message: request.message,
           }}
           photoUrl={request.pickup_person_photo || null}
+          persons={persons}
         />
       )}
       {persons.length > 0 && (

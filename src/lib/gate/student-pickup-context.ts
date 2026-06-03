@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { chunkArray } from '@/lib/db/fetch-all';
 import { todayInLagos } from '@/lib/timezone';
 
 export type PickupPersonRow = {
@@ -15,7 +16,11 @@ export type StudentPickupContext = {
   pickup_persons: PickupPersonRow[];
 };
 
-function normalizePerson(raw: unknown): PickupPersonRow | null {
+const PICKUP_PERSON_SELECT = `
+  pickup_person:pickup_persons!pickup_person_id(id, name, relationship, phone, photo_url)
+`;
+
+export function normalizePickupPerson(raw: unknown): PickupPersonRow | null {
   if (!raw) return null;
   const p = Array.isArray(raw) ? raw[0] : raw;
   if (!p || typeof p !== 'object') return null;
@@ -23,7 +28,7 @@ function normalizePerson(raw: unknown): PickupPersonRow | null {
   return row.id ? row : null;
 }
 
-function matchPickupPhoto(
+export function matchPickupPhoto(
   name: string | null | undefined,
   phone: string | null | undefined,
   persons: PickupPersonRow[]
@@ -38,6 +43,109 @@ function matchPickupPhoto(
   return null;
 }
 
+async function loadPickupPersonRowsDirect(
+  supabase: SupabaseClient,
+  schoolId: string,
+  personIds: string[]
+): Promise<PickupPersonRow[]> {
+  if (!personIds.length) return [];
+  const { data } = await supabase
+    .from('pickup_persons')
+    .select('id, name, relationship, phone, photo_url')
+    .eq('school_id', schoolId)
+    .in('id', personIds);
+
+  const rows: PickupPersonRow[] = [];
+  for (const row of data || []) {
+    const person = normalizePickupPerson(row);
+    if (person) rows.push(person);
+  }
+  return rows;
+}
+
+/** Authorised pickup persons for one student (embed + direct fallback). */
+export async function loadPickupPersonsForStudent(
+  supabase: SupabaseClient,
+  schoolId: string,
+  studentId: string
+): Promise<PickupPersonRow[]> {
+  const { data: ppLinks } = await supabase
+    .from('pickup_person_students')
+    .select(`pickup_person_id, ${PICKUP_PERSON_SELECT}`)
+    .eq('school_id', schoolId)
+    .eq('student_id', studentId);
+
+  const persons: PickupPersonRow[] = [];
+  const fallbackIds: string[] = [];
+
+  for (const link of ppLinks || []) {
+    const person = normalizePickupPerson(link.pickup_person);
+    if (person) {
+      persons.push(person);
+    } else if (link.pickup_person_id) {
+      fallbackIds.push(link.pickup_person_id);
+    }
+  }
+
+  if (persons.length === 0 && fallbackIds.length > 0) {
+    return loadPickupPersonRowsDirect(supabase, schoolId, fallbackIds);
+  }
+
+  return persons;
+}
+
+/** Batch load authorised pickup persons keyed by student id. */
+export async function loadPickupPersonsByStudents(
+  supabase: SupabaseClient,
+  schoolId: string,
+  studentIds: string[]
+): Promise<Record<string, PickupPersonRow[]>> {
+  const personsByStudent: Record<string, PickupPersonRow[]> = {};
+  if (!studentIds.length) return personsByStudent;
+
+  for (const batch of chunkArray(studentIds)) {
+    const { data: ppLinks } = await supabase
+      .from('pickup_person_students')
+      .select(`student_id, pickup_person_id, ${PICKUP_PERSON_SELECT}`)
+      .eq('school_id', schoolId)
+      .in('student_id', batch);
+
+    const fallbackByStudent = new Map<string, string[]>();
+
+    for (const link of ppLinks || []) {
+      const sid = String(link.student_id);
+      const person = normalizePickupPerson(link.pickup_person);
+      if (person) {
+        if (!personsByStudent[sid]) personsByStudent[sid] = [];
+        personsByStudent[sid].push(person);
+      } else if (link.pickup_person_id) {
+        if (!fallbackByStudent.has(sid)) fallbackByStudent.set(sid, []);
+        fallbackByStudent.get(sid)!.push(link.pickup_person_id);
+      }
+    }
+
+    if (fallbackByStudent.size > 0) {
+      const allIds = [...new Set([...fallbackByStudent.values()].flat())];
+      const directRows = await loadPickupPersonRowsDirect(supabase, schoolId, allIds);
+      const byId = new Map(directRows.map((p) => [p.id, p]));
+
+      for (const [sid, ids] of fallbackByStudent) {
+        if (personsByStudent[sid]?.length) continue;
+        for (const id of ids) {
+          const person = byId.get(id);
+          if (!person) continue;
+          if (!personsByStudent[sid]) personsByStudent[sid] = [];
+          if (!personsByStudent[sid].some((p) => p.id === person.id)) {
+            personsByStudent[sid].push(person);
+          }
+        }
+      }
+    }
+  }
+
+  return personsByStudent;
+}
+
 /** Today's pickup notice, request, and authorised persons for gate release UI. */
 export async function fetchStudentPickupContext(
   supabase: SupabaseClient,
@@ -47,19 +155,7 @@ export async function fetchStudentPickupContext(
 ): Promise<StudentPickupContext> {
   const day = dateStr || todayInLagos();
 
-  const { data: ppLinks } = await supabase
-    .from('pickup_person_students')
-    .select(`
-      pickup_person:pickup_persons(id, name, relationship, phone, photo_url)
-    `)
-    .eq('school_id', schoolId)
-    .eq('student_id', studentId);
-
-  const pickup_persons: PickupPersonRow[] = [];
-  for (const link of ppLinks || []) {
-    const person = normalizePerson(link.pickup_person);
-    if (person) pickup_persons.push(person);
-  }
+  const pickup_persons = await loadPickupPersonsForStudent(supabase, schoolId, studentId);
 
   const { data: noticeRow } = await supabase
     .from('pickup_notices')

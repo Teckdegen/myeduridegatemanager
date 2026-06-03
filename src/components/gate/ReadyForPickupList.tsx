@@ -6,6 +6,7 @@ import { Search } from 'lucide-react';
 import StudentAvatar from '@/components/shared/StudentAvatar';
 import PickupPersonBadge from '@/components/pickup/PickupPersonBadge';
 import { formatTimeLagos } from '@/lib/timezone';
+import { photoSrc } from '@/lib/photo';
 import { toast } from 'sonner';
 
 function queueStudent(item) {
@@ -114,6 +115,13 @@ export default function ReadyForPickupList({
           {filtered.map((item) => {
             const s = queueStudent(item);
             if (!s) return null;
+            const authorised = item.authorised_pickup_persons || [];
+            const matchedPickup =
+              authorised.find(
+                (p) =>
+                  p.name?.trim().toLowerCase() === (item.pickup_person_name || '').trim().toLowerCase()
+              ) || authorised[0];
+            const pickupPhotoSrc = matchedPickup?.photo_url ? photoSrc(matchedPickup.photo_url) : null;
             return (
               <div key={item.id} className="card-elevated p-3 flex items-center gap-3">
                 <StudentAvatar
@@ -129,12 +137,21 @@ export default function ReadyForPickupList({
                   <p className="text-sm font-medium text-primary-700">{s.class?.name || 'No class'}</p>
                   <p className="text-xs text-slate-500 font-mono">{s.student_id_number}</p>
                   <p className="text-xs text-slate-400">Ready {formatTimeLagos(item.created_at)}</p>
-                  <PickupPersonBadge
-                    name={item.pickup_person_name}
-                    phone={item.pickup_person_phone}
-                    source={item.pickup_source}
-                    persons={item.authorised_pickup_persons || []}
-                  />
+                  <div className="flex items-start gap-2 mt-1">
+                    {pickupPhotoSrc ? (
+                      <img
+                        src={pickupPhotoSrc}
+                        alt=""
+                        className="w-10 h-10 rounded-lg object-cover shrink-0 border border-slate-200"
+                      />
+                    ) : null}
+                    <PickupPersonBadge
+                      name={item.pickup_person_name}
+                      phone={item.pickup_person_phone}
+                      source={item.pickup_source}
+                      persons={authorised}
+                    />
+                  </div>
                 </div>
                 {showReleaseButton && onRelease && (
                   <button

@@ -76,7 +76,11 @@ export default function GateOfficerDashboard() {
     (studentId) => {
       const notice = noticeForStudent(studentId);
       const request = pickupRequestForStudent(studentId);
-      const persons = pickupPersonsByStudent[studentId] || [];
+      const persons =
+        pickupPersonsByStudent[studentId] ||
+        notice?.authorised_pickup_persons ||
+        request?.authorised_pickup_persons ||
+        [];
       return {
         pickup_notice: notice || null,
         pickup_request: request || null,
@@ -291,10 +295,13 @@ export default function GateOfficerDashboard() {
   };
 
   const openStudentForRelease = async (student, fromQueue = false) => {
-    const pickupCtx = attachPickupContext(student.id);
+    const localCtx = attachPickupContext(student.id);
     setGateMode('dismissal');
     let today_status = null;
     let scan_hints = null;
+    let pickup_notice = localCtx.pickup_notice;
+    let pickup_request = localCtx.pickup_request;
+    let pickup_persons = localCtx.pickup_persons || [];
     try {
       const scanValue = student.qr_code_data || student.student_id_number;
       if (scanValue && schoolId) {
@@ -307,6 +314,18 @@ export default function GateOfficerDashboard() {
         const data = await res.json();
         today_status = data.today_status;
         scan_hints = data.scan_hints;
+        pickup_notice =
+          data.pickup_notice ||
+          data.pickup_context?.pickup_notice ||
+          pickup_notice;
+        pickup_request =
+          data.pickup_request ||
+          data.pickup_context?.pickup_request ||
+          pickup_request;
+        pickup_persons =
+          (data.pickup_persons?.length ? data.pickup_persons : null) ||
+          data.pickup_context?.pickup_persons ||
+          pickup_persons;
         applyScanHints(data, { toast, setMode: setGateMode });
       }
     } catch {
@@ -323,7 +342,9 @@ export default function GateOfficerDashboard() {
     setScannedPerson({
       type: 'student',
       from_queue: fromQueue,
-      ...pickupCtx,
+      pickup_notice,
+      pickup_request,
+      pickup_persons,
       today_status,
       scan_hints,
       person: {

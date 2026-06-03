@@ -6,6 +6,9 @@ import {
 } from '@/lib/auth/school-access';
 import { getSessionFromRequest } from '@/lib/session';
 import { writeAuditLog } from '@/lib/audit/log';
+import {
+  loadPickupPersonsForStudent,
+} from '@/lib/gate/student-pickup-context';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,15 +60,17 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Access denied' }, { status: 403 });
       }
 
-      const { data, error } = await supabase
-        .from('pickup_person_students')
-        .select(`
-          pickup_person:pickup_persons(id, name, relationship, phone, photo_url, created_at)
-        `)
-        .eq('student_id', studentId);
+      const { data: student } = await supabase
+        .from('students')
+        .select('school_id')
+        .eq('id', studentId)
+        .maybeSingle();
 
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      const persons = (data || []).map((r: any) => r.pickup_person).filter(Boolean);
+      if (!student?.school_id) {
+        return NextResponse.json({ error: 'Student not found' }, { status: 404 });
+      }
+
+      const persons = await loadPickupPersonsForStudent(supabase, student.school_id, studentId);
       return NextResponse.json({ pickup_persons: persons });
     }
 

@@ -58,6 +58,79 @@ export function parentInfoFromCustomFields(
   };
 }
 
+function phonesMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+  const pa = (a || '').replace(/\D/g, '');
+  const pb = (b || '').replace(/\D/g, '');
+  return !!pa && pa === pb;
+}
+
+/** Reuse a parent already linked to a sibling at the same school (same username, email, or phone on file). */
+async function findSiblingLinkedParent(
+  supabase: SupabaseClient,
+  schoolId: string,
+  excludeStudentId: string,
+  match: {
+    username?: string | null;
+    email?: string | null;
+    phone?: string | null;
+  }
+): Promise<{ userId: string; username: string } | null> {
+  const normalizedUsername = match.username?.trim()
+    ? normalizeUsername(match.username)
+    : null;
+  const normalizedEmail = match.email?.includes('@')
+    ? match.email.toLowerCase().trim()
+    : null;
+  const normalizedPhone = match.phone?.replace(/\s/g, '') || null;
+
+  const { data: students } = await supabase
+    .from('students')
+    .select('id, custom_fields')
+    .eq('school_id', schoolId)
+    .eq('is_active', true)
+    .neq('id', excludeStudentId);
+
+  for (const student of students || []) {
+    const info = parentInfoFromCustomFields(student.custom_fields as CustomFields);
+    const sameUsername =
+      !!normalizedUsername &&
+      !!info.parent_username &&
+      normalizeUsername(info.parent_username) === normalizedUsername;
+    const sameEmail =
+      !!normalizedEmail &&
+      !!info.parent_email &&
+      info.parent_email.toLowerCase() === normalizedEmail;
+    const samePhone = phonesMatch(normalizedPhone, info.parent_phone);
+
+    if (!sameUsername && !sameEmail && !samePhone) continue;
+
+    const { data: link } = await supabase
+      .from('student_parents')
+      .select('parent_user_id')
+      .eq('student_id', student.id)
+      .order('is_primary', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!link?.parent_user_id) continue;
+
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('id, username')
+      .eq('id', link.parent_user_id)
+      .maybeSingle();
+
+    if (profile?.id) {
+      return {
+        userId: profile.id,
+        username: profile.username || normalizedUsername || '',
+      };
+    }
+  }
+
+  return null;
+}
+
 /** Create or link a parent login for a student (idempotent). Username is the source of truth. */
 export async function provisionParentForStudent(
   supabase: SupabaseClient,
@@ -117,6 +190,32 @@ export async function provisionParentForStudent(
     if (byEmail?.id) {
       parentUserId = byEmail.id;
       parentUsername = byEmail.username || undefined;
+      linkedExisting = true;
+    }
+  }
+
+  if (!parentUserId && opts.parent_phone?.trim()) {
+    const { data: byPhone } = await supabase
+      .from('user_profiles')
+      .select('id, username')
+      .eq('phone', opts.parent_phone.trim())
+      .maybeSingle();
+    if (byPhone?.id) {
+      parentUserId = byPhone.id;
+      parentUsername = byPhone.username || undefined;
+      linkedExisting = true;
+    }
+  }
+
+  if (!parentUserId) {
+    const sibling = await findSiblingLinkedParent(supabase, opts.school_id, opts.student_id, {
+      username: opts.parent_username,
+      email,
+      phone: opts.parent_phone,
+    });
+    if (sibling) {
+      parentUserId = sibling.userId;
+      parentUsername = sibling.username;
       linkedExisting = true;
     }
   }
