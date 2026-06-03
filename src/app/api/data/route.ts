@@ -8,6 +8,7 @@ import {
 import { ATTENDANCE_UI_NOTE } from '@/lib/attendance/window';
 import { todayInLagos, lagosDayBounds } from '@/lib/timezone';
 import { getSessionFromRequest } from '@/lib/session';
+import { countSchoolParentsOnFile } from '@/lib/school/school-parents-list';
 
 export async function POST(request: NextRequest) {
   try {
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
         const { startIso, endIso } = lagosDayBounds();
         const { count: totalStudents } = await supabase.from('students').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('is_active', true);
         const { count: totalTeachers } = await supabase.from('user_school_roles').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('role', 'teacher').eq('is_active', true);
-        const { count: totalParents } = await supabase.from('user_school_roles').select('*', { count: 'exact', head: true }).eq('school_id', schoolId).eq('role', 'parent').eq('is_active', true);
+        const totalParents = await countSchoolParentsOnFile(supabase, schoolId);
         const { data: liveAttendance } = await supabase
           .from('attendance_records')
           .select('student_id, status')
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           total_students: totalStudents || 0,
           total_teachers: totalTeachers || 0,
-          total_parents: totalParents || 0,
+          total_parents: totalParents,
           present_today: uniquePresent.size,
           late_today: liveAttendance?.filter((a: { status: string }) => a.status === 'late').length || 0,
           absent_today: Math.max(0, (totalStudents || 0) - uniquePresent.size),

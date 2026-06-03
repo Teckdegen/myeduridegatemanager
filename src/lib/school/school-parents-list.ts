@@ -1,4 +1,6 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type { StudentParentCredential } from '@/lib/school/student-parent-credentials';
+import { fetchStudentParentCredentials } from '@/lib/school/student-parent-credentials';
 
 export type SchoolParentChild = {
   student_id: string;
@@ -68,4 +70,24 @@ export function aggregateStudentParentRows(rows: StudentParentCredential[]): Sch
   }
 
   return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Parents on file for active students (not orphan parent role accounts). */
+export async function countSchoolParentsOnFile(
+  supabase: SupabaseClient,
+  schoolId: string
+): Promise<number> {
+  const profileById = new Map<
+    string,
+    { id: string; username: string | null; full_name: string | null }
+  >();
+  const authById = new Map<string, string>();
+  const rows = await fetchStudentParentCredentials(
+    supabase,
+    schoolId,
+    profileById,
+    authById,
+    { repairMissingParents: false }
+  );
+  return aggregateStudentParentRows(rows).length;
 }

@@ -139,6 +139,32 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: 'You are not linked to one of the selected children' }, { status: 403 });
         }
       }
+
+      const { data: linkedStudents } = await supabase
+        .from('student_parents')
+        .select('student_id')
+        .eq('parent_user_id', session.user_id);
+
+      const linkedIds = (linkedStudents || []).map((row) => row.student_id).filter(Boolean);
+      if (linkedIds.length > 0) {
+        const { count, error: existingErr } = await supabase
+          .from('pickup_person_students')
+          .select('student_id', { count: 'exact', head: true })
+          .in('student_id', linkedIds);
+
+        if (existingErr) {
+          return NextResponse.json({ error: existingErr.message }, { status: 500 });
+        }
+        if ((count ?? 0) > 0) {
+          return NextResponse.json(
+            {
+              error:
+                'Your authorised pickup list is already set. Contact school admin to remove entries before you can add again.',
+            },
+            { status: 403 }
+          );
+        }
+      }
     }
 
     const { data: person, error: personErr } = await supabase

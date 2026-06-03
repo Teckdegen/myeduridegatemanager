@@ -219,13 +219,17 @@ export default function PickupPersonsManager({
           <h2 className="font-bold text-slate-900">Authorised pickup persons</h2>
           <p className="text-xs text-slate-500 mt-1">
             {mode === 'parent'
-              ? 'Register who may collect your child. Gate will verify their photo. For someone new today only, use Notify School below.'
-              : 'People allowed to pick up students. Parents can add more; you can manage the full list here.'}
+              ? persons.length > 0
+                ? 'Your list is saved. Only the school can add or remove people — contact them if you need changes.'
+                : 'Register who may collect your child. After you save, only the school can change this list.'
+              : 'People allowed to pick up students. Parents can add once; you manage the full list here.'}
           </p>
         </div>
-        <button type="button" onClick={() => setFormOpen(true)} className="btn-primary text-sm flex items-center gap-1 shrink-0">
-          <Plus size={16} /> Add
-        </button>
+        {!(mode === 'parent' && persons.length > 0) && (
+          <button type="button" onClick={() => setFormOpen(true)} className="btn-primary text-sm flex items-center gap-1 shrink-0">
+            <Plus size={16} /> Add
+          </button>
+        )}
       </div>
 
       {loading && <p className="text-sm text-slate-400 animate-pulse">Loading…</p>}
