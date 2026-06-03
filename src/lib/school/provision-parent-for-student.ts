@@ -73,11 +73,11 @@ export async function provisionParentForStudent(
   }
 ): Promise<ProvisionParentResult> {
   const parentName = opts.parent_name?.trim();
+  const email = opts.parent_email?.includes('@') ? opts.parent_email.toLowerCase().trim() : null;
   if (!parentName && !opts.parent_username?.trim() && !email) {
     return { error: 'Parent name, username, or email is required' };
   }
 
-  const email = opts.parent_email?.includes('@') ? opts.parent_email.toLowerCase().trim() : null;
   const explicitPassword = opts.password?.trim() || '';
   let parentUserId: string | undefined;
   let parentUsername: string | undefined;
