@@ -37,10 +37,13 @@ export default function AddStaffForm({ schoolId, customRoles, onSuccess, onCance
   const [classes, setClasses] = useState([]);
   const [initialPassword, setInitialPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const { existingUser, checking } = useUsernameLookup(form.username);
+  const { existingUser, taken, checking } = useUsernameLookup(form.username, {
+    schoolId,
+    scope: 'staff',
+  });
 
   useEffect(() => {
-    if (!existingUser) return;
+    if (!existingUser || taken) return;
     setForm((f) => ({
       ...f,
       username: existingUser.username,
@@ -48,7 +51,7 @@ export default function AddStaffForm({ schoolId, customRoles, onSuccess, onCance
       phone: existingUser.phone || f.phone,
       contact_email: existingUser.email || f.contact_email,
     }));
-  }, [existingUser]);
+  }, [existingUser, taken]);
 
   const selectedCustom = customRoles.find((r) => r.id === form.custom_role_id);
   const mayAssignClass =
@@ -69,6 +72,10 @@ export default function AddStaffForm({ schoolId, customRoles, onSuccess, onCance
   const handleSubmit = async () => {
     if (!form.full_name || !form.username) {
       toast.error('Name and username required');
+      return;
+    }
+    if (taken) {
+      toast.error('This username is already in use. Choose a different username.');
       return;
     }
     if (form.access_role === 'staff' && !form.custom_role_id) {
@@ -145,7 +152,7 @@ export default function AddStaffForm({ schoolId, customRoles, onSuccess, onCance
             className="input"
             placeholder="e.g. jsmith"
           />
-          <ExistingUsernameBanner user={existingUser} checking={checking} />
+          <ExistingUsernameBanner user={existingUser} checking={checking} taken={taken} />
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Full name *</label>

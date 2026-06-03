@@ -6,12 +6,17 @@ export async function findExistingParentAccount(
   supabase: SupabaseClient,
   username: string | null | undefined,
   email: string | null | undefined,
-  phone?: string | null
+  phone?: string | null,
+  schoolId?: string
 ): Promise<LookedUpUser | null> {
   const trimmedUsername = username?.trim();
   if (trimmedUsername) {
-    const byUsername = await lookupUserByUsername(supabase, trimmedUsername);
+    const byUsername = await lookupUserByUsername(supabase, trimmedUsername, {
+      schoolId,
+      scope: schoolId ? 'parent' : 'global',
+    });
     if (byUsername) return byUsername;
+    if (schoolId) return null;
   }
 
   if (email?.includes('@') && !trimmedUsername) {

@@ -6,6 +6,7 @@ import { setAuthPasswordForProfile } from '@/lib/auth/update-password';
 import { isValidUsername, normalizeUsername } from '@/lib/auth/username';
 import { uploadBase64Photo } from '@/lib/storage/upload-photo';
 import { Resend } from 'resend';
+import { getActiveSchoolRoles, userHasRoleAtSchool } from '@/lib/auth/username-school-scope';
 import {
   STAFF_PROFILE_ACCESS_ROLES,
   getCustomRole,
@@ -105,6 +106,16 @@ export async function POST(request: NextRequest) {
     let generatedPassword: string | undefined;
 
     if (existingUser) {
+      const existingRoles = await getActiveSchoolRoles(supabase, existingUser.id);
+      const belongsHere = userHasRoleAtSchool(existingRoles, school_id);
+
+      if (!belongsHere && existingRoles.length > 0) {
+        return NextResponse.json(
+          { error: 'This username is already in use. Choose a different username.' },
+          { status: 409 }
+        );
+      }
+
       userId = existingUser.id;
       if (initialPassword) {
         const { error: pwErr } = await setAuthPasswordForProfile(supabase, userId, initialPassword, {

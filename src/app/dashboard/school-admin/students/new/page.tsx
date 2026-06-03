@@ -26,10 +26,14 @@ export default function AddStudentPage() {
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const router = useRouter();
-  const { existingUser: existingParent, checking: checkingParent } = useUsernameLookup(form.parent_username);
+  const { existingUser: existingParent, taken: parentUsernameTaken, checking: checkingParent } =
+    useUsernameLookup(form.parent_username, {
+      schoolId: schoolId || undefined,
+      scope: 'parent',
+    });
 
   useEffect(() => {
-    if (!existingParent) return;
+    if (!existingParent || parentUsernameTaken) return;
     setForm((f) => ({
       ...f,
       parent_username: existingParent.username,
@@ -37,7 +41,7 @@ export default function AddStudentPage() {
       parent_phone: existingParent.phone || f.parent_phone,
       parent_email: existingParent.email || f.parent_email,
     }));
-  }, [existingParent]);
+  }, [existingParent, parentUsernameTaken]);
 
   useEffect(() => {
     loadConfig();
@@ -64,6 +68,10 @@ export default function AddStudentPage() {
         toast.error(`Parent password: ${pwErr}`);
         return;
       }
+    }
+    if (hasParent && parentUsernameTaken) {
+      toast.error('This parent username is already in use. Choose a different username.');
+      return;
     }
     if (hasParent && !form.parent_username?.trim() && !form.parent_name?.trim()) {
       toast.error('Enter parent username or name');
@@ -187,7 +195,12 @@ export default function AddStudentPage() {
                     className="input"
                     placeholder="e.g. jsmith"
                   />
-                  <ExistingUsernameBanner user={existingParent} checking={checkingParent} roleHint="parent" />
+                  <ExistingUsernameBanner
+                    user={existingParent}
+                    checking={checkingParent}
+                    taken={parentUsernameTaken}
+                    roleHint="parent"
+                  />
                 </div>
                 <div className="col-span-2"><label className="block text-xs font-medium text-gray-600 mb-1">Parent name</label><input type="text" value={form.parent_name} onChange={e => setForm({...form, parent_name: e.target.value})} className="input" /></div>
                 <div><label className="block text-xs font-medium text-gray-600 mb-1">Parent phone</label><input type="tel" value={form.parent_phone} onChange={e => setForm({...form, parent_phone: e.target.value})} className="input" /></div>

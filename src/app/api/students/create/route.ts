@@ -101,7 +101,8 @@ export async function POST(request: NextRequest) {
       supabase,
       parentUsername,
       parentEmail,
-      custom_fields?.parent_phone
+      custom_fields?.parent_phone,
+      school_id
     );
 
     if (parent_initial_password && !existingParentAccount) {

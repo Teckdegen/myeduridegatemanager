@@ -23,6 +23,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const username = normalizeUsername(body.username || '');
     const password = (body.password || '').trim();
+    const loginSchoolId = (body.school_id || '').trim() || null;
 
     if (!username || !password) {
       return NextResponse.json({ error: 'Username and password are required' }, { status: 400 });
@@ -116,6 +117,27 @@ export async function POST(request: NextRequest) {
       .select('role, school_id')
       .eq('user_id', profile.id)
       .eq('is_active', true);
+
+    if (loginSchoolId) {
+      const isSuperAdmin = (roles || []).some((r) => r.role === 'super_admin');
+      const belongsToSchool = (roles || []).some((r) => r.school_id === loginSchoolId);
+      if (!belongsToSchool && !isSuperAdmin) {
+        await writeAuditLog(supabase, {
+          school_id: loginSchoolId,
+          actor_user_id: profile.id,
+          action: 'login_failed_wrong_school',
+          details: { username },
+        }).catch(() => {});
+
+        return NextResponse.json(
+          {
+            error:
+              'You do not have an account at this school. Use your school\'s sign-in link or contact your administrator.',
+          },
+          { status: 403 }
+        );
+      }
+    }
 
     const adminSchoolIds = (roles || [])
       .filter((r) => r.role === 'school_admin')

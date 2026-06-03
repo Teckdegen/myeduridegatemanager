@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
-import { lookupUserByUsername } from '@/lib/auth/lookup-user-by-username';
+import { lookupUserByUsernameDetailed } from '@/lib/auth/lookup-user-by-username';
+import type { UsernameRevealScope } from '@/lib/auth/username-school-scope';
 import { getSessionFromRequest } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
@@ -23,13 +24,36 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'username required' }, { status: 400 });
   }
 
+  const schoolId = request.nextUrl.searchParams.get('school_id')?.trim() || undefined;
+  const scopeParam = request.nextUrl.searchParams.get('scope')?.trim();
+  const scope: UsernameRevealScope =
+    scopeParam === 'parent' || scopeParam === 'staff' || scopeParam === 'global'
+      ? scopeParam
+      : schoolId
+        ? 'staff'
+        : 'global';
+
   try {
     const supabase = getAdminClient();
-    const user = await lookupUserByUsername(supabase, username);
-    if (!user) {
-      return NextResponse.json({ found: false, user: null });
+    const result = await lookupUserByUsernameDetailed(supabase, username, {
+      schoolId,
+      scope,
+    });
+
+    if (result.taken) {
+      return NextResponse.json({
+        found: false,
+        taken: true,
+        user: null,
+        error: 'This username is already in use.',
+      });
     }
-    return NextResponse.json({ found: true, user });
+
+    if (!result.user) {
+      return NextResponse.json({ found: false, taken: false, user: null });
+    }
+
+    return NextResponse.json({ found: true, taken: false, user: result.user });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Lookup failed';
     return NextResponse.json({ error: message }, { status: 500 });

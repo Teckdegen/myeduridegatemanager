@@ -12,14 +12,26 @@ export type UsernameLookupUser = {
   roles: string[];
 };
 
-export function useUsernameLookup(username: string) {
+export type UsernameLookupScope = 'staff' | 'parent' | 'global';
+
+type UseUsernameLookupOptions = {
+  schoolId?: string;
+  scope?: UsernameLookupScope;
+};
+
+export function useUsernameLookup(username: string, options?: UseUsernameLookupOptions) {
   const [existingUser, setExistingUser] = useState<UsernameLookupUser | null>(null);
+  const [taken, setTaken] = useState(false);
   const [checking, setChecking] = useState(false);
+
+  const schoolId = options?.schoolId;
+  const scope = options?.scope || (schoolId ? 'staff' : 'global');
 
   useEffect(() => {
     const normalized = normalizeUsername(username);
     if (!normalized || !isValidUsername(normalized)) {
       setExistingUser(null);
+      setTaken(false);
       setChecking(false);
       return;
     }
@@ -29,16 +41,24 @@ export function useUsernameLookup(username: string) {
 
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(
-          `/api/users/lookup-by-username?username=${encodeURIComponent(normalized)}`,
-          { credentials: 'include', cache: 'no-store' }
-        );
+        const params = new URLSearchParams({ username: normalized });
+        if (schoolId) params.set('school_id', schoolId);
+        if (scope) params.set('scope', scope);
+
+        const res = await fetch(`/api/users/lookup-by-username?${params.toString()}`, {
+          credentials: 'include',
+          cache: 'no-store',
+        });
         const data = await res.json();
         if (!cancelled) {
+          setTaken(!!data.taken);
           setExistingUser(res.ok && data.found ? data.user : null);
         }
       } catch {
-        if (!cancelled) setExistingUser(null);
+        if (!cancelled) {
+          setExistingUser(null);
+          setTaken(false);
+        }
       } finally {
         if (!cancelled) setChecking(false);
       }
@@ -48,7 +68,7 @@ export function useUsernameLookup(username: string) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [username]);
+  }, [username, schoolId, scope]);
 
-  return { existingUser, checking, isExisting: !!existingUser };
+  return { existingUser, taken, checking, isExisting: !!existingUser };
 }

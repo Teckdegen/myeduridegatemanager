@@ -12,6 +12,10 @@ import {
   normalizeUsername,
   suggestUniqueUsername,
 } from '@/lib/auth/username';
+import {
+  canRevealUsernameInSchool,
+  getActiveSchoolRoles,
+} from '@/lib/auth/username-school-scope';
 import { resolveInitialPassword } from '@/lib/auth/password-policy';
 import { setAuthPasswordForProfile } from '@/lib/auth/update-password';
 
@@ -172,6 +176,12 @@ export async function provisionParentForStudent(
       .maybeSingle();
 
     if (byUsername?.id) {
+      const roles = await getActiveSchoolRoles(supabase, byUsername.id);
+      const { reveal } = canRevealUsernameInSchool(roles, opts.school_id, 'parent');
+      if (!reveal) {
+        return { error: 'This username is already in use. Choose a different username.' };
+      }
+
       parentUserId = byUsername.id;
       parentUsername = byUsername.username || normalized;
       linkedExisting = true;

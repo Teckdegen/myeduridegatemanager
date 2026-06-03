@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const LOGO_URL = 'https://www.image2url.com/r2/default/images/1779230378321-292c7b74-6217-41ff-832a-180a535ea4cb.png';
 const BG_VIDEO_URL = 'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260314_131748_f2ca2a28-fed7-44c8-b9a9-bd9acdd5ec31.mp4';
@@ -17,38 +17,69 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [usernameHint, setUsernameHint] = useState('');
+  const [loginSchoolId, setLoginSchoolId] = useState('');
   const [schoolBranding, setSchoolBranding] = useState<SchoolBranding | null>(null);
   const brandingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const urlSchoolBranding = useRef<SchoolBranding | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const sid = new URLSearchParams(window.location.search).get('school_id');
+    const params = new URLSearchParams(window.location.search);
+    const sid = params.get('school_id');
     if (!sid) return;
+
+    setLoginSchoolId(sid);
     fetch(`/api/public/school-branding?school_id=${sid}`)
       .then((r) => r.json())
-      .then((d) => setSchoolBranding(d.school || null))
+      .then((d) => {
+        const school = d.school || null;
+        urlSchoolBranding.current = school;
+        setSchoolBranding(school);
+      })
       .catch(() => {});
   }, []);
 
   useEffect(() => {
     const trimmed = username.trim();
     if (brandingTimer.current) clearTimeout(brandingTimer.current);
+
     if (trimmed.length < 3) {
-      setSchoolBranding(null);
+      setUsernameHint('');
+      setSchoolBranding(urlSchoolBranding.current);
       return;
     }
+
     brandingTimer.current = setTimeout(() => {
-      fetch(`/api/public/login-branding?username=${encodeURIComponent(trimmed)}`)
+      const params = new URLSearchParams({ username: trimmed });
+      if (loginSchoolId) params.set('school_id', loginSchoolId);
+
+      fetch(`/api/public/login-branding?${params.toString()}`)
         .then((r) => r.json())
         .then((d) => {
+          if (loginSchoolId) {
+            if (d.belongs_to_school && d.school) {
+              setUsernameHint('');
+              setSchoolBranding(d.school);
+            } else {
+              setUsernameHint(
+                d.error || 'This username is not registered at this school.'
+              );
+              setSchoolBranding(urlSchoolBranding.current);
+            }
+            return;
+          }
+
+          setUsernameHint('');
           if (d.school) setSchoolBranding(d.school);
         })
         .catch(() => {});
     }, 400);
+
     return () => {
       if (brandingTimer.current) clearTimeout(brandingTimer.current);
     };
-  }, [username]);
+  }, [username, loginSchoolId]);
 
   const logoSrc = schoolBranding?.logo_url
     ? `/api/photo?path=${encodeURIComponent(schoolBranding.logo_url)}`
@@ -60,6 +91,11 @@ export default function LoginPage() {
 
   const handleLogin = async () => {
     if (!username.trim() || !password.trim()) return;
+    if (usernameHint) {
+      setError(usernameHint);
+      return;
+    }
+
     setLoading(true);
     setError('');
 
@@ -67,7 +103,11 @@ export default function LoginPage() {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.trim(), password }),
+        body: JSON.stringify({
+          username: username.trim(),
+          password,
+          school_id: loginSchoolId || undefined,
+        }),
       });
 
       const text = await response.text();
@@ -123,6 +163,9 @@ export default function LoginPage() {
                 autoFocus
                 autoComplete="username"
               />
+              {usernameHint && (
+                <p className="text-xs text-amber-200 mt-2">{usernameHint}</p>
+              )}
             </div>
 
             <div>
@@ -148,7 +191,7 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={handleLogin}
-              disabled={loading || !username.trim() || !password.trim()}
+              disabled={loading || !username.trim() || !password.trim() || !!usernameHint}
               className="w-full py-3.5 px-4 rounded-xl bg-white text-primary-700 font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white/90 shadow-lg min-h-[48px]"
             >
               {loading ? 'Signing in...' : 'Sign In'}
