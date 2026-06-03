@@ -5,15 +5,12 @@ import {
   Building2,
   ChevronDown,
   ChevronRight,
-  Copy,
   Eye,
   EyeOff,
   GraduationCap,
   KeyRound,
   RefreshCcw,
   Search,
-  User,
-  Users,
   BookUser,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -44,25 +41,22 @@ function formatRole(role: string) {
   return role.replace(/_/g, ' ');
 }
 
-type AccountTab = 'staff' | 'parents' | 'students';
+type AccountTab = 'student-parents' | 'staff';
 
 function AccountTabBar({
   active,
   onChange,
   staffCount,
-  parentCount,
   studentCount,
 }: {
   active: AccountTab;
   onChange: (tab: AccountTab) => void;
   staffCount: number;
-  parentCount: number;
   studentCount: number;
 }) {
   const tabs: { id: AccountTab; label: string; count: number }[] = [
+    { id: 'student-parents', label: 'Student–parent login', count: studentCount },
     { id: 'staff', label: 'Staff', count: staffCount },
-    { id: 'parents', label: 'Parents', count: parentCount },
-    { id: 'students', label: 'Students', count: studentCount },
   ];
 
   return (
@@ -109,69 +103,45 @@ function SchoolAccountPanels({
   provisioningId: string | null;
   showPasswords: boolean;
 }) {
-  if (activeTab === 'staff') {
-    if (school.staff.length === 0) {
+  if (activeTab === 'student-parents') {
+    if (school.students.length === 0) {
       return (
-        <div className="px-5 py-8 text-center text-sm text-gray-400">No staff accounts yet</div>
+        <div className="px-5 py-8 text-center text-sm text-gray-400">No students yet</div>
       );
     }
     return (
-      <UserSection
-        title="Staff accounts"
-        icon={<GraduationCap size={14} className="text-blue-600" />}
-        users={school.staff}
+      <StudentSection
+        students={school.students}
         draftPasswords={draftPasswords}
         draftConfirmPasswords={draftConfirmPasswords}
         setDraftPasswords={setDraftPasswords}
         setDraftConfirmPasswords={setDraftConfirmPasswords}
-        onSave={onSave}
+        onSave={onSaveParent}
+        onProvision={onProvisionParent}
         savingId={savingId}
+        provisioningId={provisioningId}
         showPasswords={showPasswords}
       />
     );
   }
 
-  if (activeTab === 'parents') {
-    if (school.parents.length === 0) {
-      return (
-        <div className="px-5 py-8 text-center text-sm text-gray-400">
-          No parent logins yet — add students with a parent name, or use the Students tab to create logins
-        </div>
-      );
-    }
+  if (school.staff.length === 0) {
     return (
-      <UserSection
-        title={`Parent accounts (${school.parents.length})`}
-        icon={<User size={14} className="text-orange-600" />}
-        users={school.parents}
-        draftPasswords={draftPasswords}
-        draftConfirmPasswords={draftConfirmPasswords}
-        setDraftPasswords={setDraftPasswords}
-        setDraftConfirmPasswords={setDraftConfirmPasswords}
-        onSave={onSave}
-        savingId={savingId}
-        showPasswords={showPasswords}
-      />
-    );
-  }
-
-  if (school.students.length === 0) {
-    return (
-      <div className="px-5 py-8 text-center text-sm text-gray-400">No students yet</div>
+      <div className="px-5 py-8 text-center text-sm text-gray-400">No staff accounts yet</div>
     );
   }
 
   return (
-    <StudentSection
-      students={school.students}
+    <UserSection
+      title="Staff accounts"
+      icon={<GraduationCap size={14} className="text-blue-600" />}
+      users={school.staff}
       draftPasswords={draftPasswords}
       draftConfirmPasswords={draftConfirmPasswords}
       setDraftPasswords={setDraftPasswords}
       setDraftConfirmPasswords={setDraftConfirmPasswords}
-      onSave={onSaveParent}
-      onProvision={onProvisionParent}
+      onSave={onSave}
       savingId={savingId}
-      provisioningId={provisioningId}
       showPasswords={showPasswords}
     />
   );
@@ -361,7 +331,7 @@ function SchoolPasswordBlock({
           <p className="font-semibold text-gray-900">{school.name}</p>
           {school.address && <p className="text-xs text-gray-500 truncate">{school.address}</p>}
           <p className="text-xs text-gray-400 mt-0.5">
-            {school.students.length} students · {school.staff.length} staff · {school.parents.length} other parents
+            {school.students.length} students · {school.staff.length} staff
           </p>
         </div>
         <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 shrink-0">
@@ -384,9 +354,8 @@ export default function SchoolAdminPasswordsPage() {
   const [showPasswords, setShowPasswords] = useState(true);
   const [totalUsers, setTotalUsers] = useState(0);
   const [totalStudents, setTotalStudents] = useState(0);
-  const [totalParents, setTotalParents] = useState(0);
   const [totalStaff, setTotalStaff] = useState(0);
-  const [activeTab, setActiveTab] = useState<AccountTab>('parents');
+  const [activeTab, setActiveTab] = useState<AccountTab>('student-parents');
 
   const fetchCredentials = useCallback(async () => {
     setLoading(true);
@@ -405,7 +374,6 @@ export default function SchoolAdminPasswordsPage() {
       setSchools(loadedSchools);
       setTotalUsers(data.total_users || 0);
       setTotalStudents(data.total_students || 0);
-      setTotalParents(data.total_parents || 0);
       setTotalStaff(data.total_staff || 0);
 
       const passwordMap: Record<string, string> = {};
@@ -582,7 +550,6 @@ export default function SchoolAdminPasswordsPage() {
   };
 
   const staffCount = totalStaff || schools.reduce((n, s) => n + s.staff.length, 0);
-  const parentCount = totalParents || schools.reduce((n, s) => n + s.parents.length, 0);
   const studentCount = totalStudents || schools.reduce((n, s) => n + s.students.length, 0);
   const singleSchool = filteredSchools.length === 1 ? filteredSchools[0] : null;
 
@@ -595,7 +562,7 @@ export default function SchoolAdminPasswordsPage() {
             Passwords
           </h1>
           <p className="text-sm text-gray-500">
-            Staff, parents, and student logins — same layout as attendance reports
+            Staff and student–parent logins — same layout as attendance reports
           </p>
         </div>
         <div className="flex flex-wrap gap-2 self-start">
@@ -614,18 +581,14 @@ export default function SchoolAdminPasswordsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+        <div className="card py-3">
+          <p className="text-2xl font-bold">{studentCount}</p>
+          <p className="text-xs text-gray-500">Student–parent logins</p>
+        </div>
         <div className="card py-3">
           <p className="text-2xl font-bold">{staffCount}</p>
           <p className="text-xs text-gray-500">Staff</p>
-        </div>
-        <div className="card py-3">
-          <p className="text-2xl font-bold">{parentCount}</p>
-          <p className="text-xs text-gray-500">Parents</p>
-        </div>
-        <div className="card py-3">
-          <p className="text-2xl font-bold">{studentCount}</p>
-          <p className="text-xs text-gray-500">Students</p>
         </div>
         <div className="card py-3">
           <p className="text-2xl font-bold">{totalUsers}</p>
@@ -637,7 +600,6 @@ export default function SchoolAdminPasswordsPage() {
         active={activeTab}
         onChange={setActiveTab}
         staffCount={staffCount}
-        parentCount={parentCount}
         studentCount={studentCount}
       />
 
@@ -664,8 +626,7 @@ export default function SchoolAdminPasswordsPage() {
               <p className="text-xs text-gray-500">{singleSchool.address}</p>
             )}
             <p className="text-xs text-gray-400 mt-1">
-              {singleSchool.students.length} students · {singleSchool.parents.length} parents ·{' '}
-              {singleSchool.staff.length} staff
+              {singleSchool.students.length} students · {singleSchool.staff.length} staff
             </p>
           </div>
           {singleSchool.total_users === 0 && singleSchool.students.length === 0 ? (

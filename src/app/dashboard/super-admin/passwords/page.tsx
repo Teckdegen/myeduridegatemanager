@@ -11,7 +11,6 @@ import {
   KeyRound,
   RefreshCcw,
   Search,
-  User,
   Users,
   BookUser,
 } from 'lucide-react';
@@ -352,7 +351,6 @@ export default function SuperAdminPasswordsPage() {
 
   const studentCount = schools.reduce((n, s) => n + s.students.length, 0);
   const staffCount = schools.reduce((n, s) => n + s.staff.length, 0);
-  const parentCount = schools.reduce((n, s) => n + s.parents.length, 0);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -364,7 +362,7 @@ export default function SuperAdminPasswordsPage() {
               Passwords
             </h1>
             <p className="text-sm text-gray-500">
-              Every school — staff, students (parent logins), parents, super admins
+              Every school — staff, student–parent logins, super admins
             </p>
           </div>
           <div className="flex flex-wrap gap-2 self-start">
@@ -383,7 +381,7 @@ export default function SuperAdminPasswordsPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
           <div className="card py-3">
             <p className="text-2xl font-bold">{schools.length}</p>
             <p className="text-xs text-gray-500">Schools</p>
@@ -394,15 +392,11 @@ export default function SuperAdminPasswordsPage() {
           </div>
           <div className="card py-3">
             <p className="text-2xl font-bold">{studentCount || totalStudents}</p>
-            <p className="text-xs text-gray-500">Students</p>
+            <p className="text-xs text-gray-500">Student–parent logins</p>
           </div>
           <div className="card py-3">
             <p className="text-2xl font-bold">{staffCount}</p>
             <p className="text-xs text-gray-500">Staff</p>
-          </div>
-          <div className="card py-3">
-            <p className="text-2xl font-bold">{parentCount}</p>
-            <p className="text-xs text-gray-500">Other parents</p>
           </div>
         </div>
 
@@ -493,8 +487,7 @@ export default function SuperAdminPasswordsPage() {
                           <p className="text-xs text-gray-500 truncate">{school.address}</p>
                         )}
                         <p className="text-xs text-gray-400 mt-0.5">
-                          {school.students.length} students · {school.staff.length} staff ·{' '}
-                          {school.parents.length} other parents
+                          {school.students.length} students · {school.staff.length} staff
                         </p>
                       </div>
                       <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 shrink-0">
@@ -522,18 +515,6 @@ export default function SuperAdminPasswordsPage() {
                               title="Staff (admin, teachers, gate, general)"
                               icon={<GraduationCap size={14} className="text-blue-600" />}
                               users={school.staff}
-                              draftPasswords={draftPasswords}
-                              draftConfirmPasswords={draftConfirmPasswords}
-                              setDraftPasswords={setDraftPasswords}
-                              setDraftConfirmPasswords={setDraftConfirmPasswords}
-                              onSave={savePassword}
-                              savingId={savingId}
-                              showPasswords={showPasswords}
-                            />
-                            <UserSection
-                              title="Other parents"
-                              icon={<User size={14} className="text-orange-600" />}
-                              users={school.parents}
                               draftPasswords={draftPasswords}
                               draftConfirmPasswords={draftConfirmPasswords}
                               setDraftPasswords={setDraftPasswords}
