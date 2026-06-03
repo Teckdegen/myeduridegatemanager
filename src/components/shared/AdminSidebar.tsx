@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, GraduationCap, ClipboardList, Settings,
   DoorOpen, BarChart3, School, Menu, X, LogOut, Car, Bell, Calendar, ScanLine,
-  ChevronDown, ChevronRight, Plus, List, Shield, KeyRound,
+  ChevronDown, ChevronRight, Plus, List, Shield, KeyRound, UserCheck,
 } from 'lucide-react';
 import { logout } from '@/lib/api';
 
@@ -46,6 +46,13 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    label: 'Parents',
+    icon: <UserCheck size={18} />,
+    items: [
+      { label: 'Parent list', href: '/dashboard/school-admin/parents', icon: <List size={16} /> },
+    ],
+  },
+  {
     label: 'Reports',
     icon: <BarChart3 size={18} />,
     items: [
@@ -72,6 +79,7 @@ function pathMatches(pathname: string, href: string) {
   if (base === '/dashboard/school-admin') return pathname === base;
   if (base === '/dashboard/school-admin/staff') return pathname === base;
   if (base === '/dashboard/school-admin/students') return pathname === base;
+  if (base === '/dashboard/school-admin/parents') return pathname === base;
   return pathname === base || pathname.startsWith(`${base}/`);
 }
 
@@ -85,6 +93,7 @@ export function AdminSidebar() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => ({
     Students: true,
     Staff: false,
+    Parents: false,
     Reports: pathname?.includes('/reports') ?? false,
   }));
 

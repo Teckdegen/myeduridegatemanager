@@ -223,9 +223,15 @@ export default function SchoolAdminDashboard() {
               </div>
               <span className="text-sm font-medium text-gray-700">Add Staff</span>
             </Link>
-            <Link href="/dashboard/school-admin/setup" className="flex items-center gap-3 p-3 rounded-xl hover:bg-orange-50 transition-all group">
+            <Link href="/dashboard/school-admin/parents" className="flex items-center gap-3 p-3 rounded-xl hover:bg-orange-50 transition-all group">
               <div className="w-9 h-9 rounded-lg bg-orange-100 flex items-center justify-center group-hover:bg-orange-200 transition-all">
-                <School size={16} className="text-orange-600" />
+                <UserCheck size={16} className="text-orange-600" />
+              </div>
+              <span className="text-sm font-medium text-gray-700">View parents</span>
+            </Link>
+            <Link href="/dashboard/school-admin/setup" className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 transition-all group">
+              <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center group-hover:bg-slate-200 transition-all">
+                <School size={16} className="text-slate-600" />
               </div>
               <span className="text-sm font-medium text-gray-700">School Setup</span>
             </Link>
