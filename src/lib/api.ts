@@ -48,6 +48,16 @@ export function isAuthenticated(): boolean {
 }
 
 /**
+ * Persist session cookie (client-readable) and notify listeners.
+ */
+export function saveSession(session: Record<string, unknown>) {
+  if (typeof document === 'undefined') return;
+  const maxAge = 60 * 60 * 24 * 7;
+  document.cookie = `myeduride_session=${encodeURIComponent(JSON.stringify(session))}; path=/; max-age=${maxAge}`;
+  window.dispatchEvent(new CustomEvent('myeduride:session-updated', { detail: session }));
+}
+
+/**
  * Logout - clear session cookie
  */
 export function logout() {

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { RoleSwitcher } from '@/components/shared/RoleSwitcher';
-import { ChangePasswordCard } from '@/components/shared/ChangePasswordCard';
+import { AccountSettingsCard } from '@/components/shared/AccountSettingsCard';
 import { SessionIdleGuard } from '@/components/shared/SessionIdleGuard';
 import { logout } from '@/lib/api';
 import { KeyRound, LogOut, X } from 'lucide-react';
@@ -12,7 +12,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const isSchoolAdmin = pathname?.startsWith('/dashboard/school-admin');
   const isParent = pathname?.startsWith('/dashboard/parent');
-  const [showPassword, setShowPassword] = useState(false);
+  const [showAccount, setShowAccount] = useState(false);
 
   return (
     <div className="min-h-screen bg-transparent">
@@ -21,10 +21,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <RoleSwitcher showLogout={false} />
         <button
           type="button"
-          onClick={() => setShowPassword(true)}
+          onClick={() => setShowAccount(true)}
           className="p-2 rounded-full bg-white border shadow-sm text-gray-500 hover:text-primary-700 hover:border-primary-100"
-          title="Change password"
-          aria-label="Change password"
+          title="Account settings"
+          aria-label="Account settings"
         >
           <KeyRound size={18} />
         </button>
@@ -41,18 +41,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
       </div>
 
-      {showPassword && (
+      {showAccount && (
         <div className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative max-h-[90vh] overflow-y-auto">
             <button
               type="button"
-              onClick={() => setShowPassword(false)}
+              onClick={() => setShowAccount(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
               aria-label="Close"
             >
               <X size={18} />
             </button>
-            <ChangePasswordCard />
+            <AccountSettingsCard onSuccess={() => setShowAccount(false)} />
           </div>
         </div>
       )}

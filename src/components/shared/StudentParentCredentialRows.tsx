@@ -22,6 +22,7 @@ export type StudentParentCredential = {
   password: string;
   parent_on_file_name?: string;
   parent_phone?: string | null;
+  parent_email?: string | null;
   authorised_pickup_persons?: AuthorisedPickupPerson[];
   primary_pickup_person?: string | null;
   needs_parent_account?: boolean;
@@ -93,7 +94,14 @@ export function StudentParentCredentialRows({
         const hasParent = !!row.parent_user_id;
         const usernameOnFile = row.parent_username_on_file?.trim() || '';
         const linkingExisting = !hasParent && !!usernameOnFile;
-        const displayParentName = row.parent_name || row.parent_on_file_name || '';
+        const displayParentName =
+          row.parent_name ||
+          row.parent_on_file_name ||
+          usernameOnFile ||
+          (row.parent_email ? row.parent_email.split('@')[0] : '') ||
+          '';
+        const showParentBlock =
+          !!displayParentName || !!usernameOnFile || !!row.parent_email || hasParent;
         const persons = row.authorised_pickup_persons || [];
 
         return (
@@ -104,11 +112,14 @@ export function StudentParentCredentialRows({
               {row.class_name && <p className="text-xs text-gray-400">{row.class_name}</p>}
             </td>
             <td className="py-3 pr-4 text-sm">
-              {displayParentName ? (
+              {showParentBlock ? (
                 <div>
-                  <p className="font-medium text-gray-900">{displayParentName}</p>
+                  <p className="font-medium text-gray-900">{displayParentName || `@${usernameOnFile}` || row.parent_email}</p>
                   {row.parent_phone && (
                     <p className="text-xs font-mono text-gray-500">{row.parent_phone}</p>
+                  )}
+                  {row.parent_email && (
+                    <p className="text-xs text-gray-500">{row.parent_email}</p>
                   )}
                   {!hasParent && row.needs_parent_account && (
                     <p className="text-xs text-amber-700 mt-0.5">Login not created yet</p>
@@ -194,7 +205,7 @@ export function StudentParentCredentialRows({
                     <KeyRound size={14} />
                     {savingId === row.parent_user_id ? 'Saving…' : 'Update'}
                   </button>
-                ) : onProvision && (displayParentName || usernameOnFile) ? (
+                ) : onProvision && showParentBlock ? (
                   <button
                     type="button"
                     onClick={() =>

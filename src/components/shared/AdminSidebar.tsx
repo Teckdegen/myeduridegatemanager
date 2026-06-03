@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, GraduationCap, ClipboardList, Settings,
   DoorOpen, BarChart3, School, Menu, X, LogOut, Car, Bell, Calendar, ScanLine,
-  ChevronDown, ChevronRight, Plus, List, Shield, KeyRound, UserCheck,
+  ChevronDown, ChevronRight, Plus, List, Shield, KeyRound, UserCheck, User,
 } from 'lucide-react';
 import { logout } from '@/lib/api';
 
@@ -71,6 +71,7 @@ const bottomLinks: NavLink[] = [
   { label: 'School calendar', href: '/dashboard/school-admin/calendar', icon: <Calendar size={18} /> },
   { label: 'Student & staff scan', href: '/dashboard/school-admin/staff-attendance', icon: <ScanLine size={18} /> },
   { label: 'Audit log', href: '/dashboard/school-admin/audit', icon: <Shield size={18} /> },
+  { label: 'Account', href: '/dashboard/account', icon: <User size={18} /> },
   { label: 'Settings', href: '/dashboard/school-admin/settings', icon: <Settings size={18} /> },
 ];
 

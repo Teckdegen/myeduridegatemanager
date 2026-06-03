@@ -36,6 +36,13 @@ export function RoleSwitcher({ showLogout = true, className = '' }: RoleSwitcher
     if (s.roles?.length) {
       setUserRoles([...new Set(s.roles.map((r: any) => r.role))] as string[]);
     }
+
+    const onSessionUpdated = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail) setSessionData(detail);
+    };
+    window.addEventListener('myeduride:session-updated', onSessionUpdated);
+    return () => window.removeEventListener('myeduride:session-updated', onSessionUpdated);
   }, []);
 
   if (!mounted) return <div className={`w-9 h-9 rounded-full bg-gray-200 animate-pulse ${className}`} />;
@@ -100,12 +107,12 @@ export function RoleSwitcher({ showLogout = true, className = '' }: RoleSwitcher
 
             <div className="p-2 border-t">
               <Link
-                href="/dashboard/change-password"
+                href="/dashboard/account"
                 onClick={() => setOpen(false)}
                 className="w-full flex items-center gap-2.5 px-2 py-2.5 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
               >
                 <KeyRound size={14} className="text-gray-400" />
-                Change password
+                Account settings
               </Link>
             </div>
           </div>

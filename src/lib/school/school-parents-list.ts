@@ -18,19 +18,32 @@ export type SchoolParentRow = {
   children: SchoolParentChild[];
 };
 
+function displayParentName(row: StudentParentCredential): string {
+  return (
+    row.parent_name ||
+    row.parent_on_file_name ||
+    row.parent_username_on_file ||
+    row.parent_username ||
+    (row.parent_email ? row.parent_email.split('@')[0] : '') ||
+    ''
+  ).trim();
+}
+
 function parentKey(row: StudentParentCredential): string {
   if (row.parent_user_id) return `user:${row.parent_user_id}`;
-  const name = (row.parent_on_file_name || row.parent_name || '').trim().toLowerCase();
+  const name = displayParentName(row).toLowerCase();
+  const username = (row.parent_username_on_file || row.parent_username || '').toLowerCase();
+  const email = (row.parent_email || '').toLowerCase();
   const phone = (row.parent_phone || '').replace(/\D/g, '');
-  return `file:${name}|${phone}`;
+  return `file:${username || email || name}|${phone}`;
 }
 
 export function aggregateStudentParentRows(rows: StudentParentCredential[]): SchoolParentRow[] {
   const map = new Map<string, SchoolParentRow>();
 
   for (const row of rows) {
-    const name = (row.parent_name || row.parent_on_file_name || '').trim();
-    if (!name) continue;
+    const name = displayParentName(row);
+    if (!name && !row.parent_user_id && !row.parent_username_on_file && !row.parent_email) continue;
 
     const key = parentKey(row);
     const child: SchoolParentChild = {
@@ -56,9 +69,9 @@ export function aggregateStudentParentRows(rows: StudentParentCredential[]): Sch
     } else {
       map.set(key, {
         id: row.parent_user_id,
-        name,
+        name: name || row.parent_username_on_file || row.parent_email || 'Parent',
         phone: row.parent_phone,
-        username: row.parent_username?.trim() || null,
+        username: row.parent_username?.trim() || row.parent_username_on_file?.trim() || null,
         has_login: hasLogin,
         children: [child],
       });

@@ -6,7 +6,7 @@ import { fetchData } from '@/lib/api';
 import { Save, Clock, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { schoolToSettingsForm, TIME_FIELDS } from '@/lib/time-input';
-import { ChangePasswordCard } from '@/components/shared/ChangePasswordCard';
+import { AccountSettingsCard } from '@/components/shared/AccountSettingsCard';
 
 export default function SchoolSettingsPage() {
   const [loading, setLoading] = useState(true);
@@ -289,8 +289,8 @@ export default function SchoolSettingsPage() {
         </button>
       </form>
 
-      <div className="mt-8">
-        <ChangePasswordCard />
+      <div className="mt-8 card">
+        <AccountSettingsCard />
       </div>
     </div>
   );

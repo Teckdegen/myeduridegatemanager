@@ -28,6 +28,7 @@ export type StudentParentCredential = {
   password: string;
   parent_on_file_name: string;
   parent_phone: string | null;
+  parent_email: string | null;
   authorised_pickup_persons: AuthorisedPickupPerson[];
   primary_pickup_person: string | null;
   needs_parent_account: boolean;
@@ -123,9 +124,11 @@ export async function fetchStudentParentCredentials(
 
       const parentName =
         onFile.parent_name ||
+        onFile.parent_username ||
+        (onFile.parent_email ? onFile.parent_email.split('@')[0] : '') ||
         profileById.get(primaryLink?.parent_user_id || '')?.full_name ||
         '';
-      if (!parentName) continue;
+      if (!parentName && !onFile.parent_username && !onFile.parent_email) continue;
 
       const result = await provisionParentForStudent(supabase, {
         student_id: student.id,
@@ -210,10 +213,11 @@ export async function fetchStudentParentCredentials(
       password,
       parent_on_file_name: onFile.parent_name,
       parent_phone: onFile.parent_phone,
+      parent_email: onFile.parent_email,
       authorised_pickup_persons: authorised,
       primary_pickup_person: authorised[0]?.name || null,
       needs_parent_account:
-        (!parentUserId && !!onFile.parent_name) ||
+        (!parentUserId && (!!onFile.parent_name || !!onFile.parent_username || !!onFile.parent_email)) ||
         (!!parentUserId && !parentUsername),
     });
   }

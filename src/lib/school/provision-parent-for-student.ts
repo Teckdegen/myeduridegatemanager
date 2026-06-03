@@ -73,8 +73,8 @@ export async function provisionParentForStudent(
   }
 ): Promise<ProvisionParentResult> {
   const parentName = opts.parent_name?.trim();
-  if (!parentName && !opts.parent_username?.trim()) {
-    return { error: 'Parent name or username is required' };
+  if (!parentName && !opts.parent_username?.trim() && !email) {
+    return { error: 'Parent name, username, or email is required' };
   }
 
   const email = opts.parent_email?.includes('@') ? opts.parent_email.toLowerCase().trim() : null;
@@ -108,7 +108,7 @@ export async function provisionParentForStudent(
     }
   }
 
-  if (!parentUserId && email) {
+  if (!parentUserId && email && !opts.parent_username?.trim()) {
     const { data: byEmail } = await supabase
       .from('user_profiles')
       .select('id, username')
@@ -207,21 +207,21 @@ export async function provisionParentForStudent(
     parentUsername || parentName || 'parent'
   );
 
-  const profileName = linkedExisting
-    ? (parentName || parentUsername || 'Parent')
-    : (parentName || parentUsername || 'Parent');
+  const profileName =
+    parentName ||
+    parentUsername ||
+    (email ? email.split('@')[0] : '') ||
+    'Parent';
 
-  if (!linkedExisting) {
-    const { error: profileErr } = await ensureUserProfile(supabase, {
-      id: parentUserId,
-      username: parentUsername,
-      full_name: profileName,
-      phone: opts.parent_phone || null,
-      email,
-    });
-    if (profileErr) {
-      return { error: profileErr.message };
-    }
+  const { error: profileErr } = await ensureUserProfile(supabase, {
+    id: parentUserId,
+    username: parentUsername,
+    full_name: profileName,
+    phone: opts.parent_phone || null,
+    email,
+  });
+  if (profileErr) {
+    return { error: profileErr.message };
   }
 
   if (created || explicitPassword) {

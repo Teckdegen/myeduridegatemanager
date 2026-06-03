@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/supabase/admin';
 import { resolveInitialPassword, validatePasswordPair } from '@/lib/auth/password-policy';
-import { lookupUserByUsername } from '@/lib/auth/lookup-user-by-username';
+import {
+  findExistingParentAccount,
+  resolveParentDisplayName,
+} from '@/lib/auth/find-existing-parent-account';
 import {
   parentInfoFromCustomFields,
   provisionParentForStudent,
 } from '@/lib/school/provision-parent-for-student';
 import { uploadBase64Photo } from '@/lib/storage/upload-photo';
+import { generateRandomPassword } from '@/lib/auth/username';
 
 export async function POST(request: NextRequest) {
   try {
@@ -93,9 +97,11 @@ export async function POST(request: NextRequest) {
     const parentName = custom_fields?.parent_name;
     const parentUsername = custom_fields?.parent_username?.trim() || null;
 
-    const existingParentAccount = parentUsername
-      ? await lookupUserByUsername(supabase, parentUsername)
-      : null;
+    const existingParentAccount = await findExistingParentAccount(
+      supabase,
+      parentUsername,
+      parentEmail
+    );
 
     if (parent_initial_password && !existingParentAccount) {
       const pwErr = validatePasswordPair(parent_initial_password, parent_confirm_password || '');
@@ -106,26 +112,44 @@ export async function POST(request: NextRequest) {
 
     const parentPassword = existingParentAccount
       ? undefined
-      : resolveInitialPassword(parent_initial_password);
+      : resolveInitialPassword(parent_initial_password, generateRandomPassword(10));
 
-    let parentResult: { linked: boolean; created: boolean; username: string } | null = null;
+    let parentResult: {
+      linked: boolean;
+      created: boolean;
+      username: string;
+      warning?: string;
+    } | null = null;
 
-    if ((parentName?.trim() || parentUsername) && data) {
+    if ((parentName?.trim() || parentUsername || parentEmail?.trim()) && data) {
       try {
         const onFile = parentInfoFromCustomFields(custom_fields);
+        const resolvedParentName = resolveParentDisplayName({
+          parent_name: onFile.parent_name || parentName,
+          parent_username: parentUsername || onFile.parent_username,
+          parent_email: onFile.parent_email,
+          existing_full_name: existingParentAccount?.full_name,
+        });
+
         const result = await provisionParentForStudent(supabase, {
           student_id: data.id,
           school_id,
-          parent_name: onFile.parent_name || parentName?.trim() || existingParentAccount?.full_name || '',
+          parent_name: resolvedParentName,
           parent_username: parentUsername || onFile.parent_username,
           parent_email: onFile.parent_email,
           parent_phone: onFile.parent_phone,
           relationship: onFile.relationship,
-          password: parentPassword,
+          password: parentPassword || undefined,
         });
 
         if ('error' in result) {
           console.error('[PARENT] Error:', result.error);
+          parentResult = {
+            linked: false,
+            created: false,
+            username: parentUsername || '',
+            warning: result.error,
+          };
         } else {
           parentResult = {
             linked: result.linked,

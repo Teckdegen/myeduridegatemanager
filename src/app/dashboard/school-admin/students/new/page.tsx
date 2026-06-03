@@ -57,7 +57,7 @@ export default function AddStudentPage() {
   const handleSubmit = async () => {
     if (!form.first_name || !form.last_name) { toast.error('Name is required'); return; }
     if (faceData.photos.length < 3) { toast.error('Take 3 face photos of the student'); return; }
-    const hasParent = form.parent_username?.trim() || form.parent_name?.trim();
+    const hasParent = form.parent_username?.trim() || form.parent_name?.trim() || form.parent_email?.trim();
     if (hasParent && !existingParent) {
       const pwErr = validatePasswordPair(parentPassword, parentConfirmPassword);
       if (pwErr) {
@@ -101,11 +101,15 @@ export default function AddStudentPage() {
           : result.parent?.created
             ? ` Parent login: ${result.parent.username}.`
             : '';
+        const warnMsg = result.parent?.warning ? ` Parent note: ${result.parent.warning}` : '';
         toast.success(
           hasPhoto
-            ? `Student added with photo! ID: ${id}.${linkedMsg}`
-            : `Student added (ID: ${id}) — photo was not saved.${linkedMsg}`
+            ? `Student added with photo! ID: ${id}.${linkedMsg}${warnMsg}`
+            : `Student added (ID: ${id}) — photo was not saved.${linkedMsg}${warnMsg}`
         );
+        if (result.parent?.warning) {
+          toast.error(result.parent.warning, { duration: 8000 });
+        }
         router.push('/dashboard/school-admin/students');
       }
       else toast.error(result.error || 'Failed');
@@ -189,7 +193,7 @@ export default function AddStudentPage() {
                 <div><label className="block text-xs font-medium text-gray-600 mb-1">Parent phone</label><input type="tel" value={form.parent_phone} onChange={e => setForm({...form, parent_phone: e.target.value})} className="input" /></div>
                 <div><label className="block text-xs font-medium text-gray-600 mb-1">Parent email</label><input type="email" value={form.parent_email} onChange={e => setForm({...form, parent_email: e.target.value})} className="input" /></div>
               </div>
-              {(form.parent_username?.trim() || form.parent_name?.trim()) && !existingParent && (
+              {(form.parent_username?.trim() || form.parent_name?.trim() || form.parent_email?.trim()) && !existingParent && (
                 <div className="mt-4">
                   <InitialPasswordFields
                     password={parentPassword}
